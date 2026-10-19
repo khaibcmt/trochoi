@@ -93,9 +93,13 @@ export const StudentMobileView: React.FC<Props> = ({
   const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState(0);
   const [lastCompletedQIndex, setLastCompletedQIndex] = useState(-1);
 
-  // Freeze state
+  // Freeze state (20 seconds freeze on wrong answer, auto-unfrozen on new question)
   const [isFrozen, setIsFrozen] = useState(false);
-  const [freezeSeconds, setFreezeSeconds] = useState(3);
+  const [freezeSeconds, setFreezeSeconds] = useState(20);
+  const freezeIntervalRef = useRef<any>(null);
+
+  // Mandatory student name validation modal
+  const [showNameAlert, setShowNameAlert] = useState(false);
 
   // Toast message
   const [bonusToastMsg, setBonusToastMsg] = useState<string | null>(null);
@@ -105,6 +109,17 @@ export const StudentMobileView: React.FC<Props> = ({
   const timerRef = useRef<any>(null);
   const startMsRef = useRef<number>(Date.now());
   const [hasAnsweredCurrentQ, setHasAnsweredCurrentQ] = useState(false);
+
+  // Stable shuffled options state (Shuffled once per question and frozen in place)
+  interface StudentShuffledOption {
+    originalIndex: number;
+    letter: string;
+    text: string;
+  }
+  const [shuffledOpts, setShuffledOpts] = useState<StudentShuffledOption[]>([]);
+  const [selectedOptionOriginalIdx, setSelectedOptionOriginalIdx] = useState<number | null>(null);
+  const [isAnswerLocked, setIsAnswerLocked] = useState<boolean>(false);
+  const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
 
   // FAST mode state - Persistent score in sessionStorage
   const [fastScore, setFastScore] = useState<number>(() => {
@@ -208,6 +223,9 @@ export const StudentMobileView: React.FC<Props> = ({
 
     setRemSec(30);
     setHasAnsweredCurrentQ(false);
+    setIsAnswerLocked(false);
+    setSelectedOptionOriginalIdx(null);
+    setLastLockedResult(null);
     setEliminatedOptions([]);
     setShortAnswerInput('');
     setTfAnswers({ a: true, b: false, c: true, d: false });
@@ -233,6 +251,31 @@ export const StudentMobileView: React.FC<Props> = ({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [screen, currentGlobalQIndex, isFrozen, eliminated]);
+
+  // Xáo trộn đáp án ngẫu nhiên đúng 1 lần duy nhất cho mỗi câu hỏi và giữ cố định
+  useEffect(() => {
+    const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
+    if (!rawQ || !rawQ.opts || rawQ.opts.length === 0) {
+      setShuffledOpts([]);
+      return;
+    }
+    const items: StudentShuffledOption[] = rawQ.opts.map((text, idx) => ({
+      originalIndex: idx,
+      letter: String.fromCharCode(65 + idx),
+      text
+    }));
+    // Fisher-Yates shuffle ngẫu nhiên 1 lần
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
+    // Gán nhãn A, B, C, D cố định theo thứ tự hiển thị
+    const finalized = items.map((it, pos) => ({
+      ...it,
+      letter: String.fromCharCode(65 + pos)
+    }));
+    setShuffledOpts(finalized);
+  }, [currentGlobalQIndex, quizDeck]);
 
   const handleTimeoutFail = () => {
     if (activeShield) {
@@ -409,14 +452,23 @@ export const StudentMobileView: React.FC<Props> = ({
     setTimeout(() => setBonusToastMsg(null), 3800);
   };
 
-  const triggerFreeze = (sec: number) => {
+  const clearFreeze = () => {
+    if (freezeIntervalRef.current) {
+      clearInterval(freezeIntervalRef.current);
+      freezeIntervalRef.current = null;
+    }
+    setIsFrozen(false);
+    setFreezeSeconds(0);
+  };
+
+  const triggerFreeze = (sec: number = 20) => {
+    clearFreeze();
     setIsFrozen(true);
     setFreezeSeconds(sec);
-    const interval = setInterval(() => {
+    freezeIntervalRef.current = setInterval(() => {
       setFreezeSeconds(prev => {
         if (prev <= 1) {
-          clearInterval(interval);
-          setIsFrozen(false);
+          clearFreeze();
           return 0;
         }
         return prev - 1;
@@ -425,20 +477,30 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   // Submit Answer for Multiple Choice
-  const handleSelectMultipleChoice = (optIdx: number) => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ) return;
+  const handleSelectMultipleChoice = (origIdx: number) => {
+    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
     setHasAnsweredCurrentQ(true);
+    setIsAnswerLocked(true);
+    setSelectedOptionOriginalIdx(origIdx);
 
     const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-    const isCorrect = optIdx === rawQ.correct;
+    const isCorrect = origIdx === rawQ.correct;
+
+    setLastLockedResult({
+      isCorrect,
+      text: isCorrect
+        ? '✨ CHÍNH XÁC! Em được ưu tiên chuyển sang câu tiếp theo (Đáp án đã khóa an toàn)'
+        : '❌ CHƯA CHÍNH XÁC! (Đáp án đã khóa)'
+    });
 
     processAnswerOutcome(isCorrect, 1);
   };
 
   // Submit Answer for True/False (4 items)
   const handleSubmitTrueFalse = () => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ) return;
+    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
     setHasAnsweredCurrentQ(true);
+    setIsAnswerLocked(true);
 
     const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     const items = rawQ.tfItems || [];
@@ -453,14 +515,23 @@ export const StudentMobileView: React.FC<Props> = ({
 
     const isFullyCorrect = correctCount === items.length;
     const isMostlyCorrect = correctCount >= Math.ceil(items.length * 0.75);
+    const won = isFullyCorrect || isMostlyCorrect;
 
-    processAnswerOutcome(isFullyCorrect || isMostlyCorrect, correctCount);
+    setLastLockedResult({
+      isCorrect: won,
+      text: won
+        ? `✨ XUẤT SẮC! Đúng ${correctCount}/${items.length} ý! Em được ưu tiên mở câu tiếp theo`
+        : `❌ Đúng ${correctCount}/${items.length} ý (Đáp án đã khóa)`
+    });
+
+    processAnswerOutcome(won, correctCount);
   };
 
   // Submit Answer for Short Answer / Fill-in
   const handleSubmitShortAnswer = () => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ || !shortAnswerInput.trim()) return;
+    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
     setHasAnsweredCurrentQ(true);
+    setIsAnswerLocked(true);
 
     const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     const correctVal = (rawQ.shortAnswer || rawQ.opts[0] || '').trim().toLowerCase();
@@ -909,14 +980,39 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           ) : (
             <>
-              {/* Format 1: MULTIPLE_CHOICE */}
+              {/* Answer Locked Status Banner */}
+              {isAnswerLocked && (
+                <div style={{
+                  padding: '12px 16px',
+                  borderRadius: '14px',
+                  background: lastLockedResult?.isCorrect
+                    ? 'linear-gradient(135deg, rgba(6, 78, 59, 0.95), rgba(4, 120, 87, 0.95))'
+                    : 'linear-gradient(135deg, rgba(127, 29, 29, 0.95), rgba(153, 27, 27, 0.95))',
+                  border: lastLockedResult?.isCorrect ? '2px solid #34d399' : '2px solid #f87171',
+                  color: '#ffffff',
+                  marginBottom: '10px',
+                  textAlign: 'center',
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.4)'
+                }}>
+                  <div style={{ fontSize: '15px', fontWeight: 900, color: lastLockedResult?.isCorrect ? '#fef08a' : '#fca5a5' }}>
+                    {lastLockedResult?.text}
+                  </div>
+                  {lastLockedResult?.isCorrect && (
+                    <div style={{ fontSize: '12px', marginTop: '4px', color: '#d1fae5' }}>
+                      🔒 Đáp án đã được khóa an toàn để tránh bấm nhầm. Hệ thống sẽ tự động mở khóa ngay khi câu hỏi mới bắt đầu!
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Format 1: MULTIPLE_CHOICE (Stationary Shuffled Options) */}
               {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-                  {currentQItem.opts.map((opt, idx) => {
-                    const letter = String.fromCharCode(65 + idx);
-                    const isEliminated = eliminatedOptions.includes(idx);
+                  {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
+                    const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
                     if (isEliminated) return null;
 
+                    const isSelected = selectedOptionOriginalIdx === optItem.originalIndex;
                     const colors = [
                       'linear-gradient(135deg, #ef4444, #b91c1c)',
                       'linear-gradient(135deg, #0284c7, #0369a1)',
@@ -926,32 +1022,40 @@ export const StudentMobileView: React.FC<Props> = ({
 
                     return (
                       <button
-                        key={idx}
-                        disabled={hasAnsweredCurrentQ}
-                        onClick={() => handleSelectMultipleChoice(idx)}
+                        key={`${optItem.originalIndex}_${pos}`}
+                        disabled={hasAnsweredCurrentQ || isAnswerLocked}
+                        onClick={() => handleSelectMultipleChoice(optItem.originalIndex)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
                           gap: '12px',
                           padding: '14px 16px',
                           borderRadius: '14px',
-                          background: colors[idx % 4],
+                          background: isSelected
+                            ? (lastLockedResult?.isCorrect ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #b91c1c, #dc2626)')
+                            : colors[pos % 4],
                           color: '#ffffff',
-                          border: 'none',
-                          cursor: 'pointer',
+                          border: isSelected ? '3px solid #fef08a' : 'none',
+                          cursor: (hasAnsweredCurrentQ || isAnswerLocked) ? 'not-allowed' : 'pointer',
                           textAlign: 'left',
                           fontSize: '15px',
                           fontWeight: 800,
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                          opacity: hasAnsweredCurrentQ ? 0.6 : 1
+                          boxShadow: isSelected ? '0 0 18px rgba(254, 240, 138, 0.8)' : '0 4px 12px rgba(0,0,0,0.3)',
+                          opacity: (hasAnsweredCurrentQ || isAnswerLocked) ? (isSelected ? 1 : 0.45) : 1,
+                          transition: 'all 0.15s ease'
                         }}
                       >
-                        <span style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 900, flexShrink: 0 }}>
-                          {letter}
+                        <span style={{ width: '28px', height: '28px', borderRadius: '50%', background: isSelected ? '#ffffff' : 'rgba(255,255,255,0.25)', color: isSelected ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 900, flexShrink: 0 }}>
+                          {isSelected ? (lastLockedResult?.isCorrect ? '✓' : '✗') : optItem.letter}
                         </span>
                         <span style={{ flex: 1 }}>
-                          <MathRenderer text={opt} />
+                          <MathRenderer text={optItem.text} />
                         </span>
+                        {isSelected && (
+                          <span style={{ fontSize: '12px', fontWeight: 900, color: '#fef08a' }}>
+                            🔒 Đã chọn
+                          </span>
+                        )}
                       </button>
                     );
                   })}

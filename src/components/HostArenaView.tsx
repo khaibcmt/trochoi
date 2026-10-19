@@ -9,12 +9,14 @@ import {
   cleanQuestionTitleText,
   calculateFastestPoints,
   getConvertedGradeByRank,
-  FASTEST_Q_DURATION_SEC
+  FASTEST_Q_DURATION_SEC,
+  getQuestionPartInfo
 } from '../data/defaultSubjects';
 import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
+import { GrandFinaleScreen } from './GrandFinaleScreen';
 
 interface Props {
   matchState: MatchState;
@@ -1326,6 +1328,26 @@ export const HostArenaView: React.FC<Props> = ({
     link.click();
   };
 
+  // Restart match for a fresh new game round
+  const handleRestartMatch = () => {
+    onUpdateMatchState(prev => ({
+      ...prev,
+      status: 'PLAYING',
+      currentRound: 1,
+      redRoundWins: 0,
+      blueRoundWins: 0,
+      ropeScore: 0,
+      globalQIndex: 0,
+      redAnsweredIds: [],
+      blueAnsweredIds: [],
+      bossHP: prev.settings?.bossMaxHP || 1000,
+      maxBossHP: prev.settings?.bossMaxHP || 1000,
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 }))
+    }));
+    setIsReviewMode(false);
+  };
+
   // Leaderboard for Fast Mode
   const sortedFastLeaderboard = useMemo(() => {
     return [...allPlayers]
@@ -1351,9 +1373,10 @@ export const HostArenaView: React.FC<Props> = ({
     return `⚔️ HIỆP ${matchState.currentRound || 1}/3: ${matchState.currentRound === 1 ? 'SÁNG' : matchState.currentRound === 2 ? 'HOÀNG HÔN' : 'ĐÊM'}`;
   };
 
-  // Dynamic font size for question text based on length (Never cuts text)
+  // Dynamic responsive font size for question text based on length (Never cuts text)
   const qTitleLength = (currentQItem.q || '').length;
-  const qTextFontSize = qTitleLength > 240 ? '15px' : qTitleLength > 150 ? '18px' : qTitleLength > 80 ? '22px' : '26px';
+  const qTextFontSize = qTitleLength > 240 ? '16.5px' : qTitleLength > 140 ? '19.5px' : qTitleLength > 65 ? '23px' : '28px';
+  const partInfo = getQuestionPartInfo(currentQItem.format);
 
   return (
     <section id="host-view" style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
@@ -1366,111 +1389,188 @@ export const HostArenaView: React.FC<Props> = ({
         flexShrink: 0,
         padding: '4px 8px'
       }}>
-        <div className="host-controls-row">
-          {matchState.status === 'LOBBY' && (
-            <button className="c-btn c-start" onClick={handleStartContest}>
-              ▶ BẮT ĐẦU THI ĐẤU
-            </button>
-          )}
+        {/* 4 Khối 3D Màu Sắc Nằm Trên Cùng 1 Hàng */}
+        <div className="toolbar-3d-row">
+          {/* Khối 1: 🎮 ĐIỀU KHIỂN THI ĐẤU (Emerald 3D) */}
+          <div className="block-3d b3d-emerald">
+            <div className="block-3d-label">
+              <span>🎮 ĐIỀU KHIỂN TRẬN ĐẤU</span>
+              <span style={{ fontSize: '9.5px', color: '#a7f3d0' }}>
+                {matchState.status === 'LOBBY' ? 'CHỜ BẮT ĐẦU' : matchState.status === 'PLAYING' ? 'ĐANG ĐẤU' : 'TẠM DỪNG'}
+              </span>
+            </div>
+            <div className="block-3d-btns">
+              {matchState.status === 'LOBBY' && (
+                <button
+                  className="b3d-btn"
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1.5px solid #a7f3d0' }}
+                  onClick={handleStartContest}
+                  title="Bắt đầu trận đấu"
+                >
+                  ▶ BẮT ĐẦU
+                </button>
+              )}
 
-          {/* NÚT ẨN / HIỆN MÃ QR (Luôn hiển thị trên thanh công cụ ở mọi chế độ) */}
-          <button
-            className="c-btn"
-            style={{
-              background: qrVisible ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #475569, #334155)',
-              color: '#ffffff',
-              border: qrVisible ? '1.5px solid #38bdf8' : '1.5px solid #94a3b8',
-              boxShadow: qrVisible ? '0 2px 8px rgba(2, 132, 199, 0.45)' : 'none',
-              fontWeight: 800
-            }}
-            onClick={() => setQrVisible(!qrVisible)}
-            title={qrVisible ? "Bấm để ẩn 2 mã QR trên màn hình" : "Bấm để hiện lại 2 mã QR trên màn hình"}
-          >
-            {qrVisible ? '🙈 ẨN MÃ QR' : '📱 HIỆN MÃ QR'}
-          </button>
+              {matchState.status !== 'LOBBY' && matchState.status !== 'ENDED' && (
+                <button
+                  className="b3d-btn"
+                  style={{ background: matchState.status === 'PLAYING' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #10b981, #059669)' }}
+                  onClick={handlePauseMatch}
+                  title={matchState.status === 'PLAYING' ? 'Tạm dừng trận đấu' : 'Tiếp tục trận đấu'}
+                >
+                  {matchState.status === 'PLAYING' ? '⏸ DỪNG' : '▶ TIẾP'}
+                </button>
+              )}
 
-          {matchState.status !== 'LOBBY' && matchState.status !== 'ENDED' && (
-            <button className="c-btn c-pause" onClick={handlePauseMatch}>
-              {matchState.status === 'PLAYING' ? '⏸ TẠM DỪNG' : '▶ TIẾP TỤC'}
-            </button>
-          )}
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+                onClick={handleForceAdvanceQ}
+                title="Bỏ qua và chuyển sang câu hỏi tiếp theo"
+              >
+                ⏭️ QUA CÂU
+              </button>
 
-          <button className="c-btn" style={{ background: '#0284c7', color: '#fff' }} onClick={handleForceAdvanceQ}>
-            ⏭️ QUA CÂU MỚI
-          </button>
+              {(matchState.gameType === 'BELL' || matchState.gameType === 'BOSS') && (
+                <button
+                  className="b3d-btn"
+                  style={{ background: 'linear-gradient(135deg, #059669, #047857)', border: '1px solid #6ee7b7' }}
+                  onClick={() => setShowRescueModal(true)}
+                  title="Mở bảng cứu trợ học sinh"
+                >
+                  🛟 CỨU TRỢ {bellOutCount > 0 ? `(${bellOutCount})` : ''}
+                </button>
+              )}
 
-          {(matchState.gameType === 'BELL' || matchState.gameType === 'BOSS') && (
-            <button
-              className="c-btn"
-              style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: '1.5px solid #a7f3d0' }}
-              onClick={() => setShowRescueModal(true)}
-              title="Mở bảng tung phao cứu trợ hồi sinh học sinh"
-            >
-              🛟 CỨU TRỢ {bellOutCount > 0 ? `(${bellOutCount} HS)` : ''}
-            </button>
-          )}
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', border: '1px solid #fca5a5' }}
+                onClick={handleEndMatch}
+                title="Kết thúc trận đấu và xem bảng tổng kết chung cuộc"
+              >
+                ⏹ KẾT THÚC
+              </button>
+            </div>
+          </div>
 
-          <button
-            className="c-btn"
-            style={{
-              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              color: '#ffffff',
-              border: '1.5px solid #fde047',
-              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)'
-            }}
-            onClick={() => setShowTop10Modal(true)}
-            title="Mở Bảng vinh danh Top 10 cá nhân xuất sắc nhất"
-          >
-            🏆 BẢNG TOP 10
-          </button>
+          {/* Khối 2: 📱 PHÒNG & KẾT NỐI QR (Sapphire 3D) */}
+          <div className="block-3d b3d-sapphire">
+            <div className="block-3d-label">
+              <span>📱 PHÒNG & MÃ QR</span>
+              <span style={{ fontSize: '9.5px', color: '#bae6fd' }}>
+                🟢 P.{activeRoomId} ({allPlayers.length} HS)
+              </span>
+            </div>
+            <div className="block-3d-btns">
+              <button
+                className="b3d-btn"
+                style={{
+                  background: qrVisible ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #475569, #334155)',
+                  border: qrVisible ? '1.5px solid #7dd3fc' : '1px solid #94a3b8'
+                }}
+                onClick={() => setQrVisible(!qrVisible)}
+                title={qrVisible ? "Ẩn 2 mã QR trên màn hình" : "Hiện lại 2 mã QR trên màn hình"}
+              >
+                {qrVisible ? '🙈 ẨN QR' : '📱 HIỆN QR'}
+              </button>
 
-          <button className="c-btn" style={{ background: '#d97706', color: '#fff' }} onClick={handleCycleSky}>
-            🌤️ ĐỔI TRỜI
-          </button>
+              <button
+                className="b3d-btn"
+                style={{ background: isReviewMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #0284c7, #075985)' }}
+                onClick={handleToggleReviewMode}
+                title="Bật/Tắt chế độ chữa bài cho học sinh"
+              >
+                {isReviewMode ? '⚔️ THI TIẾP' : '✅ CHỮA BÀI'}
+              </button>
+            </div>
+          </div>
 
-          <button className="c-btn" style={{ background: '#059669', color: '#fff' }} onClick={handleToggleReviewMode}>
-            ✅ {isReviewMode ? 'THI TIẾP' : 'CHỮA BÀI'}
-          </button>
+          {/* Khối 3: 🏆 VINH DANH & DỮ LIỆU (Amber 3D) */}
+          <div className="block-3d b3d-amber">
+            <div className="block-3d-label">
+              <span>🏆 VINH DANH & DỮ LIỆU</span>
+              <span style={{ fontSize: '9.5px', color: '#fef08a' }}>GDPT 2018</span>
+            </div>
+            <div className="block-3d-btns">
+              <button
+                className="b3d-btn"
+                style={{
+                  background: 'linear-gradient(135deg, #d97706, #b45309)',
+                  border: '1.5px solid #fde047',
+                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.4)'
+                }}
+                onClick={() => setShowTop10Modal(true)}
+                title="Mở Bảng vinh danh Top 10 cá nhân xuất sắc nhất"
+              >
+                🏆 TOP 10
+              </button>
 
-          <button className="c-btn" style={{ background: '#6366f1', color: '#fff' }} onClick={onExportHTMLSlide}>
-            📥 SLIDE
-          </button>
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #0d9488, #0f766e)', border: '1px solid #5eead4' }}
+                onClick={handleDownloadCSV}
+                title="Tải bảng điểm học sinh dạng file Excel (.csv)"
+              >
+                📊 XUẤT CSV
+              </button>
 
-          <button
-            className="c-btn"
-            style={{ background: '#0d9488', color: '#fff', border: '1.5px solid #5eead4' }}
-            onClick={handleDownloadCSV}
-            title="Tải bảng điểm học sinh dạng file Excel (.csv)"
-          >
-            📊 XUẤT CSV
-          </button>
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #4f46e5, #4338ca)', border: '1px solid #a5b4fc' }}
+                onClick={onExportHTMLSlide}
+                title="Tải Slide trình chiếu (.html)"
+              >
+                📥 SLIDE
+              </button>
+            </div>
+          </div>
 
-          {onOpenKeyModal && (
-            <button
-              className="c-btn"
-              style={{ background: '#4f46e5', color: '#fff', border: '1.5px solid #a5b4fc' }}
-              onClick={onOpenKeyModal}
-              title="Cài đặt Google Gemini API Key"
-            >
-              ⚙️ AI KEY
-            </button>
-          )}
+          {/* Khối 4: ⚙️ HỆ THỐNG & GIAO DIỆN (Violet 3D) */}
+          <div className="block-3d b3d-violet">
+            <div className="block-3d-label">
+              <span>⚙️ HỆ THỐNG & HIỂN THỊ</span>
+              <span style={{ fontSize: '9.5px', color: '#e9d5ff' }}>3D ENGINE</span>
+            </div>
+            <div className="block-3d-btns">
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
+                onClick={handleCycleSky}
+                title="Đổi bối cảnh bầu trời 3D"
+              >
+                🌤️ ĐỔI TRỜI
+              </button>
 
-          <button className="c-btn" style={{ background: '#0f766e', color: '#fff' }} onClick={onToggleFullScreen}>
-            🔲 TOÀN MÀN
-          </button>
+              {onOpenKeyModal && (
+                <button
+                  className="b3d-btn"
+                  style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: '1px solid #c7d2fe' }}
+                  onClick={onOpenKeyModal}
+                  title="Cài đặt Google Gemini API Key"
+                >
+                  ⚙️ AI KEY
+                </button>
+              )}
 
-          <button className="c-btn c-end" onClick={handleEndMatch}>
-            ⏹ KẾT THÚC
-          </button>
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #0f766e, #115e59)' }}
+                onClick={onToggleFullScreen}
+                title="Bật/Tắt chế độ toàn màn hình"
+              >
+                🔲 TOÀN MÀN
+              </button>
 
-          <button className="c-btn c-home" onClick={onReturnToSetup}>
-            🏠 CÀI ĐẶT
-          </button>
-
-          <span id="net-status" style={{ fontSize: '11.5px', color: '#a7f3d0', fontWeight: 900 }}>
-            🟢 Phòng: {activeRoomId} ({allPlayers.length}/{matchState.settings?.roomCapacity || 50} HS)
-          </span>
+              <button
+                className="b3d-btn"
+                style={{ background: 'linear-gradient(135deg, #475569, #334155)', border: '1px solid #94a3b8' }}
+                onClick={onReturnToSetup}
+                title="Quay lại màn hình cài đặt của giáo viên"
+              >
+                🏠 CÀI ĐẶT
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* HUD Teams Row with Surplus +N Display */}
@@ -1865,81 +1965,26 @@ export const HostArenaView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Victory Modal */}
+        {/* Dedicated Grand Finale Celebration Screen */}
         {matchState.status === 'ENDED' && (
-          <div id="victory-modal" style={{ display: 'block' }}>
-            <h1 id="win-banner-txt" style={{ fontSize: '28px', color: 'var(--gold)', margin: 0 }}>
-              🏆 NHÀ VÔ ĐỊCH CHUNG CUỘC!
-            </h1>
-            <p id="win-sub-txt" style={{ fontSize: '15px', color: '#e2e8f0', marginTop: '6px' }}>
-              {matchState.gameType === 'BOSS' ? (
-                `🎉 TOÀN THỂ LỚP HỌC ĐÃ HỢP LỰC ĐÁNH BẠI QUÁI VẬT KIẾN THỨC! CHÚC MỪNG CÁC EM CHIẾN BINH!`
-              ) : matchState.gameType === 'FAST' ? (
-                `🌟 BẢNG VINH DANH CHUNG CUỘC & QUY ĐỔI ĐIỂM SỐ (Hạng 1–3: 10đ • Hạng 4–6: 9đ • Hạng 7–10: 8đ • Hạng 11–15: 7đ)`
-              ) : matchState.gameType === 'BELL' ? (
-                `Đã xuất sắc vượt qua thử thách Rung Chuông Vàng 3D và trụ lại trên sàn đấu! (Trụ lại: ${bellAliveCount}/${allPlayers.length} HS)`
-              ) : (
-                `Thắng chung cuộc với tỉ số: Đỏ (${matchState.redRoundWins}) - Xanh (${matchState.blueRoundWins})`
-              )}
-            </p>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginTop: '12px' }}>
-              <button
-                className="c-btn"
-                style={{
-                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                  color: '#fff',
-                  border: '1.5px solid #fde047',
-                  padding: '9px 18px',
-                  fontSize: '13.5px',
-                  fontWeight: 900,
-                  boxShadow: '0 4px 15px rgba(245, 158, 11, 0.5)'
-                }}
-                onClick={() => setShowTop10Modal(true)}
-              >
-                🏆 XEM BẢNG TOP 10 CHUNG CUỘC
-              </button>
-              <button
-                className="c-btn"
-                style={{ background: '#0284c7', color: '#fff', padding: '9px 14px', fontSize: '13px' }}
-                onClick={() => { handleToggleReviewMode(); }}
-              >
-                📖 CHỮA BÀI TRÊN LỚP
-              </button>
-              <button
-                className="c-btn"
-                style={{ background: '#d97706', color: '#fff', padding: '9px 14px', fontSize: '13px' }}
-                onClick={onExportHTMLSlide}
-              >
-                🎨 TẢI SLIDE MÀU (.HTML)
-              </button>
-              <button
-                className="c-btn"
-                style={{ background: '#6366f1', color: '#fff', padding: '9px 14px', fontSize: '13px' }}
-                onClick={onPrintPDFEvidence}
-              >
-                🖨️ IN / LƯU PDF MINH CHỨNG
-              </button>
-              <button
-                className="c-btn c-start"
-                style={{ padding: '9px 14px', fontSize: '13px' }}
-                onClick={handleDownloadCSV}
-              >
-                📊 XUẤT BẢNG ĐIỂM (.CSV)
-              </button>
-              <button
-                className="c-btn c-home"
-                style={{ padding: '9px 14px', fontSize: '13px' }}
-                onClick={onReturnToSetup}
-              >
-                🔄 TRẬN MỚI
-              </button>
-            </div>
-          </div>
+          <GrandFinaleScreen
+            matchState={matchState}
+            activeRoomId={activeRoomId}
+            onReviewMatch={() => {
+              setIsReviewMode(true);
+              setReviewQIdx(0);
+              onUpdateMatchState(prev => ({ ...prev, status: 'PAUSED' }));
+            }}
+            onDownloadCSV={handleDownloadCSV}
+            onExportHTMLSlide={onExportHTMLSlide}
+            onPrintPDFEvidence={onPrintPDFEvidence}
+            onRestartMatch={handleRestartMatch}
+            onReturnToSetup={onReturnToSetup}
+          />
         )}
       </div>
 
-      {/* Floor 3: Big Question Board (Never cuts question text, order: 4 header, order: 5 30s timer) */}
+      {/* Floor 3: Big Question Board (Never cuts question text, auto line-wrapping, large readable font for back row) */}
       <section
         id="host-question-board"
         className={isReviewMode ? 'review-active' : ''}
@@ -1949,17 +1994,42 @@ export const HostArenaView: React.FC<Props> = ({
           justifyContent: 'flex-start',
           maxHeight: '44vh',
           overflow: 'hidden',
-          padding: '10px 14px 6px 14px',
+          padding: '8px 14px 6px 14px',
           boxSizing: 'border-box'
         }}
         aria-label="Khung câu hỏi và đáp án"
       >
-        {/* Order 1: Question Title (No vertical center crop, auto-scaled, scrollable if long) */}
+        {/* Section Part Badge according to GDPT 2018 format */}
+        <div style={{ order: 0, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexShrink: 0 }}>
+          <span style={{
+            background: partInfo.badgeColor,
+            color: '#0f172a',
+            padding: '2px 10px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: 900,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            textTransform: 'uppercase'
+          }}>
+            {partInfo.partBadge}
+          </span>
+          <span style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 800 }}>
+            {partInfo.partTitle}
+          </span>
+        </div>
+
+        {/* Order 1: Question Title (Auto line-wrapping, prominent font size, never cuts off text) */}
         <div
           id="hq-q-text"
           className={`hq-title ${qTitleLength > 180 ? 'q-very-long' : qTitleLength > 100 ? 'q-long' : ''}`}
           style={{
-            fontSize: qTextFontSize
+            fontSize: qTextFontSize,
+            lineHeight: 1.36,
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'normal',
+            maxHeight: '16vh',
+            overflowY: 'auto'
           }}
         >
           Câu {((currentQIndex % quizList.length) + 1)}: <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
@@ -1974,7 +2044,13 @@ export const HostArenaView: React.FC<Props> = ({
             maxHeight: '18vh',
             overflowY: 'auto',
             display: 'grid',
-            gridTemplateColumns: currentQItem.format === 'TRUE_FALSE' ? '1fr 1fr' : currentQItem.format === 'SHORT_ANSWER' ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: currentQItem.format === 'TRUE_FALSE'
+              ? '1fr 1fr'
+              : currentQItem.format === 'SHORT_ANSWER'
+              ? '1fr'
+              : currentQItem.opts && currentQItem.opts.some(o => (o || '').length > 55)
+              ? '1fr'
+              : '1fr 1fr',
             gap: '8px',
             marginBottom: '6px'
           }}
@@ -1991,17 +2067,22 @@ export const HostArenaView: React.FC<Props> = ({
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '8px 12px',
-                    borderRadius: '10px',
+                    padding: '8px 14px',
+                    borderRadius: '12px',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'break-word',
+                    whiteSpace: 'normal',
+                    fontSize: '15px',
+                    lineHeight: 1.35,
                     background: reveal ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)') : undefined,
                     border: reveal ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171') : undefined
                   }}
                 >
-                  <span style={{ fontSize: '13.5px' }}>
-                    <b>{tf.label})</b> <MathRenderer text={tf.text} />
+                  <span style={{ fontSize: '14px', flex: 1 }}>
+                    <b style={{ color: '#fef08a' }}>{tf.label})</b> <MathRenderer text={tf.text} />
                   </span>
                   {reveal && (
-                    <span style={{ fontWeight: 900, color: tf.isCorrect ? '#4ade80' : '#fca5a5', fontSize: '13px' }}>
+                    <span style={{ fontWeight: 900, color: tf.isCorrect ? '#4ade80' : '#fca5a5', fontSize: '13px', flexShrink: 0, marginLeft: '8px' }}>
                       {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
                     </span>
                   )}
@@ -2014,23 +2095,26 @@ export const HostArenaView: React.FC<Props> = ({
               style={{
                 gridColumn: '1 / -1',
                 padding: '12px 18px',
-                borderRadius: '12px',
+                borderRadius: '14px',
                 background: 'linear-gradient(135deg, #1e1b4b, #312e81)',
                 border: '2px dashed #818cf8',
                 textAlign: 'center',
                 color: '#ffffff',
-                fontSize: '15px'
+                fontSize: '16px',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
+                whiteSpace: 'normal'
               }}
             >
               {isReviewMode ? (
                 <div>
-                  <span style={{ color: '#fef08a', fontWeight: 900, fontSize: '16px' }}>🎯 ĐÁP ÁN ĐÚNG: </span>
-                  <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '18px' }}>
+                  <span style={{ color: '#fef08a', fontWeight: 900, fontSize: '17px' }}>🎯 ĐÁP ÁN ĐÚNG: </span>
+                  <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '20px' }}>
                     <MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} />
                   </span>
                 </div>
               ) : (
-                <div style={{ color: '#94a3b8' }}>
+                <div style={{ color: '#cbd5e1' }}>
                   ❓ <b>Dạng Trả Lời Ngắn:</b> Học sinh đang nhập số hoặc từ khóa trên điện thoại...
                 </div>
               )}
@@ -2042,9 +2126,28 @@ export const HostArenaView: React.FC<Props> = ({
               const letter = String.fromCharCode(65 + idx);
               const revealClass = isReviewMode && isCorrect ? 'correct-reveal' : '';
               return (
-                <div key={idx} className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`} style={{ padding: '8px 12px', borderRadius: '10px' }}>
-                  <span><b>{letter}.</b> <MathRenderer text={opt} /></span>
-                  {isReviewMode && isCorrect && <span style={{ color: '#4ade80', fontWeight: 900 }}>✓ ĐÚNG</span>}
+                <div
+                  key={idx}
+                  className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: '12px',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'break-word',
+                    whiteSpace: 'normal',
+                    fontSize: opt.length > 60 ? '14.5px' : '16.5px',
+                    lineHeight: 1.35
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', flex: 1 }}>
+                    <b style={{ color: '#fef08a', flexShrink: 0 }}>{letter}.</b>
+                    <span><MathRenderer text={opt} /></span>
+                  </span>
+                  {isReviewMode && isCorrect && (
+                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '13px', flexShrink: 0, marginLeft: '8px' }}>
+                      ✓ ĐÚNG
+                    </span>
+                  )}
                 </div>
               );
             })

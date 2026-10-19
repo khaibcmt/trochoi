@@ -1,4 +1,4 @@
-import { QuizItem, SubjectData } from '../types';
+import { QuizItem, SubjectData, QuestionFormat } from '../types';
 
 export const DEFAULT_BIO = `
 <div>Câu 1: Bào quan nào thực hiện chức năng quang hợp chủ yếu ở thực vật?</div>
@@ -418,13 +418,58 @@ export const SAMPLE_PHAN_2_TF = `<div>Câu [Đúng/Sai]: Trong các phát biểu
 export const SAMPLE_PHAN_3_SA = `<div>Câu [Trả lời ngắn]: Có bao nhiêu bộ ba mã di truyền (codon) trên phân tử mRNA đóng vai trò tín hiệu kết thúc quá trình dịch mã?</div><div><u>Đáp án: 3</u></div><br>`;
 
 
+// Shuffles questions strictly adhering to GDPT 2018 format order:
+// Part 1 (Multiple Choice) -> Part 2 (True/False) -> Part 3 (Short Answer)
+// The questions WITHIN each part are randomly shuffled on every match!
 export function shuffleQuestionOrder(deck: QuizItem[]): QuizItem[] {
   const cloned: QuizItem[] = JSON.parse(JSON.stringify(deck));
-  for (let i = cloned.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cloned[i], cloned[j]] = [cloned[j], cloned[i]];
+
+  const part1 = cloned.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE');
+  const part2 = cloned.filter(q => q.format === 'TRUE_FALSE');
+  const part3 = cloned.filter(q => q.format === 'SHORT_ANSWER');
+
+  const shuffleArray = (arr: QuizItem[]) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  const shuffledPart1 = shuffleArray(part1);
+  const shuffledPart2 = shuffleArray(part2);
+  const shuffledPart3 = shuffleArray(part3);
+
+  const combined = [...shuffledPart1, ...shuffledPart2, ...shuffledPart3];
+  return combined.map((item, idx) => ({
+    ...item,
+    qid: idx
+  }));
+}
+
+export function getQuestionPartInfo(format?: QuestionFormat): { partNumber: number; partTitle: string; partBadge: string; badgeColor: string } {
+  if (format === 'TRUE_FALSE') {
+    return {
+      partNumber: 2,
+      partTitle: 'PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI',
+      partBadge: 'PHẦN II • ĐÚNG/SAI',
+      badgeColor: '#f59e0b'
+    };
   }
-  return cloned;
+  if (format === 'SHORT_ANSWER') {
+    return {
+      partNumber: 3,
+      partTitle: 'PHẦN III: TRẢ LỜI NGẮN (ĐIỀN SỐ / TỪ KHÓA)',
+      partBadge: 'PHẦN III • ĐIỀN KHUYẾT',
+      badgeColor: '#10b981'
+    };
+  }
+  return {
+    partNumber: 1,
+    partTitle: 'PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN LỰA CHỌN',
+    partBadge: 'PHẦN I • 4 LỰA CHỌN',
+    badgeColor: '#38bdf8'
+  };
 }
 
 const studentShuffledCache: Record<string, QuizItem> = {};
@@ -439,6 +484,9 @@ export function getStableShuffledQuestion(questionItem: QuizItem, qIndexKey: num
   const result: QuizItem = {
     qid: questionItem.qid,
     q: cleanQuestionTitleText(questionItem.q),
+    format: questionItem.format,
+    tfItems: questionItem.tfItems,
+    shortAnswer: questionItem.shortAnswer,
     opts: optObjs.map(o => o.txt),
     correct: optObjs.findIndex(o => o.isCorrect),
     rightCount: questionItem.rightCount,
