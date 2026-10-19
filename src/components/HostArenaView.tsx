@@ -1078,32 +1078,51 @@ export const HostArenaView: React.FC<Props> = ({
     format: 'MULTIPLE_CHOICE'
   };
 
-  // 30-Second Countdown Timer Implementation (Tự động chuyển câu khi về 0.0s)
+  // Keep latest quizList in ref so updating rightCount/wrongCount when students answer NEVER restarts the 30s timer
+  const quizListRef = useRef<QuizItem[]>(quizList);
+  useEffect(() => {
+    quizListRef.current = quizList;
+  }, [quizList]);
+
+  const activeTimerQuestionKeyRef = useRef<string>('');
+
+  // 30-Second Countdown Timer Implementation:
+  // Bắt đầu tính giờ ngay khi hiện câu hỏi, KHÔNG BAO GIỜ reset khi học sinh trả lời đúng/sai, hết 30s là tự động qua câu khác (không chọn coi như sai)
   useEffect(() => {
     if (matchState.status !== 'PLAYING') {
+      activeTimerQuestionKeyRef.current = '';
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       return;
     }
+
+    const timerKey = `PLAYING_Q_${matchState.globalQIndex}_${durationSec}`;
+    if (activeTimerQuestionKeyRef.current === timerKey) {
+      // Đang đếm ngược cho chính câu hỏi này -> tuyệt đối không reset lại 30 giây
+      return;
+    }
+    activeTimerQuestionKeyRef.current = timerKey;
 
     setRemainingSec(durationSec);
     timerStartMsRef.current = Date.now();
     isTransitioningRef.current = false;
     correctOrderCountRef.current = 0;
 
+    const currentDeck = quizListRef.current;
+    const rawQ = currentDeck[matchState.globalQIndex % (currentDeck.length || 1)] || currentQItem;
     const activeQWithMeta = {
-      ...currentQItem,
+      ...rawQ,
       qIndex: matchState.globalQIndex,
-      totalQuestions: quizList.length
+      totalQuestions: currentDeck.length
     };
 
-    // Broadcast question started with duration, exact question, and quiz deck
+    // Broadcast question started ONCE when this question appears
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
       qIndex: matchState.globalQIndex,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
       question: activeQWithMeta,
-      quiz: quizList
+      quiz: currentDeck
     });
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -1121,58 +1140,71 @@ export const HostArenaView: React.FC<Props> = ({
     }, 100);
 
     return () => {
+      // Chỉ dọn interval khi unmount hoặc khi đổi sang câu hỏi mới / đổi trạng thái trận đấu
+    };
+  }, [matchState.status, matchState.globalQIndex, durationSec]);
+
+  // Clean up timer interval on component unmount
+  useEffect(() => {
+    return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [matchState.status, matchState.globalQIndex, durationSec, quizList]);
+  }, []);
 
-  // Handle Timeout: Chỉ trò Rung Chuông Vàng (BELL) mới trừ 1 mạng khi hết giờ; các trò khác câu sai/hết giờ không bị phạt
+  // Handle Timeout: Hết 30 giây -> Học sinh không chọn đáp án coi như SAI, lập tức chuyển qua câu hỏi tiếp theo
   const handleQuestionTimeout = () => {
-    // In Bell mode ONLY: Unanswered students lose 1 heart and become spectators if 0 lives
-    if (matchState.gameType === 'BELL') {
-      AudioFX.freezeCrack();
-      onUpdateMatchState(prev => {
-        const answeredIds = [...prev.redAnsweredIds, ...prev.blueAnsweredIds];
-        const updatedRed = prev.redPlayers.map(p => {
-          if (!p.eliminated && !answeredIds.includes(p.id)) {
-            const nextL = Math.max(0, (p.lives ?? 3) - 1);
-            const nextElim = nextL <= 0;
-            CloudNetwork.sendMessage({
-              type: 'PLAYER_LIVES_SYNC',
-              playerId: p.id,
-              lives: nextL,
-              eliminated: nextElim
-            });
-            return { ...p, lives: nextL, eliminated: nextElim, role: nextElim ? 'SPECTATOR' : p.role, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
-          }
-          return p;
-        });
-        const updatedBlue = prev.bluePlayers.map(p => {
-          if (!p.eliminated && !answeredIds.includes(p.id)) {
-            const nextL = Math.max(0, (p.lives ?? 3) - 1);
-            const nextElim = nextL <= 0;
-            CloudNetwork.sendMessage({
-              type: 'PLAYER_LIVES_SYNC',
-              playerId: p.id,
-              lives: nextL,
-              eliminated: nextElim
-            });
-            return { ...p, lives: nextL, eliminated: nextElim, role: nextElim ? 'SPECTATOR' : p.role, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
-          }
-          return p;
-        });
-        return { ...prev, redPlayers: updatedRed, bluePlayers: updatedBlue };
-      });
-    }
+    AudioFX.freezeCrack();
 
-    // Auto advance after 1.5s
-    setTimeout(() => {
-      onUpdateMatchState(prev => ({
+    onUpdateMatchState(prev => {
+      if (prev.status !== 'PLAYING') return prev;
+      const answeredIds = [...prev.redAnsweredIds, ...prev.blueAnsweredIds];
+      const isBell = prev.gameType === 'BELL';
+
+      const updateUnansweredPlayer = (p: Player): Player => {
+        if (answeredIds.includes(p.id)) return p;
+        // Học sinh không chọn đáp án khi hết giờ -> Coi như trả lời SAI
+        if (isBell) {
+          if (p.eliminated) return p;
+          const nextL = Math.max(0, (p.lives ?? 3) - 1);
+          const nextElim = nextL <= 0;
+          CloudNetwork.sendMessage({
+            type: 'PLAYER_LIVES_SYNC',
+            playerId: p.id,
+            lives: nextL,
+            streak: 0,
+            eliminated: nextElim
+          });
+          return {
+            ...p,
+            lives: nextL,
+            eliminated: nextElim,
+            role: nextElim ? 'SPECTATOR' : p.role,
+            streak: 0,
+            lastDelta: 0,
+            wrongTotal: (p.wrongTotal || 0) + 1
+          };
+        }
+        // Các trò chơi khác (Kéo Co, Đua Tốc Độ, Diệt Boss): Ghi nhận 1 câu sai, reset chuỗi thắng, được 0 điểm câu này
+        return {
+          ...p,
+          streak: 0,
+          lastDelta: 0,
+          wrongTotal: (p.wrongTotal || 0) + 1
+        };
+      };
+
+      const updatedRed = prev.redPlayers.map(updateUnansweredPlayer);
+      const updatedBlue = prev.bluePlayers.map(updateUnansweredPlayer);
+
+      return {
         ...prev,
         globalQIndex: prev.globalQIndex + 1,
         redAnsweredIds: [],
-        blueAnsweredIds: []
-      }));
-    }, 1500);
+        blueAnsweredIds: [],
+        redPlayers: updatedRed,
+        bluePlayers: updatedBlue
+      };
+    });
   };
 
   // Force advance

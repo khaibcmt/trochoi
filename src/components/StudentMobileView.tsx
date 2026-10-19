@@ -127,11 +127,13 @@ export const StudentMobileView: React.FC<Props> = ({
   // Toast message
   const [bonusToastMsg, setBonusToastMsg] = useState<string | null>(null);
 
-  // 30s Timer state
+  // 30s Timer state (Bắt đầu đếm ngược ngay khi hiện câu hỏi, không bao giờ reset khi trả lời, hết 30s không chọn coi như sai)
   const [remSec, setRemSec] = useState<number>(30);
   const timerRef = useRef<any>(null);
   const startMsRef = useRef<number>(Date.now());
   const [hasAnsweredCurrentQ, setHasAnsweredCurrentQ] = useState(false);
+  const hasAnsweredCurrentQRef = useRef<boolean>(false);
+  const activeStudentTimerQIndexRef = useRef<number>(-1);
 
   // Stable shuffled options state (Shuffled once per question and frozen in place)
   interface StudentShuffledOption {
@@ -286,23 +288,31 @@ export const StudentMobileView: React.FC<Props> = ({
     }, 250);
   };
 
-  // 30s Local countdown timer per question (Không reset trạng thái khóa đáp án khi hết đóng băng)
+  // 30s Local countdown timer per question:
+  // Khi hiện câu hỏi mới là bắt đầu tính giờ 30s, KHÔNG BAO GIỜ trả lại thời gian ban đầu khi học sinh trả lời đúng/sai.
+  // Hết 30s nếu học sinh không chọn đáp án thì tự động coi như SAI.
   useEffect(() => {
     if (screen !== 'QUIZ' || eliminated) {
+      activeStudentTimerQIndexRef.current = -1;
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
-    setRemSec(30);
-    clearFreeze(); // Mở đóng băng khi hiện lên câu hỏi mới
-    setHasAnsweredCurrentQ(false);
-    setIsAnswerLocked(false);
-    setSelectedOptionOriginalIdx(null);
-    setLastLockedResult(null);
-    setEliminatedOptions([]);
-    setShortAnswerInput('');
-    setTfAnswers({ a: true, b: false, c: true, d: false });
-    startMsRef.current = Date.now();
+    // Chỉ khởi tạo lại đồng hồ 30s khi chuyển sang chỉ số câu hỏi mới
+    if (activeStudentTimerQIndexRef.current !== currentGlobalQIndex) {
+      activeStudentTimerQIndexRef.current = currentGlobalQIndex;
+      setRemSec(30);
+      clearFreeze(); // Mở đóng băng khi hiện lên câu hỏi mới
+      hasAnsweredCurrentQRef.current = false;
+      setHasAnsweredCurrentQ(false);
+      setIsAnswerLocked(false);
+      setSelectedOptionOriginalIdx(null);
+      setLastLockedResult(null);
+      setEliminatedOptions([]);
+      setShortAnswerInput('');
+      setTfAnswers({ a: true, b: false, c: true, d: false });
+      startMsRef.current = Date.now();
+    }
 
     if (timerRef.current) clearInterval(timerRef.current);
 
@@ -313,8 +323,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
       if (left <= 0) {
         clearInterval(timerRef.current);
-        // Time expired and user didn't answer -> Treated as WRONG
-        if (!hasAnsweredCurrentQ) {
+        // Hết 30s mà học sinh không chọn đáp án -> Coi như trả lời SAI
+        if (!hasAnsweredCurrentQRef.current) {
           handleTimeoutFail();
         }
       }
@@ -383,7 +393,8 @@ export const StudentMobileView: React.FC<Props> = ({
   }, [resolvedQSignature, myPlayerId, currentGlobalQIndex]);
 
   const handleTimeoutFail = () => {
-    if (hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
@@ -391,14 +402,14 @@ export const StudentMobileView: React.FC<Props> = ({
     setStreak(0);
 
     if (gameType === 'BELL') {
-      // Chỉ có trò Rung Chuông Vàng khi trả lời sai / hết giờ mới bị mất 1 mạng; hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
+      // Chỉ có trò Rung Chuông Vàng khi trả lời sai / không chọn đáp án khi hết giờ mới bị mất 1 mạng; hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
       setLives(prev => {
         const nextL = Math.max(0, prev - 1);
         setLastLockedResult({
           isCorrect: false,
           text: nextL <= 0
-            ? '⏰ HẾT GIỜ! Bạn đã hết cả 3 ❤️ Mạng và chuyển sang làm Khán giả cổ vũ!'
-            : `⏰ HẾT GIỜ! Tính câu SAI • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
+            ? '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Bạn đã hết 3 ❤️ và chuyển sang làm Khán giả cổ vũ!'
+            : `⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
         });
         if (nextL <= 0) {
           setEliminated(true);
@@ -407,10 +418,10 @@ export const StudentMobileView: React.FC<Props> = ({
         return nextL;
       });
     } else {
-      // Các trò chơi khác: câu sai / hết giờ không bị phạt điểm hay mất mạng
+      // Các trò chơi khác: Không chọn đáp án khi hết 30s coi như SAI (0 điểm câu này)
       setLastLockedResult({
         isCorrect: false,
-        text: '⏰ HẾT GIỜ! Chưa ghi nhận đáp án ở câu này (Không bị trừ điểm) • Chờ câu tiếp theo!'
+        text: '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!'
       });
     }
 
@@ -607,13 +618,12 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'QUESTION_START') {
       if (typeof d.qIndex === 'number') {
+        const isNewQuestion = d.qIndex !== currentGlobalQIndexRef.current || screen !== 'QUIZ';
         currentGlobalQIndexRef.current = d.qIndex;
         setCurrentGlobalQIndex(d.qIndex);
-        setLastCompletedQIndex(-1);
-        clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
-        if (d.serverStartTime) {
-          startMsRef.current = d.serverStartTime;
-        } else {
+        if (isNewQuestion) {
+          setLastCompletedQIndex(-1);
+          clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
           startMsRef.current = Date.now();
         }
         if (d.question) {
@@ -702,7 +712,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
     setSelectedOptionOriginalIdx(origIdx);
@@ -715,7 +726,7 @@ export const StudentMobileView: React.FC<Props> = ({
         ? '✅ CHÍNH XÁC! Bạn đã chọn ĐÚNG đáp án (+100 điểm)'
         : (gameType === 'BELL'
             ? '❌ ĐÁP ÁN SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
-            : '❌ ĐÁP ÁN SAI! (Không bị trừ điểm • Đã khóa câu trả lời)')
+            : '❌ ĐÁP ÁN SAI! (0 điểm câu này • Đã khóa câu trả lời)')
     });
 
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
@@ -723,7 +734,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
@@ -745,7 +757,7 @@ export const StudentMobileView: React.FC<Props> = ({
         ? `✅ XUẤT SẮC! Bạn trả lời ĐÚNG cả ${correctCount}/${items.length} mệnh đề (+${correctCount * 100} điểm)`
         : (gameType === 'BELL'
             ? `❌ CHƯA CHÍNH XÁC (${correctCount}/${items.length} ý đúng) • Bạn bị mất 1 ❤️ Mạng`
-            : `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng) • Đã khóa câu trả lời`)
+            : `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng • 0 điểm) • Đã khóa câu trả lời`)
     });
 
     processAnswerOutcome(won, won ? correctCount : 0);
@@ -753,7 +765,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
-    if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
+    if (isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
+    hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
@@ -773,7 +786,7 @@ export const StudentMobileView: React.FC<Props> = ({
         ? `✅ CHÍNH XÁC! Kết quả "${shortAnswerInput.trim()}" hoàn toàn ĐÚNG (+100 điểm)`
         : (gameType === 'BELL'
             ? '❌ KẾT QUẢ SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
-            : '❌ KẾT QUẢ SAI! (Không bị trừ điểm • Đã khóa câu trả lời)')
+            : '❌ KẾT QUẢ SAI! (0 điểm câu này • Đã khóa câu trả lời)')
     });
 
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
@@ -859,8 +872,211 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const currentQItem = resolvedCurrentQ;
 
+  // Render Nhân Vật Chibi Dễ Thương (Full-body Kawaii Chibi) cho màn hình điện thoại học sinh
+  const renderCuteChibiCharacter = (
+    size: number = 84,
+    mood: 'happy' | 'thinking' | 'cheering' | 'sad' | 'frozen' = 'happy'
+  ) => {
+    const outfitColor =
+      avatar.costume === 'superhero'
+        ? '#ef4444'
+        : avatar.costume === 'aodai'
+        ? '#ec4899'
+        : avatar.costume === 'sport'
+        ? '#10b981'
+        : '#3b82f6';
+    const accentColor = avatar.accessoryColor || '#f59e0b';
+
+    return (
+      <div
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: `${Math.round(size * 0.28)}px`,
+          background:
+            mood === 'frozen'
+              ? 'linear-gradient(145deg, #0284c7, #38bdf8)'
+              : mood === 'cheering'
+              ? 'linear-gradient(145deg, #065f46, #10b981)'
+              : mood === 'sad'
+              ? 'linear-gradient(145deg, #7f1d1d, #b91c1c)'
+              : gameType === 'TUG'
+              ? team === 'RED'
+                ? 'linear-gradient(145deg, #dc2626, #7f1d1d)'
+                : 'linear-gradient(145deg, #2563eb, #1e3a8a)'
+              : 'linear-gradient(145deg, #312e81, #1e1b4b)',
+          border: `2.5px solid ${accentColor}`,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          boxShadow: `0 6px 18px rgba(0,0,0,0.45), 0 0 12px ${accentColor}55`,
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        <svg
+          width={Math.round(size * 0.9)}
+          height={Math.round(size * 0.9)}
+          viewBox="0 0 80 80"
+          style={{
+            animation: 'chibiGentleSway 2.4s ease-in-out infinite',
+            transformOrigin: 'bottom center'
+          }}
+        >
+          {/* Hào quang nền dưới chân Chibi */}
+          <ellipse cx="40" cy="73" rx="18" ry="4" fill="rgba(255,255,255,0.22)" />
+
+          {/* Áo choàng nếu là Siêu nhân */}
+          {avatar.costume === 'superhero' && (
+            <path d="M22 44 L14 68 L66 68 L58 44 Z" fill="#b91c1c" />
+          )}
+
+          {/* Chân & Giày Chibi dễ thương */}
+          <rect x="29" y="61" width="8" height="10" rx="4" fill="#1e293b" />
+          <rect x="43" y="61" width="8" height="10" rx="4" fill="#1e293b" />
+          <ellipse cx="33" cy="71" rx="5.5" ry="3" fill="#f8fafc" />
+          <ellipse cx="47" cy="71" rx="5.5" ry="3" fill="#f8fafc" />
+
+          {/* Thân áo Chibi */}
+          <rect x="23" y="42" width="34" height="22" rx="11" fill={outfitColor} stroke="#ffffff" strokeWidth="1.2" />
+
+          {/* Họa tiết trang phục */}
+          {avatar.costume === 'uniform' && (
+            <>
+              <polygon points="33,42 40,51 47,42" fill="#ffffff" />
+              <polygon points="38.5,47 41.5,47 42.5,58 40,61 37.5,58" fill="#ef4444" />
+            </>
+          )}
+          {avatar.costume === 'aodai' && (
+            <>
+              <path d="M32 43 Q40 49 48 43" stroke="#fef08a" strokeWidth="1.8" fill="none" />
+              <circle cx="40" cy="53" r="3.5" fill="#fef08a" />
+            </>
+          )}
+          {avatar.costume === 'superhero' && (
+            <polygon points="40,46 42,51 47,51 43,54 44.5,59 40,56 35.5,59 37,54 33,51 38,51" fill="#fde047" />
+          )}
+          {avatar.costume === 'sport' && (
+            <text x="40" y="57" textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="900">10</text>
+          )}
+
+          {/* Hai tay Chibi (Giơ cao ăn mừng khi trả lời đúng, hoặc cầm đạo cụ dễ thương) */}
+          {mood === 'cheering' ? (
+            <>
+              <rect x="13" y="34" width="9" height="16" rx="4.5" transform="rotate(-28 17 42)" fill={outfitColor} />
+              <circle cx="13" cy="33" r="4" fill="#fde68a" />
+              <rect x="58" y="34" width="9" height="16" rx="4.5" transform="rotate(28 63 42)" fill={outfitColor} />
+              <circle cx="67" cy="33" r="4" fill="#fde68a" />
+            </>
+          ) : (
+            <>
+              <rect x="15" y="43" width="8" height="15" rx="4" transform="rotate(14 19 45)" fill={outfitColor} />
+              <circle cx="17" cy="57" r="3.8" fill="#fde68a" />
+              <rect x="57" y="43" width="8" height="15" rx="4" transform="rotate(-14 61 45)" fill={outfitColor} />
+              <circle cx="63" cy="57" r="3.8" fill="#fde68a" />
+            </>
+          )}
+
+          {/* Đạo cụ theo trò chơi (Bảng vàng Rung Chuông Vàng / Ngọc phép Diệt Boss / Tia chớp Đua Tốc Độ) */}
+          {gameType === 'BELL' && (
+            <g transform="translate(54, 46)">
+              <rect x="0" y="0" width="16" height="14" rx="3" fill="#fef08a" stroke="#ca8a04" strokeWidth="1.5" />
+              <text x="8" y="10" textAnchor="middle" fill="#0f172a" fontSize="8" fontWeight="900">🔔</text>
+            </g>
+          )}
+          {gameType === 'BOSS' && (
+            <circle cx="65" cy="49" r="5.5" fill="#38bdf8" stroke="#bae6fd" strokeWidth="1.5" />
+          )}
+
+          {/* Tai & Khuôn mặt Chibi bầu bĩnh */}
+          <circle cx="20" cy="29" r="4" fill="#fde68a" />
+          <circle cx="60" cy="29" r="4" fill="#fde68a" />
+          <circle cx="40" cy="28" r="19" fill="#fde68a" stroke="#fcd34d" strokeWidth="1" />
+
+          {/* Má hồng Kawaii */}
+          <ellipse cx="27" cy="32" rx="4.2" ry="2.4" fill="#fb7185" opacity="0.65" />
+          <ellipse cx="53" cy="32" rx="4.2" ry="2.4" fill="#fb7185" opacity="0.65" />
+
+          {/* Biểu cảm mắt & miệng theo trạng thái */}
+          {mood === 'frozen' ? (
+            <>
+              <path d="M29 25 L35 31 M35 25 L29 31" stroke="#0f172a" strokeWidth="2.6" strokeLinecap="round" />
+              <path d="M45 25 L51 31 M51 25 L45 31" stroke="#0f172a" strokeWidth="2.6" strokeLinecap="round" />
+              <rect x="35" y="35" width="10" height="4" rx="2" fill="#38bdf8" stroke="#0284c7" strokeWidth="1" />
+            </>
+          ) : mood === 'cheering' ? (
+            <>
+              <path d="M27 28 Q31.5 22 36 28" stroke="#0f172a" strokeWidth="2.8" fill="none" strokeLinecap="round" />
+              <path d="M44 28 Q48.5 22 53 28" stroke="#0f172a" strokeWidth="2.8" fill="none" strokeLinecap="round" />
+              <path d="M33 34 Q40 42 47 34 Z" fill="#ef4444" stroke="#0f172a" strokeWidth="1.5" />
+            </>
+          ) : mood === 'sad' ? (
+            <>
+              <circle cx="31.5" cy="28" r="3.4" fill="#0f172a" />
+              <circle cx="30.5" cy="26.8" r="1.2" fill="#ffffff" />
+              <circle cx="48.5" cy="28" r="3.4" fill="#0f172a" />
+              <circle cx="47.5" cy="26.8" r="1.2" fill="#ffffff" />
+              {/* Giọt nước mắt chibi */}
+              <path d="M26 31 Q24 35 26 37 Q28 35 26 31 Z" fill="#38bdf8" />
+              <path d="M54 31 Q52 35 54 37 Q56 35 54 31 Z" fill="#38bdf8" />
+              <path d="M34 37 Q40 33 46 37" stroke="#0f172a" strokeWidth="2.3" fill="none" strokeLinecap="round" />
+            </>
+          ) : (
+            <>
+              {/* Đôi mắt to tròn long lanh */}
+              <circle cx="31.5" cy="27.5" r="3.8" fill="#0f172a" />
+              <circle cx="30.2" cy="26.2" r="1.5" fill="#ffffff" />
+              <circle cx="32.8" cy="28.8" r="0.8" fill="#ffffff" />
+              <circle cx="48.5" cy="27.5" r="3.8" fill="#0f172a" />
+              <circle cx="47.2" cy="26.2" r="1.5" fill="#ffffff" />
+              <circle cx="49.8" cy="28.8" r="0.8" fill="#ffffff" />
+              <path d="M34 34.5 Q40 39.5 46 34.5" stroke="#0f172a" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+            </>
+          )}
+
+          {/* Mũ / Tóc Chibi tùy chỉnh */}
+          {avatar.hairStyle === 'crown' ? (
+            <>
+              <path d="M21 22 Q40 12 59 22 Q49 16 40 17 Q31 16 21 22 Z" fill="#1e293b" />
+              <polygon points="23,17 29,6 40,14 51,6 57,17" fill="#facc15" stroke="#ca8a04" strokeWidth="1.6" />
+              <circle cx="40" cy="11" r="2" fill="#ef4444" />
+            </>
+          ) : avatar.hairStyle === 'cap' ? (
+            <>
+              <path d="M20 20 Q40 5 60 20 Z" fill={accentColor} />
+              <rect x="19" y="18" width="44" height="4.5" rx="2.2" fill={accentColor} stroke="#ffffff" strokeWidth="0.8" />
+            </>
+          ) : avatar.hairStyle === 'beret' ? (
+            <>
+              <ellipse cx="41" cy="13" rx="20" ry="7.5" transform="rotate(-8 41 13)" fill={accentColor} />
+              <rect x="39" y="4" width="3" height="4" rx="1" fill={accentColor} />
+            </>
+          ) : avatar.hairStyle === 'cyber' ? (
+            <>
+              <path d="M20 26 Q20 8 40 8 Q60 8 60 26" stroke={accentColor} strokeWidth="4.5" fill="none" />
+              <rect x="15" y="21" width="7" height="12" rx="3.5" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
+              <rect x="58" y="21" width="7" height="12" rx="3.5" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
+            </>
+          ) : (
+            <>
+              <path d="M20 24 Q24 8 40 9 Q56 8 60 24 Q50 15 40 16 Q30 15 20 24 Z" fill="#1e293b" />
+              <rect x="21" y="16" width="38" height="4.5" rx="2" fill={accentColor} />
+            </>
+          )}
+        </svg>
+      </div>
+    );
+  };
+
   return (
     <div id="student-view" style={{ position: 'absolute', inset: 0, overflowY: 'auto', background: '#070b14', color: '#ffffff' }}>
+      <style>{`
+        @keyframes chibiGentleSway {
+          0%, 100% { transform: rotate(-4deg) translateY(0px); }
+          50% { transform: rotate(4deg) translateY(0px); }
+        }
+      `}</style>
       {/* Network reconnecting status banner avoiding loss of points */}
       {networkState !== 'CONNECTED' && (
         <div style={{
@@ -965,11 +1181,19 @@ export const StudentMobileView: React.FC<Props> = ({
             )}
           </div>
 
-          {/* 3D Chibi Avatar Customization */}
+          {/* 3D Chibi Avatar Customization with Live Preview */}
           <div style={{ background: '#0f172a', border: '1.5px solid #6366f1', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
-            <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              🎨 Tùy Chỉnh Nhân Vật Chibi 3D
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', background: 'rgba(99, 102, 241, 0.12)', padding: '12px', borderRadius: '14px', border: '1px solid rgba(99, 102, 241, 0.35)' }}>
+              {renderCuteChibiCharacter(88, 'happy')}
+              <div>
+                <h3 style={{ margin: '0 0 4px 0', fontSize: '15.5px', color: '#fef08a', fontWeight: 900 }}>
+                  ✨ Nhân Vật Chibi Của {studentName.trim() || 'Bạn'}
+                </h3>
+                <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.4 }}>
+                  Hãy chọn kiểu mũ, trang phục và màu sắc yêu thích! Nhân vật Chibi sẽ đồng hành cùng bạn trong suốt trận đấu.
+                </div>
+              </div>
+            </div>
 
             <div style={{ marginBottom: '10px' }}>
               <span style={{ fontSize: '12.5px', color: '#94a3b8' }}>Kiểu mũ / Tóc:</span>
@@ -1168,10 +1392,15 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Screen 2: Waiting screen */}
+      {/* Screen 2: Waiting screen with Cute Chibi Stage */}
       {screen === 'WAITING' && (
-        <div style={{ maxWidth: '480px', margin: '36px auto', padding: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '42px', marginBottom: '12px' }}>⏳</div>
+        <div style={{ maxWidth: '480px', margin: '28px auto', padding: '20px', textAlign: 'center' }}>
+          <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            {renderCuteChibiCharacter(108, 'happy')}
+            <div style={{ background: '#1e293b', border: '1.5px solid #fde047', color: '#fef08a', padding: '5px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 900 }}>
+              💬 Chibi {studentName || 'Học sinh'}: &ldquo;Em đã sẵn sàng chiến đấu!&rdquo;
+            </div>
+          </div>
           <h2 style={{ fontSize: '20px', color: '#fef08a', margin: '0 0 10px 0' }}>
             ĐÃ SẴN SÀNG TRÊN SÀN ĐẤU!
           </h2>
@@ -1213,98 +1442,22 @@ export const StudentMobileView: React.FC<Props> = ({
       {/* Screen 3: Quiz Gameplay */}
       {screen === 'QUIZ' && (
         <div style={{ maxWidth: '540px', margin: '0 auto', padding: '10px 12px' }}>
-          <style>{`
-            @keyframes chibiGentleSway {
-              0%, 100% { transform: rotate(-4deg) translateY(0px); }
-              50% { transform: rotate(4deg) translateY(0px); }
-            }
-          `}</style>
           {/* Header HUD with Cute Swaying Chibi Character & Reconnect Button */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '8px 12px', borderRadius: '14px', border: '1.5px solid #334155', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {/* Nhân vật hoạt hình Chibi đứng im chỉ lắc qua lắc lại */}
-              <div
-                style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: (gameType === 'TUG' && isFrozen)
-                    ? 'linear-gradient(135deg, #0284c7, #38bdf8)'
-                    : gameType === 'TUG'
-                    ? (team === 'RED' ? 'linear-gradient(135deg, #dc2626, #991b1b)' : 'linear-gradient(135deg, #2563eb, #1e40af)')
-                    : 'linear-gradient(135deg, #4f46e5, #3730a3)',
-                  border: `2px solid ${avatar.accessoryColor || '#fef08a'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
-                }}
-              >
-                <svg
-                  width="34"
-                  height="34"
-                  viewBox="0 0 64 64"
-                  style={{
-                    animation: 'chibiGentleSway 2.4s ease-in-out infinite',
-                    transformOrigin: 'bottom center'
-                  }}
-                >
-                  <rect
-                    x="18"
-                    y="40"
-                    width="28"
-                    height="18"
-                    rx="9"
-                    fill={
-                      avatar.costume === 'superhero'
-                        ? '#ef4444'
-                        : avatar.costume === 'aodai'
-                        ? '#ec4899'
-                        : avatar.costume === 'sport'
-                        ? '#10b981'
-                        : '#3b82f6'
-                    }
-                  />
-                  <path d="M26 40 L32 47 L38 40 Z" fill="#ffffff" />
-                  <circle cx="32" cy="25" r="15" fill="#fde68a" />
-                  <ellipse cx="22" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
-                  <ellipse cx="42" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
-                  {(gameType === 'TUG' && isFrozen) ? (
-                    <>
-                      <path d="M23 23 L27 27 M27 23 L23 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
-                      <path d="M37 23 L41 27 M41 23 L37 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
-                    </>
-                  ) : (
-                    <>
-                      <circle cx="25" cy="25" r="2.8" fill="#0f172a" />
-                      <circle cx="24" cy="24" r="1" fill="#ffffff" />
-                      <circle cx="39" cy="25" r="2.8" fill="#0f172a" />
-                      <circle cx="38" cy="24" r="1" fill="#ffffff" />
-                    </>
-                  )}
-                  {(gameType === 'TUG' && isFrozen) ? (
-                    <circle cx="32" cy="32" r="2.5" fill="#0284c7" />
-                  ) : (
-                    <path d="M27 30 Q32 35 37 30" stroke="#0f172a" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-                  )}
-                  {avatar.hairStyle === 'crown' ? (
-                    <polygon points="18,14 23,6 32,12 41,6 46,14" fill="#facc15" stroke="#ca8a04" strokeWidth="1.5" />
-                  ) : avatar.hairStyle === 'cap' ? (
-                    <>
-                      <path d="M16 18 Q32 6 48 18 Z" fill={avatar.accessoryColor || '#f59e0b'} />
-                      <rect x="16" y="16" width="35" height="4" rx="2" fill={avatar.accessoryColor || '#f59e0b'} />
-                    </>
-                  ) : (
-                    <>
-                      <path d="M16 22 Q20 8 32 9 Q44 8 48 22 Q40 14 32 15 Q24 14 16 22 Z" fill="#1e293b" />
-                      <rect x="17" y="15" width="30" height="3.5" rx="1.5" fill={avatar.accessoryColor || '#f59e0b'} />
-                    </>
-                  )}
-                </svg>
-              </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '10px 12px', borderRadius: '16px', border: '1.5px solid #334155', marginBottom: '10px', gap: '8px', flexWrap: 'wrap', boxShadow: '0 4px 16px rgba(0,0,0,0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Nhân vật hoạt hình Chibi dễ thương trên điện thoại học sinh */}
+              {renderCuteChibiCharacter(
+                64,
+                gameType === 'TUG' && isFrozen
+                  ? 'frozen'
+                  : (hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult
+                  ? lastLockedResult.isCorrect
+                    ? 'cheering'
+                    : 'sad'
+                  : 'happy'
+              )}
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span>{studentName || 'Thí sinh'}</span>
                   {gameType === 'TUG' && (
                     <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '6px', background: team === 'RED' ? '#dc2626' : '#0284c7', color: '#fff' }}>
@@ -1312,8 +1465,17 @@ export const StudentMobileView: React.FC<Props> = ({
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: '11.5px', color: '#4ade80', fontWeight: 800 }}>
+                <div style={{ fontSize: '12px', color: '#4ade80', fontWeight: 800, marginTop: '2px' }}>
                   ⭐ {fastScore} điểm • ✅ {myCorrectCount} câu đúng
+                </div>
+                <div style={{ fontSize: '11px', color: '#7dd3fc', fontWeight: 800, marginTop: '2px' }}>
+                  {(hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult
+                    ? lastLockedResult.isCorrect
+                      ? '💬 Chibi: "Tuyệt vời! Chính xác luôn! 🎉"'
+                      : '💬 Chibi: "Cố lên! Gỡ lại ở câu sau nhé! 💪"'
+                    : remSec <= 8
+                    ? '💬 Chibi: "Nhanh lên! Sắp hết 30 giây rồi! ⏰"'
+                    : '💬 Chibi: "Bình tĩnh đọc kỹ đề nhé! ✨"'}
                 </div>
               </div>
             </div>
@@ -1418,13 +1580,13 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* KHI THÍ SINH ĐÃ BẤM CHỌN (CHỈ THAO TÁC 1 LẦN BẤM TRÊN 1 CÂU):
-              - Chọn ĐÚNG: thông báo ĐÚNG rực rỡ, khóa mọi thao tác khác.
-              - Chọn SAI: thông báo SAI và toàn bộ các nút đáp án BIẾN MẤT hoàn toàn, không cho thao tác gì khác! */}
+          {/* KHI THÍ SINH ĐÃ BẤM CHỌN HOẶC HẾT GIỜ (CHỈ THAO TÁC 1 LẦN BẤM TRÊN 1 CÂU):
+              - Chọn ĐÚNG: thông báo ĐÚNG rực rỡ kèm nhân vật Chibi ăn mừng, đồng hồ 30s vẫn đếm hết câu rồi mới qua câu khác.
+              - Chọn SAI / Không chọn khi hết giờ: thông báo SAI và toàn bộ các nút đáp án BIẾN MẤT hoàn toàn! */}
           {(hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult ? (
             <div
               style={{
-                padding: '26px 20px',
+                padding: '22px 18px',
                 borderRadius: '20px',
                 background: lastLockedResult.isCorrect
                   ? 'linear-gradient(135deg, #065f46 0%, #047857 100%)'
@@ -1438,11 +1600,11 @@ export const StudentMobileView: React.FC<Props> = ({
                 pointerEvents: 'none'
               }}
             >
-              <div style={{ fontSize: '52px', marginBottom: '10px' }}>
-                {lastLockedResult.isCorrect ? '🎉' : '❌'}
+              <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'center' }}>
+                {renderCuteChibiCharacter(86, lastLockedResult.isCorrect ? 'cheering' : 'sad')}
               </div>
               <div style={{
-                fontSize: '21px',
+                fontSize: '20px',
                 fontWeight: 900,
                 color: lastLockedResult.isCorrect ? '#a7f3d0' : '#fecaca',
                 marginBottom: '8px',
@@ -1460,7 +1622,7 @@ export const StudentMobileView: React.FC<Props> = ({
                 fontSize: '13px',
                 fontWeight: 800
               }}>
-                🔒 Đã khóa thao tác câu #{currentGlobalQIndex + 1} (Chỉ bấm 1 lần/câu) • Đang chờ câu tiếp theo...
+                🔒 Đã khóa câu #{currentGlobalQIndex + 1} • Tự động qua câu mới sau {Math.ceil(remSec)}s...
               </div>
             </div>
           ) : (
@@ -1690,12 +1852,14 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Screen 4: Eliminated in Golden Bell -> Chế Độ Khán Giả Cổ Vũ */}
+      {/* Screen 4: Eliminated in Golden Bell -> Chế Độ Khán Giả Cổ Vũ với Nhân Vật Chibi */}
       {screen === 'ELIMINATED' && (
         <div style={{ maxWidth: '480px', margin: '28px auto', padding: '22px', textAlign: 'center' }}>
-          <div style={{ fontSize: '52px', marginBottom: '8px' }}>📣</div>
+          <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+            {renderCuteChibiCharacter(104, 'cheering')}
+          </div>
           <h2 style={{ fontSize: '21px', color: '#fbbf24', fontWeight: 900, margin: '0 0 8px 0' }}>
-            BẠN ĐÃ TRỞ THÀNH KHÁN GIẢ CỔ VŨ!
+            📣 BẠN ĐÃ TRỞ THÀNH KHÁN GIẢ CỔ VŨ!
           </h2>
           <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.55, margin: '0 0 14px 0' }}>
             Trong trò <b>Rung Chuông Vàng</b>, bạn đã dùng hết 3 mạng (❤️❤️❤️) và rời sàn đấu.<br />
@@ -1705,7 +1869,7 @@ export const StudentMobileView: React.FC<Props> = ({
           {/* Hộp tương tác cổ vũ đồng đội trên sàn đấu */}
           <div style={{ background: '#0f172a', border: '2px solid #f59e0b', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#fef08a', marginBottom: '10px' }}>
-              🎉 BẤM CỔ VŨ CÁC BẠN ĐANG THI ĐẤU TRÊN SÂN:
+              🎉 CÙNG CHIBI CỔ VŨ CÁC BẠN ĐANG THI ĐẤU TRÊN SÂN:
             </div>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
               {[

@@ -595,12 +595,11 @@ export const App: React.FC = () => {
         pObj.lastTimeSec = studentElapsedSec;
         pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
 
-        // Record question rightCount
+        // Record question rightCount in ref without re-triggering quizList effects mid-question
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
         const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
         if (curQ) {
           curQ.rightCount = (curQ.rightCount || 0) + 1;
-          setQuizList([...activeDeck]);
         }
 
         const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
@@ -686,35 +685,22 @@ export const App: React.FC = () => {
           };
         }
 
-        // TUG mode (Kéo Co 3D): Chia 2 đội Đỏ - Xanh, tính điểm & số câu đúng để kéo dây và xếp hạng
-        const pullPower = d.gainedPts && d.gainedPts >= 200 ? 2 : 1;
-        let nextRope = prev.ropeScore + (pObj.team === 'BLUE' ? pullPower : -pullPower);
-        let nextRedWins = prev.redRoundWins;
-        let nextBlueWins = prev.blueRoundWins;
-        let nextStatus: MatchStatus = prev.status;
-
-        if (nextRope >= 3) {
-          nextBlueWins++;
-          AudioFX.winFanfare();
-          if (nextBlueWins >= 2) nextStatus = 'ENDED';
-          else nextStatus = 'ROUND_BREAK';
-        } else if (nextRope <= -3) {
-          nextRedWins++;
-          AudioFX.winFanfare();
-          if (nextRedWins >= 2) nextStatus = 'ENDED';
-          else nextStatus = 'ROUND_BREAK';
-        }
+        // TUG mode (Kéo Co 3D): Kéo dây theo lực trả lời đúng, KHÔNG ngắt ngang đồng hồ 30 giây của câu hỏi đang chạy
+        const pullPower = d.gainedPts && d.gainedPts >= 200 ? 1.2 : 0.8;
+        const rawNextRope = prev.ropeScore + (pObj.team === 'BLUE' ? pullPower : -pullPower);
+        const nextRope = Math.max(-6, Math.min(6, rawNextRope));
+        const nextRedTotalCorrect = pObj.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect;
+        const nextBlueTotalCorrect = pObj.team === 'BLUE' ? prev.blueTotalCorrect + 1 : prev.blueTotalCorrect;
 
         return {
           ...prev,
           ropeScore: nextRope,
-          redRoundWins: nextRedWins,
-          blueRoundWins: nextBlueWins,
-          status: nextStatus,
+          redRoundWins: nextRedTotalCorrect,
+          blueRoundWins: nextBlueTotalCorrect,
           redAnsweredIds: nextRedAns,
           blueAnsweredIds: nextBlueAns,
-          redTotalCorrect: pObj.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect,
-          blueTotalCorrect: pObj.team === 'BLUE' ? prev.blueTotalCorrect + 1 : prev.blueTotalCorrect,
+          redTotalCorrect: nextRedTotalCorrect,
+          blueTotalCorrect: nextBlueTotalCorrect,
           redPlayers: [...prev.redPlayers],
           bluePlayers: [...prev.bluePlayers]
         };
@@ -736,7 +722,6 @@ export const App: React.FC = () => {
         const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
         if (curQ) {
           curQ.wrongCount = (curQ.wrongCount || 0) + 1;
-          setQuizList([...activeDeck]);
         }
 
         const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
