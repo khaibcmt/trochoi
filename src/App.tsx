@@ -154,6 +154,7 @@ export const App: React.FC = () => {
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
     const shuffled = shuffleQuestionOrder(parsedQuiz);
     setQuizList(shuffled);
+    quizListRef.current = shuffled;
     const newRoom = String(Math.floor(10000 + Math.random() * 90000));
     setActiveRoomId(newRoom);
 
@@ -180,11 +181,22 @@ export const App: React.FC = () => {
     setView('HOST_ARENA');
   };
 
+  const quizListRef = useRef<QuizItem[]>(quizList);
+  useEffect(() => {
+    quizListRef.current = quizList;
+  }, [quizList]);
+
   // Broadcast host heartbeat
   const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string) => {
+    const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : currentQ;
     const allP = [...currentMS.redPlayers, ...currentMS.bluePlayers];
     const aliveCount = allP.filter(x => !x.eliminated).length;
-    const activeQ = currentQ[currentMS.globalQIndex % (currentQ.length || 1)];
+    const rawActiveQ = activeDeck[currentMS.globalQIndex % (activeDeck.length || 1)];
+    const activeQWithMeta = rawActiveQ ? {
+      ...rawActiveQ,
+      qIndex: currentMS.globalQIndex,
+      totalQuestions: activeDeck.length
+    } : null;
 
     CloudNetwork.sendMessage({
       type: 'HOST_HEARTBEAT',
@@ -204,8 +216,8 @@ export const App: React.FC = () => {
       bossHP: currentMS.bossHP,
       maxBossHP: currentMS.maxBossHP,
       subj: currentSubjectKey,
-      quiz: currentQ,
-      question: activeQ
+      quiz: activeDeck,
+      question: activeQWithMeta
     });
   };
 
@@ -223,13 +235,13 @@ export const App: React.FC = () => {
       activeRoomId,
       handleHostIncomingMessage,
       () => {
-        broadcastHeartbeat(matchState, quizList, activeRoomId);
+        broadcastHeartbeat(matchState, quizListRef.current, activeRoomId);
       }
     );
 
     heartbeatRef.current = setInterval(() => {
       setMatchState(latestMS => {
-        broadcastHeartbeat(latestMS, quizList, activeRoomId);
+        broadcastHeartbeat(latestMS, quizListRef.current, activeRoomId);
         return latestMS;
       });
     }, 1800);
@@ -267,6 +279,14 @@ export const App: React.FC = () => {
             updated = true;
           }
 
+          const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
+          const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
+          const activeQWithMeta = rawActiveQ ? {
+            ...rawActiveQ,
+            qIndex: prev.globalQIndex,
+            totalQuestions: currentList.length
+          } : null;
+
           // Crucial: Send confirmation back to student so their phone restores full session & score
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
@@ -283,7 +303,8 @@ export const App: React.FC = () => {
             fastScore: existing.fastScore || 0,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
-            quiz: quizList
+            quiz: currentList,
+            question: activeQWithMeta
           });
 
           if (updated) {
@@ -317,6 +338,14 @@ export const App: React.FC = () => {
             else role = 'SPECTATOR';
           }
         }
+
+        const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
+        const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
+        const activeQWithMeta = rawActiveQ ? {
+          ...rawActiveQ,
+          qIndex: prev.globalQIndex,
+          totalQuestions: currentList.length
+        } : null;
 
         if (role === 'PULLER') {
           AudioFX.spawnPop();
@@ -356,7 +385,8 @@ export const App: React.FC = () => {
             eliminated: newP.eliminated,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
-            quiz: quizList
+            quiz: currentList,
+            question: activeQWithMeta
           });
 
           return { ...prev, redPlayers: nextRed, bluePlayers: nextBlue };
@@ -372,7 +402,8 @@ export const App: React.FC = () => {
             globalQIndex: prev.globalQIndex,
             lives: 0,
             eliminated: true,
-            quiz: quizList
+            quiz: currentList,
+            question: activeQ
           });
           return { ...prev, spectators: prev.spectators + 1 };
         }

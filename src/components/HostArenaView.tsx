@@ -1116,13 +1116,19 @@ export const HostArenaView: React.FC<Props> = ({
     isTransitioningRef.current = false;
     correctOrderCountRef.current = 0;
 
+    const activeQWithMeta = {
+      ...currentQItem,
+      qIndex: matchState.globalQIndex,
+      totalQuestions: quizList.length
+    };
+
     // Broadcast question started with duration, exact question, and quiz deck
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
       qIndex: matchState.globalQIndex,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
-      question: currentQItem,
+      question: activeQWithMeta,
       quiz: quizList
     });
 
@@ -1272,14 +1278,9 @@ export const HostArenaView: React.FC<Props> = ({
     }
   };
 
-  // Start contest
+  // Start contest - Giữ nguyên bộ đề đã chuẩn hóa, đồng bộ tức thì xuống máy học sinh
   const handleStartContest = () => {
     AudioFX.whistle();
-    // Xáo trộn câu hỏi theo chuẩn GDPT 2018: Phần I -> Phần II -> Phần III, đảo ngẫu nhiên mỗi hiệp
-    if (onUpdateQuizList && quizList.length > 0) {
-      const shuffled = shuffleQuestionOrder(quizList);
-      onUpdateQuizList(shuffled);
-    }
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -1369,10 +1370,6 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Restart match for a fresh new game round
   const handleRestartMatch = () => {
-    if (onUpdateQuizList && quizList.length > 0) {
-      const shuffled = shuffleQuestionOrder(quizList);
-      onUpdateQuizList(shuffled);
-    }
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
