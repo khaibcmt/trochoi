@@ -982,6 +982,16 @@ export const StudentMobileView: React.FC<Props> = ({
                   🛡️ Khiên
                 </div>
               )}
+              {doublePowerActive && (
+                <div style={{ fontSize: '12px', background: '#eab308', color: '#000', padding: '2px 8px', borderRadius: '10px', fontWeight: 900 }}>
+                  ⚡ x2 Kéo
+                </div>
+              )}
+              {isFrozen && (
+                <div style={{ fontSize: '12px', background: 'linear-gradient(135deg, #0284c7, #0369a1)', color: '#fff', border: '1px solid #38bdf8', padding: '2px 8px', borderRadius: '10px', fontWeight: 900, animation: 'pulse 1.5s infinite' }}>
+                  ❄️ Đóng băng: {freezeSeconds}s
+                </div>
+              )}
             </div>
           </div>
 
@@ -998,9 +1008,231 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Power-up Inventory Bar */}
+          {/* 30s Countdown Bar */}
+          <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${(remSec / 30) * 100}%`,
+                background: remSec > 10 ? '#10b981' : remSec > 5 ? '#f59e0b' : '#ef4444',
+                transition: 'width 0.1s linear'
+              }}
+            />
+          </div>
+
+          {/* Question Text with KaTeX - Luôn cố định vị trí, không bị dịch chuyển */}
+          <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '16px', padding: '14px', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: '11.5px', color: '#38bdf8', fontWeight: 800 }}>
+                Câu hỏi #{currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'Phần II: Đúng / Sai' : currentQItem.format === 'SHORT_ANSWER' ? 'Phần III: Trả Lời Ngắn' : 'Phần I: Trắc Nghiệm'}
+              </span>
+              {isFrozen ? (
+                <span style={{ fontSize: '11.5px', color: '#38bdf8', fontWeight: 900 }}>
+                  ❄️ Bị phạt đóng băng {freezeSeconds}s
+                </span>
+              ) : isAnswerLocked ? (
+                <span style={{ fontSize: '11.5px', color: lastLockedResult?.isCorrect ? '#34d399' : '#f87171', fontWeight: 900 }}>
+                  {lastLockedResult?.isCorrect ? '✓ Đã ghi nhận' : '✗ Đã khóa'}
+                </span>
+              ) : null}
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 800, lineHeight: 1.4, color: '#ffffff' }}>
+              <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
+            </div>
+          </div>
+
+          {/* Màn hình chọn đáp án: Luôn hiển thị đầy đủ, KHÔNG bị che lấp bởi bất kỳ popup hay thông báo nào để tránh bấm nhầm */}
+          {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+              {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
+                const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
+                if (isEliminated) return null;
+
+                const isSelected = selectedOptionOriginalIdx === optItem.originalIndex;
+                const colors = [
+                  'linear-gradient(135deg, #ef4444, #b91c1c)',
+                  'linear-gradient(135deg, #0284c7, #0369a1)',
+                  'linear-gradient(135deg, #f59e0b, #d97706)',
+                  'linear-gradient(135deg, #10b981, #047857)'
+                ];
+                const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isFrozen;
+
+                return (
+                  <button
+                    key={`${optItem.originalIndex}_${pos}`}
+                    disabled={isDisabled}
+                    onClick={() => handleSelectMultipleChoice(optItem.originalIndex)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '14px 16px',
+                      borderRadius: '14px',
+                      background: isSelected
+                        ? (lastLockedResult?.isCorrect ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #b91c1c, #dc2626)')
+                        : colors[pos % 4],
+                      color: '#ffffff',
+                      border: isSelected ? '3px solid #fef08a' : (isFrozen ? '1.5px dashed #38bdf8' : 'none'),
+                      cursor: isDisabled ? 'not-allowed' : 'pointer',
+                      textAlign: 'left',
+                      fontSize: '15px',
+                      fontWeight: 800,
+                      boxShadow: isSelected ? '0 0 18px rgba(254, 240, 138, 0.8)' : '0 4px 12px rgba(0,0,0,0.3)',
+                      opacity: isDisabled ? (isSelected ? 1 : 0.55) : 1,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span style={{ width: '28px', height: '28px', borderRadius: '50%', background: isSelected ? '#ffffff' : 'rgba(255,255,255,0.25)', color: isSelected ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 900, flexShrink: 0 }}>
+                      {isSelected ? (lastLockedResult?.isCorrect ? '✓' : '✗') : optItem.letter}
+                    </span>
+                    <span style={{ flex: 1 }}>
+                      <MathRenderer text={optItem.text} />
+                    </span>
+                    {isSelected && (
+                      <span style={{ fontSize: '12px', fontWeight: 900, color: '#fef08a' }}>
+                        🔒 {lastLockedResult?.isCorrect ? 'Đúng' : 'Đã chọn'}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Format 2: TRUE_FALSE (4 items a, b, c, d) */}
+          {currentQItem.format === 'TRUE_FALSE' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(currentQItem.tfItems || []).map(item => {
+                const currentVal = tfAnswers[item.label] ?? false;
+                const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isFrozen;
+                return (
+                  <div
+                    key={item.label}
+                    style={{
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      borderRadius: '12px',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '10px',
+                      opacity: isDisabled ? 0.65 : 1
+                    }}
+                  >
+                    <div style={{ fontSize: '13.5px', color: '#e2e8f0', flex: 1 }}>
+                      <b>{item.label})</b> <MathRenderer text={item.text} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                      <button
+                        disabled={isDisabled}
+                        onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          fontWeight: 900,
+                          background: currentVal === true ? '#10b981' : '#1e293b',
+                          color: currentVal === true ? '#ffffff' : '#94a3b8',
+                          border: '1px solid #334155',
+                          cursor: isDisabled ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Đúng
+                      </button>
+                      <button
+                        disabled={isDisabled}
+                        onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          fontWeight: 900,
+                          background: currentVal === false ? '#ef4444' : '#1e293b',
+                          color: currentVal === false ? '#ffffff' : '#94a3b8',
+                          border: '1px solid #334155',
+                          cursor: isDisabled ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Sai
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <button
+                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen}
+                onClick={handleSubmitTrueFalse}
+                style={{
+                  marginTop: '6px',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '15px',
+                  border: 'none',
+                  cursor: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 'not-allowed' : 'pointer',
+                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
+                }}
+              >
+                {hasAnsweredCurrentQ ? '✓ ĐÃ NỘP BÀI' : isFrozen ? `❄️ ĐANG ĐÓNG BĂNG (${freezeSeconds}s)` : '🚀 XÁC NHẬN NỘP BÀI (ĐÚNG/SAI)'}
+              </button>
+            </div>
+          )}
+
+          {/* Format 3: SHORT_ANSWER (Fill-in) */}
+          {currentQItem.format === 'SHORT_ANSWER' && (
+            <div style={{ background: '#0f172a', border: '1.5px solid #6366f1', borderRadius: '16px', padding: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', color: '#a5b4fc', fontWeight: 800, marginBottom: '8px' }}>
+                Nhập con số hoặc từ khóa trả lời:
+              </label>
+              <input
+                type="text"
+                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen}
+                placeholder="VD: 3 hoặc 12.5 hoặc ADN..."
+                value={shortAnswerInput}
+                onChange={e => setShortAnswerInput(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #475569',
+                  background: '#1e293b',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontWeight: 900,
+                  textAlign: 'center',
+                  boxSizing: 'border-box',
+                  marginBottom: '12px',
+                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
+                }}
+              />
+              <button
+                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen || !shortAnswerInput.trim()}
+                onClick={handleSubmitShortAnswer}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '15px',
+                  border: 'none',
+                  cursor: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen || !shortAnswerInput.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
+                }}
+              >
+                {hasAnsweredCurrentQ ? '✓ ĐÃ GỬI CÂU TRẢ LỜI' : isFrozen ? `❄️ ĐANG ĐÓNG BĂNG (${freezeSeconds}s)` : '🚀 GỬI CÂU TRẢ LỜI'}
+              </button>
+            </div>
+          )}
+
+          {/* Power-up Inventory Bar đặt dưới cùng để không bao giờ làm trồi sụt hay dịch chuyển khung đáp án */}
           {inventory.length > 0 && (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '6px 10px', background: '#1e1b4b', borderRadius: '12px', border: '1px solid #6366f1', marginBottom: '10px', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '6px 10px', background: '#1e1b4b', borderRadius: '12px', border: '1px solid #6366f1', marginTop: '14px', overflowX: 'auto' }}>
               <span style={{ fontSize: '11px', fontWeight: 900, color: '#c7d2fe', whiteSpace: 'nowrap' }}>Túi kỹ năng:</span>
               {inventory.map((item, idx) => {
                 const label = item === 'SHIELD' ? '🛡️ Khiên' : item === 'FREEZE_OPPONENT' ? '❄️ Đóng băng' : item === 'FIFTY_FIFTY' ? '💡 50/50' : '⚡ x2 Kéo';
@@ -1025,273 +1257,6 @@ export const StudentMobileView: React.FC<Props> = ({
                 );
               })}
             </div>
-          )}
-
-          {/* 30s Countdown Bar */}
-          <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${(remSec / 30) * 100}%`,
-                background: remSec > 10 ? '#10b981' : remSec > 5 ? '#f59e0b' : '#ef4444',
-                transition: 'width 0.1s linear'
-              }}
-            />
-          </div>
-
-          {/* Bonus Toast Notification */}
-          {bonusToastMsg && (
-            <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', padding: '10px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '13px', textAlign: 'center', marginBottom: '10px' }}>
-              {bonusToastMsg}
-            </div>
-          )}
-
-          {/* Question Text with KaTeX */}
-          <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '16px', padding: '14px', marginBottom: '12px' }}>
-            <div style={{ fontSize: '11.5px', color: '#38bdf8', fontWeight: 800, marginBottom: '6px' }}>
-              Câu hỏi #{currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'Phần II: Đúng / Sai' : currentQItem.format === 'SHORT_ANSWER' ? 'Phần III: Trả Lời Ngắn' : 'Phần I: Trắc Nghiệm'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 800, lineHeight: 1.4, color: '#ffffff' }}>
-              <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
-            </div>
-          </div>
-
-          {/* Freeze overlay */}
-          {isFrozen ? (
-            <div style={{
-              padding: '28px 16px',
-              background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(2, 132, 199, 0.35))',
-              border: '2.5px solid #38bdf8',
-              borderRadius: '18px',
-              textAlign: 'center',
-              boxShadow: '0 8px 30px rgba(14, 165, 233, 0.35)'
-            }}>
-              <div style={{ fontSize: '46px', marginBottom: '8px' }}>❄️</div>
-              <div style={{ fontSize: '18px', fontWeight: 900, color: '#bae6fd' }}>
-                BẠN ĐÃ BỊ ĐÓNG BĂNG 20 GIÂY VÌ TRẢ LỜI SAI!
-              </div>
-              <div style={{ fontSize: '14px', color: '#fef08a', marginTop: '8px', fontWeight: 800 }}>
-                ❌ Bạn đã mất lượt và không thể thao tác trong câu hỏi này.
-              </div>
-              <div style={{ fontSize: '15px', color: '#ffffff', marginTop: '8px', fontWeight: 900 }}>
-                ⏳ Thời gian đóng băng còn lại: <span style={{ color: '#38bdf8', fontSize: '22px' }}>{freezeSeconds}s</span>
-              </div>
-              <div style={{ fontSize: '12.5px', color: '#a5f3fc', marginTop: '10px', background: 'rgba(15, 23, 42, 0.7)', padding: '6px 12px', borderRadius: '10px', display: 'inline-block' }}>
-                🔓 Hệ thống sẽ tự động rã đông ngay khi xuất hiện câu hỏi mới!
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Answer Locked Status Banner */}
-              {isAnswerLocked && (
-                <div style={{
-                  padding: '12px 16px',
-                  borderRadius: '14px',
-                  background: lastLockedResult?.isCorrect
-                    ? 'linear-gradient(135deg, rgba(6, 78, 59, 0.95), rgba(4, 120, 87, 0.95))'
-                    : 'linear-gradient(135deg, rgba(127, 29, 29, 0.95), rgba(153, 27, 27, 0.95))',
-                  border: lastLockedResult?.isCorrect ? '2px solid #34d399' : '2px solid #f87171',
-                  color: '#ffffff',
-                  marginBottom: '10px',
-                  textAlign: 'center',
-                  boxShadow: '0 4px 14px rgba(0,0,0,0.4)'
-                }}>
-                  <div style={{ fontSize: '15px', fontWeight: 900, color: lastLockedResult?.isCorrect ? '#fef08a' : '#fca5a5' }}>
-                    {lastLockedResult?.text}
-                  </div>
-                  {lastLockedResult?.isCorrect && (
-                    <div style={{ fontSize: '12px', marginTop: '4px', color: '#d1fae5' }}>
-                      🔒 Đáp án đã được khóa an toàn để tránh bấm nhầm. Hệ thống sẽ tự động mở khóa ngay khi câu hỏi mới bắt đầu!
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Format 1: MULTIPLE_CHOICE (Stationary Shuffled Options) */}
-              {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-                  {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
-                    const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
-                    if (isEliminated) return null;
-
-                    const isSelected = selectedOptionOriginalIdx === optItem.originalIndex;
-                    const colors = [
-                      'linear-gradient(135deg, #ef4444, #b91c1c)',
-                      'linear-gradient(135deg, #0284c7, #0369a1)',
-                      'linear-gradient(135deg, #f59e0b, #d97706)',
-                      'linear-gradient(135deg, #10b981, #047857)'
-                    ];
-
-                    return (
-                      <button
-                        key={`${optItem.originalIndex}_${pos}`}
-                        disabled={hasAnsweredCurrentQ || isAnswerLocked}
-                        onClick={() => handleSelectMultipleChoice(optItem.originalIndex)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '12px',
-                          padding: '14px 16px',
-                          borderRadius: '14px',
-                          background: isSelected
-                            ? (lastLockedResult?.isCorrect ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #b91c1c, #dc2626)')
-                            : colors[pos % 4],
-                          color: '#ffffff',
-                          border: isSelected ? '3px solid #fef08a' : 'none',
-                          cursor: (hasAnsweredCurrentQ || isAnswerLocked) ? 'not-allowed' : 'pointer',
-                          textAlign: 'left',
-                          fontSize: '15px',
-                          fontWeight: 800,
-                          boxShadow: isSelected ? '0 0 18px rgba(254, 240, 138, 0.8)' : '0 4px 12px rgba(0,0,0,0.3)',
-                          opacity: (hasAnsweredCurrentQ || isAnswerLocked) ? (isSelected ? 1 : 0.45) : 1,
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        <span style={{ width: '28px', height: '28px', borderRadius: '50%', background: isSelected ? '#ffffff' : 'rgba(255,255,255,0.25)', color: isSelected ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 900, flexShrink: 0 }}>
-                          {isSelected ? (lastLockedResult?.isCorrect ? '✓' : '✗') : optItem.letter}
-                        </span>
-                        <span style={{ flex: 1 }}>
-                          <MathRenderer text={optItem.text} />
-                        </span>
-                        {isSelected && (
-                          <span style={{ fontSize: '12px', fontWeight: 900, color: '#fef08a' }}>
-                            🔒 Đã chọn
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Format 2: TRUE_FALSE (4 items a, b, c, d) */}
-              {currentQItem.format === 'TRUE_FALSE' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(currentQItem.tfItems || []).map(item => {
-                    const currentVal = tfAnswers[item.label] ?? false;
-                    return (
-                      <div
-                        key={item.label}
-                        style={{
-                          background: '#0f172a',
-                          border: '1px solid #334155',
-                          borderRadius: '12px',
-                          padding: '10px 12px',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '10px'
-                        }}
-                      >
-                        <div style={{ fontSize: '13.5px', color: '#e2e8f0', flex: 1 }}>
-                          <b>{item.label})</b> <MathRenderer text={item.text} />
-                        </div>
-                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                          <button
-                            disabled={hasAnsweredCurrentQ}
-                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: 900,
-                              background: currentVal === true ? '#10b981' : '#1e293b',
-                              color: currentVal === true ? '#ffffff' : '#94a3b8',
-                              border: '1px solid #334155',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Đúng
-                          </button>
-                          <button
-                            disabled={hasAnsweredCurrentQ}
-                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: 900,
-                              background: currentVal === false ? '#ef4444' : '#1e293b',
-                              color: currentVal === false ? '#ffffff' : '#94a3b8',
-                              border: '1px solid #334155',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Sai
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <button
-                    disabled={hasAnsweredCurrentQ}
-                    onClick={handleSubmitTrueFalse}
-                    style={{
-                      marginTop: '6px',
-                      padding: '14px',
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      fontSize: '15px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      opacity: hasAnsweredCurrentQ ? 0.6 : 1
-                    }}
-                  >
-                    {hasAnsweredCurrentQ ? '✓ ĐÃ NỘP BÀI' : '🚀 XÁC NHẬN NỘP BÀI (ĐÚNG/SAI)'}
-                  </button>
-                </div>
-              )}
-
-              {/* Format 3: SHORT_ANSWER (Fill-in) */}
-              {currentQItem.format === 'SHORT_ANSWER' && (
-                <div style={{ background: '#0f172a', border: '1.5px solid #6366f1', borderRadius: '16px', padding: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '13px', color: '#a5b4fc', fontWeight: 800, marginBottom: '8px' }}>
-                    Nhập con số hoặc từ khóa trả lời:
-                  </label>
-                  <input
-                    type="text"
-                    disabled={hasAnsweredCurrentQ}
-                    placeholder="VD: 3 hoặc 12.5 hoặc ADN..."
-                    value={shortAnswerInput}
-                    onChange={e => setShortAnswerInput(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '10px',
-                      border: '1.5px solid #475569',
-                      background: '#1e293b',
-                      color: '#ffffff',
-                      fontSize: '16px',
-                      fontWeight: 900,
-                      textAlign: 'center',
-                      boxSizing: 'border-box',
-                      marginBottom: '12px'
-                    }}
-                  />
-                  <button
-                    disabled={hasAnsweredCurrentQ || !shortAnswerInput.trim()}
-                    onClick={handleSubmitShortAnswer}
-                    style={{
-                      width: '100%',
-                      padding: '14px',
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      fontSize: '15px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      opacity: hasAnsweredCurrentQ ? 0.6 : 1
-                    }}
-                  >
-                    {hasAnsweredCurrentQ ? '✓ ĐÃ GỬI CÂU TRẢ LỜI' : '🚀 GỬI CÂU TRẢ LỜI'}
-                  </button>
-                </div>
-              )}
-            </>
           )}
         </div>
       )}
