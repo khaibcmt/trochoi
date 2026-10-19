@@ -49,7 +49,14 @@ export const DEFAULT_AGRI = `
 <div>Câu 9: Biện pháp bảo quản nông sản rau quả tươi trong kho lạnh có cơ sở khoa học chính là gì?</div>
 <div>A. Làm tăng cường độ quang hợp của quả</div><div><u>B</u>. Ức chế quá trình hô hấp của nông sản và hạn chế vi sinh vật gây thối hỏng</div><div>C. Làm đóng băng cứng hoàn toàn tế bào rau tươi</div><div>D. Giúp rau quả tự tổng hợp thêm đường</div><br>
 <div>Câu 10: Ứng dụng cảm biến thông minh IoT trong nông nghiệp công nghệ cao giúp người nông dân thực hiện điều gì tự động?</div>
-<div><u>A</u>. Giám sát độ ẩm đất, nhiệt độ, ánh sáng và tự động bật tắt hệ thống tưới từ xa qua điện thoại</div><div>B. Biến đổi gen cây trồng ngay ngoài đồng ruộng</div><div>C. Tự động thu hoạch toàn bộ gỗ rừng nguyên sinh</div><div>D. Không cần sử dụng nước và dinh dưỡng cho cây</div>`;
+<div><u>A</u>. Giám sát độ ẩm đất, nhiệt độ, ánh sáng và tự động bật tắt hệ thống tưới từ xa qua điện thoại</div><div>B. Biến đổi gen cây trồng ngay ngoài đồng ruộng</div><div>C. Tự động thu hoạch toàn bộ gỗ rừng nguyên sinh</div><div>D. Không cần sử dụng nước và dinh dưỡng cho cây</div><br>
+<div>Câu 11 [Đúng/Sai]: Khi nói về kỹ thuật trồng và chăm sóc cây trồng công nghệ cao theo chương trình GDPT 2018:</div>
+<div><u>a)</u> Hệ thống tưới nhỏ giọt giúp tiết kiệm nước và cung cấp phân bón hòa tan trực tiếp đến vùng rễ. (Đúng)</div>
+<div>b) Bón càng nhiều phân hóa học đạm Urea thì đất càng tơi xốp và pH đất tăng cao. (Sai)</div>
+<div><u>c)</u> Chế phẩm vi sinh Trichoderma giúp phân giải chất hữu cơ và ức chế nấm gây bệnh thối rễ. (Đúng)</div>
+<div><u>d)</u> Trồng cây trong nhà màng giúp hạn chế côn trùng gây hại và chủ động điều chỉnh tiểu khí hậu. (Đúng)</div><br>
+<div>Câu 12 [Trả lời ngắn]: Nhiệt độ bảo quản lạnh thông thường đối với nhiều loại rau quả tươi trong kho mát dao động từ 2 đến bao nhiêu độ C (nhập số nguyên)?</div>
+<div><u>Đáp án: 10</u></div>`;
 
 export const DEFAULT_MATH = `
 <div>Câu 1: Đạo hàm của hàm số y = x³ - 3x² + 2 trên tập số thực là biểu thức nào sau đây?</div>
@@ -100,7 +107,14 @@ export const DEFAULT_PHYS = `
 <div>Câu 9: Khi một vật chuyển động rơi tự do từ trên cao xuống gần mặt đất (bỏ qua sức cản không khí), đại lượng nào tăng dần?</div>
 <div><u>A</u>. Động năng của vật</div><div>B. Thế năng trọng trường của vật</div><div>C. Khối lượng của vật</div><div>D. Gia tốc rơi tự do</div><br>
 <div>Câu 10: Dòng điện xoay chiều sử dụng trong mạng điện sinh hoạt dân dụng tại Việt Nam có tần số chuẩn là bao nhiêu?</div>
-<div>A. 100 Hz</div><div><u>B</u>. 50 Hz</div><div>C. 60 Hz</div><div>D. 220 Hz</div>`;
+<div>A. 100 Hz</div><div><u>B</u>. 50 Hz</div><div>C. 60 Hz</div><div>D. 220 Hz</div><br>
+<div>Câu 11 [Đúng/Sai]: Cho một vật dao động điều hòa trên trục Ox quanh vị trí cân bằng O:</div>
+<div><u>a)</u> Khi vật đi qua vị trí cân bằng, tốc độ của vật đạt giá trị cực đại. (Đúng)</div>
+<div>b) Tại vị trí biên, gia tốc của vật có độ lớn bằng 0. (Sai)</div>
+<div><u>c)</u> Vectơ gia tốc của vật luôn hướng về vị trí cân bằng và tỉ lệ với độ lớn li độ. (Đúng)</div>
+<div>d) Cơ năng của con lắc biến thiên tuần hoàn theo thời gian với chu kỳ T. (Sai)</div><br>
+<div>Câu 12 [Trả lời ngắn]: Cho đoạn mạch chỉ có điện trở thuần R = 10 Ω, hiệu điện thế hai đầu mạch U = 20 V. Cường độ dòng điện I chạy qua mạch bằng bao nhiêu Ampe?</div>
+<div><u>Đáp án: 2</u></div>`;
 
 export const DEFAULT_CHEM = `
 <div>Câu 1: Kim loại nào sau đây là kim loại duy nhất tồn tại ở trạng thái lỏng ở điều kiện nhiệt độ phòng?</div>
@@ -122,7 +136,14 @@ export const DEFAULT_CHEM = `
 <div>Câu 9: Nguyên tố hóa học đầu tiên ở ô số 1 trong Bảng tuần hoàn các nguyên tố hóa học là nguyên tố nào?</div>
 <div><u>A</u>. Hydrogen (H)</div><div>B. Helium (He)</div><div>C. Lithium (Li)</div><div>D. Carbon (C)</div><br>
 <div>Câu 10: Kim loại Nhôm (Al) có tính chất hóa học đặc trưng là tác dụng được với cả dung dịch acid mạnh và dung dịch nào sau đây?</div>
-<div>A. Nước muối NaCl</div><div><u>B</u>. Dung dịch kiềm mạnh (như NaOH)</div><div>C. Dầu hỏa</div><div>D. Khí Nitrogen ở nhiệt độ thường</div>`;
+<div>A. Nước muối NaCl</div><div><u>B</u>. Dung dịch kiềm mạnh (như NaOH)</div><div>C. Dầu hỏa</div><div>D. Khí Nitrogen ở nhiệt độ thường</div><br>
+<div>Câu 11 [Đúng/Sai]: Xét các phát biểu sau về carbohydrate (glucose, saccharose, tinh bột, cellulose):</div>
+<div><u>a)</u> Glucose có phản ứng tráng bạc khi tác dụng với thuốc thử Tollens. (Đúng)</div>
+<div>b) Cellulose tan tốt trong nước lạnh tạo thành dung dịch keo. (Sai)</div>
+<div><u>c)</u> Thủy phân hoàn toàn tinh bột trong môi trường acid thu được sản phẩm cuối cùng là glucose. (Đúng)</div>
+<div>d) Saccharose là một polysaccharide có cấu trúc mạch phân nhánh. (Sai)</div><br>
+<div>Câu 12 [Trả lời ngắn]: Phân tử khối của hợp chất Sodium hydroxide (NaOH, biết Na=23, O=16, H=1) bằng bao nhiêu?</div>
+<div><u>Đáp án: 40</u></div>`;
 
 export const DEFAULT_LIT = `
 <div>Câu 1: Tác phẩm "Truyện Kiều" (Đoạn trường tân thanh) là kiệt tác thơ Nôm của đại thi hào nào?</div>
@@ -144,7 +165,14 @@ export const DEFAULT_LIT = `
 <div>Câu 9: Tập thơ "Nhật ký trong tù" của Chủ tịch Hồ Chí Minh được sáng tác bằng chữ viết nào?</div>
 <div>A. Chữ Quốc ngữ</div><div>B. Chữ Nôm</div><div><u>C</u>. Chữ Hán</div><div>D. Chữ Pháp</div><br>
 <div>Câu 10: Nhân vật Huấn Cao với tài viết chữ đẹp và khí phách hiên ngang là nhân vật chính trong truyện ngắn nào của Nguyễn Tuân?</div>
-<div><u>A</u>. Chữ người tử tù</div><div>B. Một thời vang bóng</div><div>C. Chiếc lư đồng mắt cua</div><div>D. Hương cuội</div>`;
+<div><u>A</u>. Chữ người tử tù</div><div>B. Một thời vang bóng</div><div>C. Chiếc lư đồng mắt cua</div><div>D. Hương cuội</div><br>
+<div>Câu 11 [Đúng/Sai]: Xét các nhận định sau về tác phẩm "Tuyên ngôn Độc lập" của Chủ tịch Hồ Chí Minh:</div>
+<div><u>a)</u> Tác phẩm được đọc tại Quảng trường Ba Đình (Hà Nội) vào ngày 02/09/1945. (Đúng)</div>
+<div><u>b)</u> Mở đầu bản Tuyên ngôn trích dẫn lời trong Tuyên ngôn Độc lập của Mỹ (1776) và Tuyên ngôn Nhân quyền và Dân quyền của Pháp (1791). (Đúng)</div>
+<div>c) Bản Tuyên ngôn được viết theo thể thơ lục bát truyền thống. (Sai)</div>
+<div><u>d)</u> Tác phẩm là một áng văn chính luận mẫu mực với lập luận chặt chẽ, đanh thép. (Đúng)</div><br>
+<div>Câu 12 [Trả lời ngắn]: Trong một cặp câu thơ lục bát chuẩn, tổng số chữ (tiếng) của cả câu lục và câu bát cộng lại là bao nhiêu chữ?</div>
+<div><u>Đáp án: 14</u></div>`;
 
 export const DEFAULT_ENG = `
 <div>Câu 1: Choose the correct form: "She _______ to school by bus every day."</div>
@@ -156,7 +184,14 @@ export const DEFAULT_ENG = `
 <div>Câu 4: Passive Voice: "This school _______ in 1995."</div>
 <div><u>A</u>. was built</div><div>B. built</div><div>C. is building</div><div>D. has built</div><br>
 <div>Câu 5: Preposition: "My brother is very interested _______ learning English and IT."</div>
-<div>A. on</div><div>B. at</div><div><u>C</u>. in</div><div>D. with</div>`;
+<div>A. on</div><div>B. at</div><div><u>C</u>. in</div><div>D. with</div><br>
+<div>Câu 6 [Đúng/Sai]: Read the statements about English grammar (High School 2018 Curriculum) and decide True or False:</div>
+<div><u>a)</u> Present Simple tense is used to describe habits and general truths. (Đúng)</div>
+<div>b) In Conditional Type 1, we use Past Perfect in the "If" clause. (Sai)</div>
+<div><u>c)</u> "Interested" is followed by the preposition "in". (Đúng)</div>
+<div>d) "Go" is a regular verb whose past form is "goed". (Sai)</div><br>
+<div>Câu 7 [Trả lời ngắn]: How many letters are there in the modern English alphabet (enter a number)?</div>
+<div><u>Đáp án: 26</u></div>`;
 
 export const DEFAULT_HIST = `
 <div>Câu 1: Chiến thắng lịch sử Điện Biên Phủ "lừng lẫy năm châu, chấn động địa cầu" diễn ra vào năm nào?</div>
@@ -168,7 +203,14 @@ export const DEFAULT_HIST = `
 <div>Câu 4: Cuộc khởi nghĩa Lam Sơn đánh đuổi quân Minh xâm lược ở thế kỷ XV do vị anh hùng dân tộc nào lãnh đạo?</div>
 <div>A. Trần Hưng Đạo</div><div><u>B</u>. Lê Lợi</div><div>C. Quang Trung - Nguyễn Huệ</div><div>D. Lý Thường Kiệt</div><br>
 <div>Câu 5: Chiến thắng Bạch Đằng năm 938 chấm dứt hơn 1000 năm Bắc thuộc gắn liền với tên tuổi của vị anh hùng nào?</div>
-<div><u>A</u>. Ngô Quyền</div><div>B. Đinh Bộ Lĩnh</div><div>C. Lê Hoàn</div><div>D. Lý Công Uẩn</div>`;
+<div><u>A</u>. Ngô Quyền</div><div>B. Đinh Bộ Lĩnh</div><div>C. Lê Hoàn</div><div>D. Lý Công Uẩn</div><br>
+<div>Câu 6 [Đúng/Sai]: Xét các phát biểu lịch sử về Cách mạng tháng Tám năm 1945 ở Việt Nam:</div>
+<div><u>a)</u> Cách mạng tháng Tám năm 1945 đã lật đổ ách thống trị của thực dân, phát xít và chế độ phong kiến. (Đúng)</div>
+<div><u>b)</u> Ngày 02/09/1945, Chủ tịch Hồ Chí Minh đọc Tuyên ngôn Độc lập khai sinh nước Việt Nam Dân chủ Cộng hòa. (Đúng)</div>
+<div>c) Cách mạng tháng Tám diễn ra sau chiến thắng Điện Biên Phủ năm 1954. (Sai)</div>
+<div><u>d)</u> Thắng lợi của Cách mạng tháng Tám mở ra kỷ nguyên độc lập, tự do cho dân tộc Việt Nam. (Đúng)</div><br>
+<div>Câu 7 [Trả lời ngắn]: Chiến thắng Điện Biên Phủ kết thúc thắng lợi vào ngày 07 tháng 05 năm nào (nhập 4 chữ số năm)?</div>
+<div><u>Đáp án: 1954</u></div>`;
 
 export const DEFAULT_GEO = `
 <div>Câu 1: Vùng kinh tế nào được mệnh danh là vựa lúa và vùng xuất khẩu gạo, trái cây, thủy sản lớn nhất cả nước ta?</div>
@@ -180,7 +222,14 @@ export const DEFAULT_GEO = `
 <div>Câu 4: Tỉnh Vĩnh Long nằm ở trung tâm vùng Đồng bằng sông Cửu Long, nằm giữa hai con sông lớn nào?</div>
 <div><u>A</u>. Sông Tiền và Sông Hậu</div><div>B. Sông Hồng và Sông Đà</div><div>C. Sông Đồng Nai và Sông Sài Gòn</div><div>D. Sông Hương và Sông Thu Bồn</div><br>
 <div>Câu 5: Quần đảo Hoàng Sa và quần đảo Trường Sa của Việt Nam nằm ở vùng biển nào?</div>
-<div><u>A</u>. Biển Đông</div><div>B. Ấn Độ Dương</div><div>C. Địa Trung Hải</div><div>D. Biển Đỏ</div>`;
+<div><u>A</u>. Biển Đông</div><div>B. Ấn Độ Dương</div><div>C. Địa Trung Hải</div><div>D. Biển Đỏ</div><br>
+<div>Câu 6 [Đúng/Sai]: Xét các đặc điểm tự nhiên và kinh tế của vùng Đồng bằng sông Cửu Long:</div>
+<div><u>a)</u> Là vùng sản xuất lúa gạo, thủy sản và cây ăn quả nhiệt đới lớn nhất cả nước. (Đúng)</div>
+<div>b) Địa hình chủ yếu là núi cao hiểm trở trên 2.000m. (Sai)</div>
+<div><u>c)</u> Hệ thống sông Tiền và sông Hậu bồi đắp phù sa màu mỡ cho đồng bằng. (Đúng)</div>
+<div>d) Vùng này không giáp biển và không có đảo ven bờ. (Sai)</div><br>
+<div>Câu 7 [Trả lời ngắn]: Nước Việt Nam thống nhất hiện nay được chia thành bao nhiêu vùng kinh tế - xã hội (theo quy hoạch chuẩn SGK Địa lý 12 GDPT 2018)?</div>
+<div><u>Đáp án: 6</u></div>`;
 
 export const DEFAULT_GDKTPL = `
 <div>Câu 1: Văn bản pháp luật nào có hiệu lực pháp lý cao nhất trong hệ thống pháp luật nước Cộng hòa xã hội chủ nghĩa Việt Nam?</div>
@@ -192,7 +241,14 @@ export const DEFAULT_GDKTPL = `
 <div>Câu 4: Hành vi người điều khiển xe mô tô, xe gắn máy vượt đèn đỏ khi tham gia giao thông là vi phạm pháp luật loại nào?</div>
 <div><u>A</u>. Vi phạm hành chính</div><div>B. Vi phạm kỷ luật trường học</div><div>C. Vi phạm hợp đồng dân sự</div><div>D. Không vi phạm pháp luật</div><br>
 <div>Câu 5: Ngân sách nhà nước là toàn bộ các khoản thu, chi của Nhà nước được dự toán và thực hiện trong một khoảng thời gian nhất định do cơ quan nào quyết định?</div>
-<div><u>A</u>. Quốc hội</div><div>B. Ủy ban nhân dân xã</div><div>C. Các doanh nghiệp tư nhân</div><div>D. Ngân hàng thương mại</div>`;
+<div><u>A</u>. Quốc hội</div><div>B. Ủy ban nhân dân xã</div><div>C. Các doanh nghiệp tư nhân</div><div>D. Ngân hàng thương mại</div><br>
+<div>Câu 6 [Đúng/Sai]: Xét các quy định của Hiến pháp về quyền và nghĩa vụ cơ bản của công dân:</div>
+<div><u>a)</u> Mọi công dân đều bình đẳng trước pháp luật. (Đúng)</div>
+<div><u>b)</u> Công dân đủ 18 tuổi trở lên có quyền bầu cử theo quy định của pháp luật. (Đúng)</div>
+<div>c) Nộp thuế chỉ là quyền tự nguyện, không phải nghĩa vụ bắt buộc theo luật định. (Sai)</div>
+<div><u>d)</u> Bảo vệ Tổ quốc là nghĩa vụ thiêng liêng và quyền cao quý của công dân. (Đúng)</div><br>
+<div>Câu 7 [Trả lời ngắn]: Theo Hiến pháp Việt Nam, công dân từ đủ bao nhiêu tuổi trở lên thì có quyền ứng cử vào Quốc hội và Hội đồng nhân dân?</div>
+<div><u>Đáp án: 21</u></div>`;
 
 export const DEFAULT_IT = `
 <div>Câu 1: Trong thiết kế trang web, ngôn ngữ đánh dấu siêu văn bản chuẩn dùng để tạo cấu trúc nội dung trang web được viết tắt là gì?</div>
@@ -204,7 +260,14 @@ export const DEFAULT_IT = `
 <div>Câu 4: Công nghệ Trí tuệ nhân tạo đang được ứng dụng rộng rãi trong giáo dục và đời sống có tên viết tắt tiếng Anh là gì?</div>
 <div><u>A</u>. AI (Artificial Intelligence)</div><div>B. USB</div><div>C. DVD</div><div>D. VGA</div><br>
 <div>Câu 5: Để bảo vệ tài khoản cá nhân trên không gian mạng an toàn nhất, người dùng nên thực hiện nguyên tắc nào sau đây?</div>
-<div><u>A</u>. Đặt mật khẩu mạnh (gồm chữ hoa, chữ thường, số, ký tự đặc biệt) và bật xác thực 2 lớp (2FA), tuyệt đối không chia sẻ mã OTP</div><div>B. Đặt mật khẩu là 123456 cho dễ nhớ</div><div>C. Nhấp vào mọi đường link lạ trúng thưởng</div><div>D. Công khai mật khẩu lên mạng xã hội</div>`;
+<div><u>A</u>. Đặt mật khẩu mạnh (gồm chữ hoa, chữ thường, số, ký tự đặc biệt) và bật xác thực 2 lớp (2FA), tuyệt đối không chia sẻ mã OTP</div><div>B. Đặt mật khẩu là 123456 cho dễ nhớ</div><div>C. Nhấp vào mọi đường link lạ trúng thưởng</div><div>D. Công khai mật khẩu lên mạng xã hội</div><br>
+<div>Câu 6 [Đúng/Sai]: Xét các phát biểu về ngôn ngữ HTML và CSS trong thiết kế web (Tin học 12 GDPT 2018):</div>
+<div><u>a)</u> Thẻ &lt;h1&gt; đến &lt;h6&gt; trong HTML dùng để định nghĩa các tiêu đề theo cấp độ giảm dần. (Đúng)</div>
+<div><u>b)</u> CSS được sử dụng để định dạng màu sắc, phông chữ và bố cục hiển thị cho trang web. (Đúng)</div>
+<div>c) Thẻ &lt;img&gt; trong HTML dùng để tạo bảng dữ liệu nhiều hàng cột. (Sai)</div>
+<div><u>d)</u> Thuộc tính href trong thẻ &lt;a&gt; dùng để chỉ định địa chỉ liên kết siêu văn bản. (Đúng)</div><br>
+<div>Câu 7 [Trả lời ngắn]: Trong hệ nhị phân (Binary) của máy tính, mỗi bit thông tin có thể nhận tối đa bao nhiêu trạng thái giá trị khác nhau (0 hoặc 1)?</div>
+<div><u>Đáp án: 2</u></div>`;
 
 export const DEFAULT_GDQPAN = `
 <div>Câu 1: Lực lượng vũ trang nhân dân Việt Nam bao gồm ba thứ quân làm nòng cốt là những lực lượng nào?</div>
@@ -216,7 +279,14 @@ export const DEFAULT_GDQPAN = `
 <div>Câu 4: Trong kỹ thuật cấp cứu ban đầu khi gặp người bị gãy xương chi, nguyên tắc quan trọng nhất trước khi di chuyển nạn nhân là gì?</div>
 <div><u>A</u>. Cố định tạm thời xương gãy bằng nẹp đúng kỹ thuật để tránh đầu xương gãy làm tổn thương mạch máu, dây thần kinh</div><div>B. Kéo mạnh tay chân nạn nhân ngay lập tức</div><div>C. Bắt nạn nhân tự đứng dậy đi bộ</div><div>D. Không cần băng bó hay cố định</div><br>
 <div>Câu 5: Theo Luật Nghĩa vụ quân sự hiện hành của Việt Nam, độ tuổi gọi công dân nhập ngũ trong thời bình thông thường là từ đủ bao nhiêu tuổi?</div>
-<div><u>A</u>. Từ đủ 18 tuổi đến hết 25 tuổi (đối với công dân được đào tạo trình độ cao đẳng, đại học thì đến hết 27 tuổi)</div><div>B. Từ 12 tuổi đến 15 tuổi</div><div>C. Từ 45 tuổi đến 60 tuổi</div><div>D. Không quy định độ tuổi</div>`;
+<div><u>A</u>. Từ đủ 18 tuổi đến hết 25 tuổi (đối với công dân được đào tạo trình độ cao đẳng, đại học thì đến hết 27 tuổi)</div><div>B. Từ 12 tuổi đến 15 tuổi</div><div>C. Từ 45 tuổi đến 60 tuổi</div><div>D. Không quy định độ tuổi</div><br>
+<div>Câu 6 [Đúng/Sai]: Xét các quy định về trách nhiệm bảo vệ Tổ quốc và an toàn giao thông của học sinh THPT:</div>
+<div><u>a)</u> Công dân đủ 18 tuổi được gọi nhập ngũ trong thời bình theo Luật Nghĩa vụ quân sự. (Đúng)</div>
+<div>b) Học sinh THPT được phép điều khiển xe mô tô có dung tích xi-lanh trên 100 cm³ đến trường. (Sai)</div>
+<div><u>c)</u> Khi phát hiện vật liệu nổ còn sót lại sau chiến tranh, phải giữ khoảng cách an toàn và báo ngay cho cơ quan chức năng. (Đúng)</div>
+<div>d) Người ngồi trên xe gắn máy chỉ cần đội mũ bảo hiểm khi đi trên đường quốc lộ. (Sai)</div><br>
+<div>Câu 7 [Trả lời ngắn]: Ngày truyền thống Quân đội Nhân dân Việt Nam là ngày bao nhiêu trong tháng 12 hằng năm?</div>
+<div><u>Đáp án: 22</u></div>`;
 
 export const AI_KNOWLEDGE_KEYWORDS = [
   'lục lạp', 'khí khổng', 'mạch gỗ', 'nước và các ion khoáng', 'ti thể', 'auxin', 'nuôi cấy mô', 'noãn đã thụ tinh', 'mrna', 'quần thể', 'cộng sinh',
@@ -451,23 +521,23 @@ export function getQuestionPartInfo(format?: QuestionFormat): { partNumber: numb
   if (format === 'TRUE_FALSE') {
     return {
       partNumber: 2,
-      partTitle: 'PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI',
-      partBadge: 'PHẦN II • ĐÚNG/SAI',
+      partTitle: 'DẠNG THỨC II (PHẦN II): TRẮC NGHIỆM ĐÚNG / SAI (4 Ý a, b, c, d)',
+      partBadge: 'DẠNG THỨC II • ĐÚNG/SAI 4 Ý',
       badgeColor: '#f59e0b'
     };
   }
   if (format === 'SHORT_ANSWER') {
     return {
       partNumber: 3,
-      partTitle: 'PHẦN III: TRẢ LỜI NGẮN (ĐIỀN SỐ / TỪ KHÓA)',
-      partBadge: 'PHẦN III • ĐIỀN KHUYẾT',
+      partTitle: 'DẠNG THỨC III (PHẦN III): TRẮC NGHIỆM TRẢ LỜI NGẮN',
+      partBadge: 'DẠNG THỨC III • TRẢ LỜI NGẮN',
       badgeColor: '#10b981'
     };
   }
   return {
     partNumber: 1,
-    partTitle: 'PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN LỰA CHỌN',
-    partBadge: 'PHẦN I • 4 LỰA CHỌN',
+    partTitle: 'DẠNG THỨC I (PHẦN I): TRẮC NGHIỆM 4 PHƯƠNG ÁN LỰA CHỌN',
+    partBadge: 'DẠNG THỨC I • 4 PHƯƠNG ÁN',
     badgeColor: '#38bdf8'
   };
 }
@@ -530,7 +600,7 @@ export function getConvertedGradeByRank(rankNumber: number, totalScore: number) 
 }
 
 export function getInitialSubjects(): Record<string, SubjectData> {
-  const saved = localStorage.getItem('thpt_mangthit_subjects_v9');
+  const saved = localStorage.getItem('thpt_mangthit_subjects_v10');
   let db: Record<string, SubjectData> = {};
   if (saved) {
     try { db = JSON.parse(saved); } catch(e) {}

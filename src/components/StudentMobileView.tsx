@@ -145,10 +145,18 @@ export const StudentMobileView: React.FC<Props> = ({
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
   const lastShuffledKeyRef = useRef<string>('');
 
-  // FAST mode state - Persistent score in sessionStorage
+  // Persistent score & correct count in sessionStorage/localStorage to preserve on reconnect
   const [fastScore, setFastScore] = useState<number>(() => {
     try {
-      const saved = sessionStorage.getItem(`kc3d_score_${roomId}`);
+      const saved = sessionStorage.getItem(`kc3d_score_${roomId}`) || localStorage.getItem(`kc3d_score_${roomId}`);
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [myCorrectCount, setMyCorrectCount] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem(`kc3d_correct_${roomId}`) || localStorage.getItem(`kc3d_correct_${roomId}`);
       return saved ? parseInt(saved, 10) || 0 : 0;
     } catch {
       return 0;
@@ -156,13 +164,22 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [fastRank, setFastRank] = useState(0);
   const [fastAnswerFeedback, setFastAnswerFeedback] = useState<string | null>(null);
+  const [cheerMessage, setCheerMessage] = useState<string | null>(null);
 
-  // Save score to storage whenever updated
+  // Save score and correct count to storage whenever updated
   useEffect(() => {
     try {
       sessionStorage.setItem(`kc3d_score_${roomId}`, String(fastScore));
+      localStorage.setItem(`kc3d_score_${roomId}`, String(fastScore));
     } catch {}
   }, [fastScore, roomId]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`kc3d_correct_${roomId}`, String(myCorrectCount));
+      localStorage.setItem(`kc3d_correct_${roomId}`, String(myCorrectCount));
+    } catch {}
+  }, [myCorrectCount, roomId]);
 
   // Boss Mode state
   const [bossHP, setBossHP] = useState<number>(1000);
@@ -234,8 +251,39 @@ export const StudentMobileView: React.FC<Props> = ({
       playerId: myPlayerId,
       preferredTeam: team,
       playerName: studentName || 'Học sinh',
-      avatar
+      avatar,
+      savedScore: fastScore,
+      savedCorrect: myCorrectCount
     });
+  };
+
+  const handleManualReconnect = () => {
+    setConnStatus('🔄 Đang kết nối lại & khôi phục điểm số...');
+    CloudNetwork.reconnectImmediate();
+    setTimeout(() => {
+      CloudNetwork.sendMessage({
+        type: 'AUTO_ENTER_ARENA',
+        playerId: myPlayerId,
+        preferredTeam: team,
+        playerName: studentName || 'Học sinh',
+        avatar,
+        savedScore: fastScore,
+        savedCorrect: myCorrectCount
+      });
+      if (hasJoinedArenaRef.current || screen !== 'LOBBY') {
+        CloudNetwork.sendMessage({
+          type: 'PLAYER_READY_ROPE',
+          playerId: myPlayerId,
+          preferredTeam: team,
+          playerName: studentName || 'Học sinh',
+          avatar,
+          savedScore: fastScore,
+          savedCorrect: myCorrectCount
+        });
+      }
+      setConnStatus(`🟢 Đã kết nối lại Phòng ${roomId} (Bảo lưu ${fastScore}đ • ${myCorrectCount} câu đúng)`);
+      triggerBonusToast(`✅ Đã kết nối lại thành công! Bảo lưu ${fastScore} điểm (${myCorrectCount} câu đúng).`);
+    }, 250);
   };
 
   // 30s Local countdown timer per question (Không reset trạng thái khóa đáp án khi hết đóng băng)
@@ -341,20 +389,30 @@ export const StudentMobileView: React.FC<Props> = ({
 
     AudioFX.freezeCrack();
     setStreak(0);
-    setLastLockedResult({
-      isCorrect: false,
-      text: '⏰ HẾT GIỜ! Tính câu SAI (0 điểm • Trừ 1 ❤️ Mạng)'
-    });
 
-    // Hết giờ không trả lời: tính sai 0 điểm và trừ 1 mạng
-    setLives(prev => {
-      const nextL = Math.max(0, prev - 1);
-      if (nextL <= 0 && gameType === 'BELL') {
-        setEliminated(true);
-        setScreen('ELIMINATED');
-      }
-      return nextL;
-    });
+    if (gameType === 'BELL') {
+      // Chỉ có trò Rung Chuông Vàng khi trả lời sai / hết giờ mới bị mất 1 mạng; hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
+      setLives(prev => {
+        const nextL = Math.max(0, prev - 1);
+        setLastLockedResult({
+          isCorrect: false,
+          text: nextL <= 0
+            ? '⏰ HẾT GIỜ! Bạn đã hết cả 3 ❤️ Mạng và chuyển sang làm Khán giả cổ vũ!'
+            : `⏰ HẾT GIỜ! Tính câu SAI • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
+        });
+        if (nextL <= 0) {
+          setEliminated(true);
+          setScreen('ELIMINATED');
+        }
+        return nextL;
+      });
+    } else {
+      // Các trò chơi khác: câu sai / hết giờ không bị phạt điểm hay mất mạng
+      setLastLockedResult({
+        isCorrect: false,
+        text: '⏰ HẾT GIỜ! Chưa ghi nhận đáp án ở câu này (Không bị trừ điểm) • Chờ câu tiếp theo!'
+      });
+    }
 
     CloudNetwork.sendMessage({
       type: 'FREEZE_WRONG',
@@ -362,7 +420,6 @@ export const StudentMobileView: React.FC<Props> = ({
       team,
       globalQIndex: currentGlobalQIndex
     });
-    triggerFreeze(20);
   };
 
   const handleIncomingMessage = (d: CloudMessage) => {
@@ -401,10 +458,7 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
       if (typeof d.fastScore === 'number' && d.fastScore > 0) {
-        setFastScore(d.fastScore);
-        try {
-          sessionStorage.setItem(`kc3d_score_${roomId}`, String(d.fastScore));
-        } catch {}
+        setFastScore(prev => Math.max(prev, d.fastScore!));
       }
 
       if (d.matchStatus === 'PLAYING' && hasJoinedArenaRef.current) {
@@ -424,7 +478,7 @@ export const StudentMobileView: React.FC<Props> = ({
         setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
       }
     }
-    else if (d.type === 'GAME_SWITCH') {
+    else if (d.type === 'GAME_SWITCH' || d.type === 'GAME_SWITCHED') {
       // Giáo viên đổi trò chơi hoặc bấm Chuẩn bị sàn đấu: Học sinh đang chơi KHÔNG cần quét lại mã QR!
       if (d.gameType) setGameType(d.gameType);
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
@@ -435,8 +489,9 @@ export const StudentMobileView: React.FC<Props> = ({
         setBroadcastQuestionMap({ 0: d.question });
         setCurrentBroadcastQ({ ...d.question, qIndex: 0 } as any);
       }
-      currentGlobalQIndexRef.current = d.qIndex ?? 0;
-      setCurrentGlobalQIndex(d.qIndex ?? 0);
+      const nextQIdx = d.qIndex ?? d.globalQIndex ?? 0;
+      currentGlobalQIndexRef.current = nextQIdx;
+      setCurrentGlobalQIndex(nextQIdx);
       setLastCompletedQIndex(-1);
       lastShuffledKeyRef.current = '';
       clearFreeze();
@@ -444,6 +499,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setLives(3);
       setStreak(0);
       setFastScore(0);
+      setMyCorrectCount(0);
       setHasAnsweredCurrentQ(false);
       setIsAnswerLocked(false);
       setSelectedOptionOriginalIdx(null);
@@ -465,9 +521,9 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
 
-      if (d.bonusAwarded) {
+      if (d.bonusAwarded && gameType === 'TUG') {
         awardRandomPowerUp();
-        triggerBonusToast("🔥 ĐÚNG 3 CÂU LIÊN TIẾP! CỘNG +1 ❤️ VÀ NHẬN THẺ KỸ NĂNG!");
+        triggerBonusToast("🔥 ĐÚNG 3 CÂU LIÊN TIẾP! NHẬN THẺ KỸ NĂNG KÉO CO!");
       }
       if (d.rescuedNow) {
         setEliminated(false);
@@ -485,7 +541,8 @@ export const StudentMobileView: React.FC<Props> = ({
       setScreen('QUIZ');
       triggerBonusToast("🛟 TOÀN BỘ HỌC SINH ĐÃ ĐƯỢC CỨU TRỢ HỒI SINH! (❤️)");
     }
-    else if (d.type === 'OPPONENT_FROZEN' && d.targetPlayerId === myPlayerId) {
+    else if (d.type === 'OPPONENT_FROZEN' && d.targetPlayerId === myPlayerId && gameType === 'TUG') {
+      // Chỉ có trò Kéo Co (TUG) mới bị các hiệu ứng kỹ năng đóng băng
       if (activeShield) {
         setActiveShield(false);
         triggerBonusToast('🛡️ KHIÊN BẢO VỆ ĐÃ CHẶN ĐÒN ĐÓNG BĂNG TỪ ĐỐI THỦ!');
@@ -643,7 +700,7 @@ export const StudentMobileView: React.FC<Props> = ({
     }, 1000);
   };
 
-  // Submit Answer for Multiple Choice
+  // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
     if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
     setHasAnsweredCurrentQ(true);
@@ -655,14 +712,16 @@ export const StudentMobileView: React.FC<Props> = ({
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? '✨ CHÍNH XÁC! (+100 điểm)'
-        : '❌ SAI RỒI! Câu này tính SAI • 0 điểm • Trừ 1 ❤️ Mạng'
+        ? '✅ CHÍNH XÁC! Bạn đã chọn ĐÚNG đáp án (+100 điểm)'
+        : (gameType === 'BELL'
+            ? '❌ ĐÁP ÁN SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
+            : '❌ ĐÁP ÁN SAI! (Không bị trừ điểm • Đã khóa câu trả lời)')
     });
 
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
-  // Submit Answer for True/False (4 items)
+  // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
     if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked) return;
     setHasAnsweredCurrentQ(true);
@@ -683,14 +742,16 @@ export const StudentMobileView: React.FC<Props> = ({
     setLastLockedResult({
       isCorrect: won,
       text: won
-        ? `✨ XUẤT SẮC! Đúng cả ${correctCount}/${items.length} ý!`
-        : `❌ SAI RỒI! Chỉ đúng ${correctCount}/${items.length} ý • 0 điểm • Trừ 1 ❤️ Mạng`
+        ? `✅ XUẤT SẮC! Bạn trả lời ĐÚNG cả ${correctCount}/${items.length} mệnh đề (+${correctCount * 100} điểm)`
+        : (gameType === 'BELL'
+            ? `❌ CHƯA CHÍNH XÁC (${correctCount}/${items.length} ý đúng) • Bạn bị mất 1 ❤️ Mạng`
+            : `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng) • Đã khóa câu trả lời`)
     });
 
     processAnswerOutcome(won, won ? correctCount : 0);
   };
 
-  // Submit Answer for Short Answer / Fill-in
+  // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
     if (isFrozen || eliminated || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
     setHasAnsweredCurrentQ(true);
@@ -699,16 +760,20 @@ export const StudentMobileView: React.FC<Props> = ({
     const correctVal = (resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '').trim().toLowerCase();
     const userVal = shortAnswerInput.trim().toLowerCase();
 
-    // Check numerical or string equivalence
-    const isNumEqual = !isNaN(Number(correctVal)) && !isNaN(Number(userVal)) && Number(correctVal) === Number(userVal);
+    // Check numerical or string equivalence (support comma/dot decimal)
+    const normCorrect = correctVal.replace(',', '.');
+    const normUser = userVal.replace(',', '.');
+    const isNumEqual = !isNaN(Number(normCorrect)) && !isNaN(Number(normUser)) && Number(normCorrect) === Number(normUser);
     const isStrEqual = correctVal === userVal;
     const isCorrect = isNumEqual || isStrEqual;
 
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? '✨ CHÍNH XÁC! (+100 điểm)'
-        : '❌ SAI RỒI! Câu này tính SAI • 0 điểm • Trừ 1 ❤️ Mạng'
+        ? `✅ CHÍNH XÁC! Kết quả "${shortAnswerInput.trim()}" hoàn toàn ĐÚNG (+100 điểm)`
+        : (gameType === 'BELL'
+            ? '❌ KẾT QUẢ SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
+            : '❌ KẾT QUẢ SAI! (Không bị trừ điểm • Đã khóa câu trả lời)')
     });
 
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
@@ -720,16 +785,21 @@ export const StudentMobileView: React.FC<Props> = ({
 
     if (isCorrect) {
       AudioFX.pullHeave();
-      setStreak(prev => prev + 1);
+      const nextStreak = streak + 1;
+      setStreak(nextStreak);
 
-      // Streak rewards
-      if (streak + 1 >= 3) {
+      const powerMultiplier = (gameType === 'TUG' && doublePowerActive) ? 2 : 1;
+      if (doublePowerActive) setDoublePowerActive(false);
+
+      const gainedPts = Math.max(100, factor * powerMultiplier * 100);
+      setFastScore(prev => prev + gainedPts);
+      setMyCorrectCount(prev => prev + 1);
+
+      // Chỉ có trò Kéo Co (TUG) mới có hiệu ứng thẻ kỹ năng
+      if (gameType === 'TUG' && nextStreak >= 3) {
         awardRandomPowerUp();
-        triggerBonusToast('🔥 CHUỖI 3 CÂU ĐÚNG! BẠN NHẬN ĐƯỢC 1 THẺ KỸ NĂNG!');
+        triggerBonusToast('🔥 CHUỖI 3 CÂU ĐÚNG! NHẬN 1 THẺ KỸ NĂNG KÉO CO!');
       }
-
-      const powerMultiplier = doublePowerActive ? 2 : 1;
-      setDoublePowerActive(false);
 
       CloudNetwork.sendMessage({
         type: 'PULL_CORRECT',
@@ -738,22 +808,23 @@ export const StudentMobileView: React.FC<Props> = ({
         globalQIndex: currentGlobalQIndex,
         elapsedSec,
         correctCountInTF: factor,
-        gainedPts: factor * powerMultiplier * 100
+        gainedPts
       });
-
-      triggerBonusToast(doublePowerActive ? '⚡ X2 LỰC KÉO! CÂU TRẢ LỜI CHÍNH XÁC!' : '✨ CHÍNH XÁC! TUYỆT VỜI!');
     } else {
       AudioFX.freezeCrack();
       setStreak(0);
-      // Khi HS chọn sai đáp án: tính câu đó sai, 0 điểm, trừ 1 mạng (trong Rung Chuông Vàng hết mạng sẽ bị loại)
-      setLives(prev => {
-        const nextL = Math.max(0, prev - 1);
-        if (nextL <= 0 && gameType === 'BELL') {
-          setEliminated(true);
-          setScreen('ELIMINATED');
-        }
-        return nextL;
-      });
+
+      // Chỉ có trò Rung Chuông Vàng (BELL) khi trả lời sai mới mất 1 mạng, hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
+      if (gameType === 'BELL') {
+        setLives(prev => {
+          const nextL = Math.max(0, prev - 1);
+          if (nextL <= 0) {
+            setEliminated(true);
+            setScreen('ELIMINATED');
+          }
+          return nextL;
+        });
+      }
 
       CloudNetwork.sendMessage({
         type: 'FREEZE_WRONG',
@@ -761,14 +832,12 @@ export const StudentMobileView: React.FC<Props> = ({
         team,
         globalQIndex: currentGlobalQIndex
       });
-      triggerBonusToast('❌ SAI RỒI! 0 điểm • Trừ 1 ❤️ Mạng!');
-      triggerFreeze(20);
     }
 
     setLastCompletedQIndex(currentGlobalQIndex);
   };
 
-  // Ready in Tug Rope - Bắt buộc học sinh phải ghi tên, nếu không ghi hiện bảng thông báo
+  // Ready in Arena - Bắt buộc học sinh phải ghi tên
   const handleReadyInRope = () => {
     if (!studentName || !studentName.trim()) {
       setShowNameAlert(true);
@@ -781,7 +850,9 @@ export const StudentMobileView: React.FC<Props> = ({
       playerId: myPlayerId,
       preferredTeam: team,
       playerName: studentName.trim(),
-      avatar
+      avatar,
+      savedScore: fastScore,
+      savedCorrect: myCorrectCount
     });
     setScreen('WAITING');
   };
@@ -810,27 +881,27 @@ export const StudentMobileView: React.FC<Props> = ({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 900 }}>
             <span style={{ display: 'inline-block', fontSize: '18px' }}>🔄</span>
-            <span>MẤT KẾT NỐI - ĐANG TỰ ĐỘNG KẾT NỐI LẠI...</span>
+            <span>MẤT KẾT NỐI MẠNG - BẤM KẾT NỐI LẠI ĐỂ THI TIẾP!</span>
           </div>
           <div style={{ fontSize: '12.5px', color: '#fef08a', marginTop: '4px', fontWeight: 700 }}>
-            🛡️ Điểm số ({fastScore}đ) và tiến trình thi đấu của bạn đã được bảo lưu an toàn tránh mất điểm!
+            🛡️ Điểm số ({fastScore}đ • {myCorrectCount} câu đúng) của bạn được bảo lưu 100%!
           </div>
           <button
-            onClick={() => CloudNetwork.reconnectImmediate()}
+            onClick={handleManualReconnect}
             style={{
               marginTop: '8px',
               background: 'linear-gradient(135deg, #f59e0b, #d97706)',
               color: '#0f172a',
               border: 'none',
               borderRadius: '8px',
-              padding: '6px 14px',
+              padding: '7px 16px',
               fontWeight: 900,
-              fontSize: '12.5px',
+              fontSize: '13px',
               cursor: 'pointer',
               boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
             }}
           >
-            ⚡ Thử Kết Nối Lại Ngay
+            ⚡ KẾT NỐI LẠI ĐỂ THI TIẾP (BẢO LƯU ĐIỂM)
           </button>
         </div>
       )}
@@ -1099,19 +1170,20 @@ export const StudentMobileView: React.FC<Props> = ({
 
       {/* Screen 2: Waiting screen */}
       {screen === 'WAITING' && (
-        <div style={{ maxWidth: '480px', margin: '40px auto', padding: '20px', textAlign: 'center' }}>
+        <div style={{ maxWidth: '480px', margin: '36px auto', padding: '20px', textAlign: 'center' }}>
           <div style={{ fontSize: '42px', marginBottom: '12px' }}>⏳</div>
           <h2 style={{ fontSize: '20px', color: '#fef08a', margin: '0 0 10px 0' }}>
             ĐÃ SẴN SÀNG TRÊN SÀN ĐẤU!
           </h2>
           <div style={{ display: 'inline-block', background: 'linear-gradient(135deg, #0284c7, #0369a1)', padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 900, color: '#ffffff', marginBottom: '12px', border: '1.5px solid #7dd3fc' }}>
-            {gameType === 'TUG' ? '🪢 KÉO CO 3D' : gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG 3D' : gameType === 'FAST' ? '⚡ ĐUA TỐC ĐỘ 3D' : '🐉 DIỆT BOSS KIẾN THỨC'}
+            {gameType === 'TUG' ? '⚔️ KÉO CO 3D (CHIA 2 ĐỘI)' : gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG 3D' : gameType === 'FAST' ? '⚡ ĐUA TỐC ĐỘ 3D (CÁ NHÂN)' : '🐉 DIỆT BOSS KIẾN THỨC'}
           </div>
           <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.5 }}>
             Thí sinh: <b>{studentName || 'Học sinh'}</b> • Phòng <b>{roomId}</b><br />
+            Thành tích bảo lưu: <b style={{ color: '#4ade80' }}>{fastScore} điểm ({myCorrectCount} câu đúng)</b><br />
             {matchStatText}
           </p>
-          <div style={{ marginTop: '20px', padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1.5px solid #10b981' }}>
+          <div style={{ marginTop: '16px', padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1.5px solid #10b981' }}>
             <div style={{ fontSize: '13.5px', color: '#6ee7b7', fontWeight: 800, marginBottom: '4px' }}>
               ✅ Đã giữ kết nối cố định trong phòng {roomId} (Không cần quét lại mã QR khi đổi trò chơi)
             </div>
@@ -1119,32 +1191,48 @@ export const StudentMobileView: React.FC<Props> = ({
               Đang chờ giáo viên tập hợp đủ học sinh và bấm Bắt đầu thi đấu trên màn hình chính...
             </span>
           </div>
+          <button
+            onClick={handleManualReconnect}
+            style={{
+              marginTop: '14px',
+              padding: '10px 18px',
+              borderRadius: '10px',
+              background: '#1e293b',
+              border: '1.5px solid #38bdf8',
+              color: '#38bdf8',
+              fontWeight: 900,
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            🔄 Kết Nối Lại & Đồng Bộ Điểm ({fastScore}đ)
+          </button>
         </div>
       )}
 
       {/* Screen 3: Quiz Gameplay */}
       {screen === 'QUIZ' && (
-        <div style={{ maxWidth: '520px', margin: '0 auto', padding: '12px' }}>
+        <div style={{ maxWidth: '540px', margin: '0 auto', padding: '10px 12px' }}>
           <style>{`
             @keyframes chibiGentleSway {
               0%, 100% { transform: rotate(-4deg) translateY(0px); }
-              50% { transform: rotate(4deg) translateY(-1px); }
+              50% { transform: rotate(4deg) translateY(0px); }
             }
           `}</style>
-          {/* Header HUD with Cute Swaying Chibi Character */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '8px 12px', borderRadius: '14px', border: '1px solid #334155', marginBottom: '10px' }}>
+          {/* Header HUD with Cute Swaying Chibi Character & Reconnect Button */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '8px 12px', borderRadius: '14px', border: '1.5px solid #334155', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {/* Nhân vật hoạt hình Chibi đứng im lắc qua lắc lại nhẹ nhàng */}
+              {/* Nhân vật hoạt hình Chibi đứng im chỉ lắc qua lắc lại */}
               <div
                 style={{
-                  width: '44px',
-                  height: '44px',
+                  width: '42px',
+                  height: '42px',
                   borderRadius: '12px',
-                  background: isFrozen
+                  background: (gameType === 'TUG' && isFrozen)
                     ? 'linear-gradient(135deg, #0284c7, #38bdf8)'
-                    : team === 'RED'
-                    ? 'linear-gradient(135deg, #dc2626, #991b1b)'
-                    : 'linear-gradient(135deg, #2563eb, #1e40af)',
+                    : gameType === 'TUG'
+                    ? (team === 'RED' ? 'linear-gradient(135deg, #dc2626, #991b1b)' : 'linear-gradient(135deg, #2563eb, #1e40af)')
+                    : 'linear-gradient(135deg, #4f46e5, #3730a3)',
                   border: `2px solid ${avatar.accessoryColor || '#fef08a'}`,
                   display: 'flex',
                   alignItems: 'center',
@@ -1154,15 +1242,14 @@ export const StudentMobileView: React.FC<Props> = ({
                 }}
               >
                 <svg
-                  width="36"
-                  height="36"
+                  width="34"
+                  height="34"
                   viewBox="0 0 64 64"
                   style={{
                     animation: 'chibiGentleSway 2.4s ease-in-out infinite',
                     transformOrigin: 'bottom center'
                   }}
                 >
-                  {/* Chibi Body / Costume */}
                   <rect
                     x="18"
                     y="40"
@@ -1180,13 +1267,10 @@ export const StudentMobileView: React.FC<Props> = ({
                     }
                   />
                   <path d="M26 40 L32 47 L38 40 Z" fill="#ffffff" />
-                  {/* Chibi Head */}
                   <circle cx="32" cy="25" r="15" fill="#fde68a" />
-                  {/* Blush cheeks */}
                   <ellipse cx="22" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
                   <ellipse cx="42" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
-                  {/* Eyes */}
-                  {isFrozen ? (
+                  {(gameType === 'TUG' && isFrozen) ? (
                     <>
                       <path d="M23 23 L27 27 M27 23 L23 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
                       <path d="M37 23 L41 27 M41 23 L37 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
@@ -1199,13 +1283,11 @@ export const StudentMobileView: React.FC<Props> = ({
                       <circle cx="38" cy="24" r="1" fill="#ffffff" />
                     </>
                   )}
-                  {/* Mouth */}
-                  {isFrozen ? (
+                  {(gameType === 'TUG' && isFrozen) ? (
                     <circle cx="32" cy="32" r="2.5" fill="#0284c7" />
                   ) : (
                     <path d="M27 30 Q32 35 37 30" stroke="#0f172a" strokeWidth="2.2" fill="none" strokeLinecap="round" />
                   )}
-                  {/* Hair / Hat */}
                   {avatar.hairStyle === 'crown' ? (
                     <polygon points="18,14 23,6 32,12 41,6 46,14" fill="#facc15" stroke="#ca8a04" strokeWidth="1.5" />
                   ) : avatar.hairStyle === 'cap' ? (
@@ -1222,50 +1304,74 @@ export const StudentMobileView: React.FC<Props> = ({
                 </svg>
               </div>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a' }}>
-                  {studentName || 'Thí sinh'}
+                <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{studentName || 'Thí sinh'}</span>
+                  {gameType === 'TUG' && (
+                    <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '6px', background: team === 'RED' ? '#dc2626' : '#0284c7', color: '#fff' }}>
+                      {team === 'RED' ? 'Đội Đỏ' : 'Đội Xanh'}
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                  {matchStatText}
+                <div style={{ fontSize: '11.5px', color: '#4ade80', fontWeight: 800 }}>
+                  ⭐ {fastScore} điểm • ✅ {myCorrectCount} câu đúng
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ fontSize: '14px', color: '#ef4444', fontWeight: 900 }}>
-                {lives > 0 ? '❤️'.repeat(lives) : '💀 Hết mạng'}
-              </div>
-              {streak > 0 && (
-                <div style={{ fontSize: '12px', background: '#ef4444', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 900 }}>
-                  🔥 x{streak}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {/* Chỉ hiển thị mạng ❤️ trong trò Rung Chuông Vàng */}
+              {gameType === 'BELL' && (
+                <div style={{ fontSize: '14px', color: '#ef4444', fontWeight: 900, background: 'rgba(239,68,68,0.15)', padding: '3px 8px', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.4)' }}>
+                  {lives > 0 ? '❤️'.repeat(lives) : '💀 0 ❤️'}
                 </div>
               )}
-              {activeShield && (
-                <div style={{ fontSize: '12px', background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 900 }}>
+              {gameType === 'TUG' && activeShield && (
+                <div style={{ fontSize: '11.5px', background: '#3b82f6', color: '#fff', padding: '2px 7px', borderRadius: '8px', fontWeight: 900 }}>
                   🛡️ Khiên
                 </div>
               )}
-              {doublePowerActive && (
-                <div style={{ fontSize: '12px', background: '#eab308', color: '#000', padding: '2px 8px', borderRadius: '10px', fontWeight: 900 }}>
+              {gameType === 'TUG' && doublePowerActive && (
+                <div style={{ fontSize: '11.5px', background: '#eab308', color: '#000', padding: '2px 7px', borderRadius: '8px', fontWeight: 900 }}>
                   ⚡ x2 Kéo
                 </div>
               )}
-              {isFrozen && (
-                <div style={{ fontSize: '12px', background: 'linear-gradient(135deg, #0284c7, #0369a1)', color: '#fff', border: '1px solid #38bdf8', padding: '2px 8px', borderRadius: '10px', fontWeight: 900, animation: 'pulse 1.5s infinite' }}>
-                  ❄️ Đóng băng: {freezeSeconds}s
+              {gameType === 'TUG' && isFrozen && (
+                <div style={{ fontSize: '11.5px', background: 'linear-gradient(135deg, #0284c7, #0369a1)', color: '#fff', border: '1px solid #38bdf8', padding: '2px 7px', borderRadius: '8px', fontWeight: 900 }}>
+                  ❄️ {freezeSeconds}s
                 </div>
               )}
+              {/* Nút kết nối lại để thi tiếp và bảo lưu số điểm */}
+              <button
+                type="button"
+                onClick={handleManualReconnect}
+                title="Bấm để kết nối lại mạng ngay lập tức và bảo lưu toàn bộ điểm số"
+                style={{
+                  background: '#1e293b',
+                  border: '1.5px solid #38bdf8',
+                  color: '#7dd3fc',
+                  borderRadius: '8px',
+                  padding: '4px 8px',
+                  fontSize: '11.5px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                🔄 Kết nối lại
+              </button>
             </div>
           </div>
 
           {/* Boss HP Bar if Boss Mode */}
           {gameType === 'BOSS' && (
-            <div style={{ background: '#450a0a', border: '1.5px solid #ef4444', borderRadius: '12px', padding: '8px 12px', marginBottom: '10px' }}>
+            <div style={{ background: '#450a0a', border: '1.5px solid #ef4444', borderRadius: '12px', padding: '7px 12px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 900, color: '#fca5a5', marginBottom: '4px' }}>
-                <span>🐉 BOSS KIẾN THỨC</span>
+                <span>🐉 QUÁI VẬT BOSS KIẾN THỨC</span>
                 <span>{bossHP}/{maxBossHP} HP</span>
               </div>
-              <div style={{ height: '8px', background: '#1c1917', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ height: '7px', background: '#1c1917', borderRadius: '4px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, (bossHP / maxBossHP) * 100))}%`, background: 'linear-gradient(90deg, #ef4444, #f97316)' }} />
               </div>
             </div>
@@ -1283,220 +1389,280 @@ export const StudentMobileView: React.FC<Props> = ({
             />
           </div>
 
-          {/* Question Text with KaTeX - Luôn cố định vị trí, không bị dịch chuyển */}
-          <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '16px', padding: '14px', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <span style={{ fontSize: '11.5px', color: '#38bdf8', fontWeight: 800 }}>
-                Câu hỏi #{currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'Phần II: Đúng / Sai' : currentQItem.format === 'SHORT_ANSWER' ? 'Phần III: Trả Lời Ngắn' : 'Phần I: Trắc Nghiệm'}
+          {/* Khung Câu Hỏi Nổi Bật Chuẩn 3 Dạng Thức THPT 2018 */}
+          <div style={{
+            background: 'linear-gradient(180deg, #0f172a 0%, #090d16 100%)',
+            border: '2px solid #38bdf8',
+            borderRadius: '18px',
+            padding: '16px',
+            marginBottom: '14px',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.45)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{
+                fontSize: '12px',
+                background: currentQItem.format === 'TRUE_FALSE' ? '#f59e0b' : currentQItem.format === 'SHORT_ANSWER' ? '#10b981' : '#0284c7',
+                color: currentQItem.format === 'TRUE_FALSE' ? '#0f172a' : '#ffffff',
+                padding: '3px 10px',
+                borderRadius: '8px',
+                fontWeight: 900
+              }}>
+                CÂU {currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'DẠNG THỨC II: ĐÚNG / SAI (4 Ý)' : currentQItem.format === 'SHORT_ANSWER' ? 'DẠNG THỨC III: TRẢ LỜI NGẮN' : 'DẠNG THỨC I: 4 PHƯƠNG ÁN'}
               </span>
-              {isFrozen ? (
-                <span style={{ fontSize: '11.5px', color: '#38bdf8', fontWeight: 900 }}>
-                  ❄️ Bị phạt đóng băng {freezeSeconds}s
-                </span>
-              ) : isAnswerLocked ? (
-                <span style={{ fontSize: '11.5px', color: lastLockedResult?.isCorrect ? '#34d399' : '#f87171', fontWeight: 900 }}>
-                  {lastLockedResult?.isCorrect ? '✓ Đã ghi nhận' : '✗ Đã khóa'}
-                </span>
-              ) : null}
+              <span style={{ fontSize: '13px', fontWeight: 900, color: remSec <= 5 ? '#f87171' : '#fde047' }}>
+                ⏱️ {Math.ceil(remSec)}s
+              </span>
             </div>
-            <div style={{ fontSize: '16px', fontWeight: 800, lineHeight: 1.4, color: '#ffffff' }}>
+            <div style={{ fontSize: '17.5px', fontWeight: 900, lineHeight: 1.42, color: '#ffffff' }}>
               <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
             </div>
           </div>
 
-          {/* Màn hình chọn đáp án: Luôn hiển thị đầy đủ, KHÔNG bị che lấp bởi bất kỳ popup hay thông báo nào để tránh bấm nhầm */}
-          {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-              {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
-                const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
-                if (isEliminated) return null;
+          {/* KHI THÍ SINH ĐÃ BẤM CHỌN (CHỈ THAO TÁC 1 LẦN BẤM TRÊN 1 CÂU):
+              - Chọn ĐÚNG: thông báo ĐÚNG rực rỡ, khóa mọi thao tác khác.
+              - Chọn SAI: thông báo SAI và toàn bộ các nút đáp án BIẾN MẤT hoàn toàn, không cho thao tác gì khác! */}
+          {(hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult ? (
+            <div
+              style={{
+                padding: '26px 20px',
+                borderRadius: '20px',
+                background: lastLockedResult.isCorrect
+                  ? 'linear-gradient(135deg, #065f46 0%, #047857 100%)'
+                  : 'linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)',
+                border: lastLockedResult.isCorrect ? '3px solid #4ade80' : '3px solid #f87171',
+                textAlign: 'center',
+                boxShadow: lastLockedResult.isCorrect
+                  ? '0 12px 35px rgba(16, 185, 129, 0.45)'
+                  : '0 12px 35px rgba(239, 68, 68, 0.45)',
+                userSelect: 'none',
+                pointerEvents: 'none'
+              }}
+            >
+              <div style={{ fontSize: '52px', marginBottom: '10px' }}>
+                {lastLockedResult.isCorrect ? '🎉' : '❌'}
+              </div>
+              <div style={{
+                fontSize: '21px',
+                fontWeight: 900,
+                color: lastLockedResult.isCorrect ? '#a7f3d0' : '#fecaca',
+                marginBottom: '8px',
+                lineHeight: 1.35
+              }}>
+                {lastLockedResult.text}
+              </div>
+              <div style={{
+                display: 'inline-block',
+                marginTop: '6px',
+                padding: '6px 14px',
+                borderRadius: '999px',
+                background: 'rgba(15, 23, 42, 0.55)',
+                color: '#fef08a',
+                fontSize: '13px',
+                fontWeight: 800
+              }}>
+                🔒 Đã khóa thao tác câu #{currentGlobalQIndex + 1} (Chỉ bấm 1 lần/câu) • Đang chờ câu tiếp theo...
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Dạng thức I: Trắc nghiệm 4 phương án A, B, C, D */}
+              {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                  {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
+                    const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
+                    if (isEliminated) return null;
 
-                const isSelected = selectedOptionOriginalIdx === optItem.originalIndex;
-                const colors = [
-                  'linear-gradient(135deg, #ef4444, #b91c1c)',
-                  'linear-gradient(135deg, #0284c7, #0369a1)',
-                  'linear-gradient(135deg, #f59e0b, #d97706)',
-                  'linear-gradient(135deg, #10b981, #047857)'
-                ];
-                const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isFrozen;
+                    const colors = [
+                      'linear-gradient(135deg, #dc2626, #991b1b)',
+                      'linear-gradient(135deg, #0284c7, #0369a1)',
+                      'linear-gradient(135deg, #d97706, #b45309)',
+                      'linear-gradient(135deg, #059669, #047857)'
+                    ];
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen);
 
-                return (
+                    return (
+                      <button
+                        key={`${optItem.originalIndex}_${pos}`}
+                        disabled={isDisabled}
+                        onClick={() => handleSelectMultipleChoice(optItem.originalIndex)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '14px',
+                          padding: '16px 18px',
+                          borderRadius: '16px',
+                          background: colors[pos % 4],
+                          color: '#ffffff',
+                          border: (gameType === 'TUG' && isFrozen) ? '2px dashed #38bdf8' : '2px solid rgba(255,255,255,0.22)',
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          textAlign: 'left',
+                          fontSize: '16.5px',
+                          fontWeight: 900,
+                          boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
+                          opacity: isDisabled ? 0.55 : 1,
+                          transition: 'transform 0.12s ease'
+                        }}
+                      >
+                        <span style={{
+                          width: '34px',
+                          height: '34px',
+                          borderRadius: '10px',
+                          background: 'rgba(15, 23, 42, 0.45)',
+                          border: '1.5px solid #fef08a',
+                          color: '#fef08a',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '17px',
+                          fontWeight: 900,
+                          flexShrink: 0
+                        }}>
+                          {optItem.letter}
+                        </span>
+                        <span style={{ flex: 1, lineHeight: 1.35 }}>
+                          <MathRenderer text={optItem.text} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Dạng thức II: Trắc nghiệm Đúng/Sai (4 ý a, b, c, d) */}
+              {currentQItem.format === 'TRUE_FALSE' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {(currentQItem.tfItems || []).map(item => {
+                    const currentVal = tfAnswers[item.label] ?? false;
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen);
+                    return (
+                      <div
+                        key={item.label}
+                        style={{
+                          background: '#0f172a',
+                          border: '1.5px solid #334155',
+                          borderRadius: '14px',
+                          padding: '12px 14px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '10px'
+                        }}
+                      >
+                        <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#f8fafc', flex: 1, lineHeight: 1.35 }}>
+                          <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={item.text} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                          <button
+                            disabled={isDisabled}
+                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
+                            style={{
+                              padding: '8px 14px',
+                              borderRadius: '10px',
+                              fontSize: '13px',
+                              fontWeight: 900,
+                              background: currentVal === true ? '#10b981' : '#1e293b',
+                              color: currentVal === true ? '#ffffff' : '#94a3b8',
+                              border: currentVal === true ? '2px solid #6ee7b7' : '1px solid #334155',
+                              cursor: isDisabled ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            Đúng
+                          </button>
+                          <button
+                            disabled={isDisabled}
+                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
+                            style={{
+                              padding: '8px 14px',
+                              borderRadius: '10px',
+                              fontSize: '13px',
+                              fontWeight: 900,
+                              background: currentVal === false ? '#ef4444' : '#1e293b',
+                              color: currentVal === false ? '#ffffff' : '#94a3b8',
+                              border: currentVal === false ? '2px solid #fca5a5' : '1px solid #334155',
+                              cursor: isDisabled ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            Sai
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
                   <button
-                    key={`${optItem.originalIndex}_${pos}`}
-                    disabled={isDisabled}
-                    onClick={() => handleSelectMultipleChoice(optItem.originalIndex)}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen)}
+                    onClick={handleSubmitTrueFalse}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      padding: '14px 16px',
+                      marginTop: '6px',
+                      padding: '15px',
                       borderRadius: '14px',
-                      background: isSelected
-                        ? (lastLockedResult?.isCorrect ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #b91c1c, #dc2626)')
-                        : colors[pos % 4],
+                      background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                       color: '#ffffff',
-                      border: isSelected ? '3px solid #fef08a' : (isFrozen ? '1.5px dashed #38bdf8' : 'none'),
-                      cursor: isDisabled ? 'not-allowed' : 'pointer',
-                      textAlign: 'left',
-                      fontSize: '15px',
-                      fontWeight: 800,
-                      boxShadow: isSelected ? '0 0 18px rgba(254, 240, 138, 0.8)' : '0 4px 12px rgba(0,0,0,0.3)',
-                      opacity: isDisabled ? (isSelected ? 1 : 0.55) : 1,
-                      transition: 'all 0.15s ease'
+                      fontWeight: 900,
+                      fontSize: '16px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 6px 18px rgba(99, 102, 241, 0.4)'
                     }}
                   >
-                    <span style={{ width: '28px', height: '28px', borderRadius: '50%', background: isSelected ? '#ffffff' : 'rgba(255,255,255,0.25)', color: isSelected ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 900, flexShrink: 0 }}>
-                      {isSelected ? (lastLockedResult?.isCorrect ? '✓' : '✗') : optItem.letter}
-                    </span>
-                    <span style={{ flex: 1 }}>
-                      <MathRenderer text={optItem.text} />
-                    </span>
-                    {isSelected && (
-                      <span style={{ fontSize: '12px', fontWeight: 900, color: '#fef08a' }}>
-                        🔒 {lastLockedResult?.isCorrect ? 'Đúng' : 'Đã chọn'}
-                      </span>
-                    )}
+                    🚀 CHỐT ĐÁP ÁN 4 Ý ĐÚNG/SAI (BẤM 1 LẦN)
                   </button>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              )}
 
-          {/* Format 2: TRUE_FALSE (4 items a, b, c, d) */}
-          {currentQItem.format === 'TRUE_FALSE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {(currentQItem.tfItems || []).map(item => {
-                const currentVal = tfAnswers[item.label] ?? false;
-                const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isFrozen;
-                return (
-                  <div
-                    key={item.label}
+              {/* Dạng thức III: Trắc nghiệm Trả lời ngắn */}
+              {currentQItem.format === 'SHORT_ANSWER' && (
+                <div style={{ background: '#0f172a', border: '2px solid #10b981', borderRadius: '16px', padding: '18px' }}>
+                  <label style={{ display: 'block', fontSize: '13.5px', color: '#6ee7b7', fontWeight: 900, marginBottom: '8px' }}>
+                    ✍️ Nhập kết quả số hoặc từ khóa (Dạng thức III - THPT 2018):
+                  </label>
+                  <input
+                    type="text"
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen)}
+                    placeholder="VD: 3 hoặc 12.5..."
+                    value={shortAnswerInput}
+                    onChange={e => setShortAnswerInput(e.target.value)}
                     style={{
-                      background: '#0f172a',
-                      border: '1px solid #334155',
+                      width: '100%',
+                      padding: '14px',
                       borderRadius: '12px',
-                      padding: '10px 12px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: '10px',
-                      opacity: isDisabled ? 0.65 : 1
+                      border: '2px solid #475569',
+                      background: '#1e293b',
+                      color: '#fef08a',
+                      fontSize: '18px',
+                      fontWeight: 900,
+                      textAlign: 'center',
+                      boxSizing: 'border-box',
+                      marginBottom: '12px'
+                    }}
+                  />
+                  <button
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen) || !shortAnswerInput.trim()}
+                    onClick={handleSubmitShortAnswer}
+                    style={{
+                      width: '100%',
+                      padding: '15px',
+                      borderRadius: '14px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: '16px',
+                      border: 'none',
+                      cursor: (!shortAnswerInput.trim()) ? 'not-allowed' : 'pointer',
+                      opacity: (!shortAnswerInput.trim()) ? 0.6 : 1
                     }}
                   >
-                    <div style={{ fontSize: '13.5px', color: '#e2e8f0', flex: 1 }}>
-                      <b>{item.label})</b> <MathRenderer text={item.text} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                      <button
-                        disabled={isDisabled}
-                        onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          fontWeight: 900,
-                          background: currentVal === true ? '#10b981' : '#1e293b',
-                          color: currentVal === true ? '#ffffff' : '#94a3b8',
-                          border: '1px solid #334155',
-                          cursor: isDisabled ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        Đúng
-                      </button>
-                      <button
-                        disabled={isDisabled}
-                        onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          fontWeight: 900,
-                          background: currentVal === false ? '#ef4444' : '#1e293b',
-                          color: currentVal === false ? '#ffffff' : '#94a3b8',
-                          border: '1px solid #334155',
-                          cursor: isDisabled ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        Sai
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              <button
-                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen}
-                onClick={handleSubmitTrueFalse}
-                style={{
-                  marginTop: '6px',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: '15px',
-                  border: 'none',
-                  cursor: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 'not-allowed' : 'pointer',
-                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
-                }}
-              >
-                {hasAnsweredCurrentQ ? '✓ ĐÃ NỘP BÀI' : isFrozen ? `❄️ ĐANG ĐÓNG BĂNG (${freezeSeconds}s)` : '🚀 XÁC NHẬN NỘP BÀI (ĐÚNG/SAI)'}
-              </button>
-            </div>
+                    🚀 GỬI CÂU TRẢ LỜI NGẮN (BẤM 1 LẦN)
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
-          {/* Format 3: SHORT_ANSWER (Fill-in) */}
-          {currentQItem.format === 'SHORT_ANSWER' && (
-            <div style={{ background: '#0f172a', border: '1.5px solid #6366f1', borderRadius: '16px', padding: '16px' }}>
-              <label style={{ display: 'block', fontSize: '13px', color: '#a5b4fc', fontWeight: 800, marginBottom: '8px' }}>
-                Nhập con số hoặc từ khóa trả lời:
-              </label>
-              <input
-                type="text"
-                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen}
-                placeholder="VD: 3 hoặc 12.5 hoặc ADN..."
-                value={shortAnswerInput}
-                onChange={e => setShortAnswerInput(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '10px',
-                  border: '1.5px solid #475569',
-                  background: '#1e293b',
-                  color: '#ffffff',
-                  fontSize: '16px',
-                  fontWeight: 900,
-                  textAlign: 'center',
-                  boxSizing: 'border-box',
-                  marginBottom: '12px',
-                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
-                }}
-              />
-              <button
-                disabled={hasAnsweredCurrentQ || isAnswerLocked || isFrozen || !shortAnswerInput.trim()}
-                onClick={handleSubmitShortAnswer}
-                style={{
-                  width: '100%',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: '15px',
-                  border: 'none',
-                  cursor: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen || !shortAnswerInput.trim()) ? 'not-allowed' : 'pointer',
-                  opacity: (hasAnsweredCurrentQ || isAnswerLocked || isFrozen) ? 0.6 : 1
-                }}
-              >
-                {hasAnsweredCurrentQ ? '✓ ĐÃ GỬI CÂU TRẢ LỜI' : isFrozen ? `❄️ ĐANG ĐÓNG BĂNG (${freezeSeconds}s)` : '🚀 GỬI CÂU TRẢ LỜI'}
-              </button>
-            </div>
-          )}
-
-          {/* Power-up Inventory Bar đặt dưới cùng để không bao giờ làm trồi sụt hay dịch chuyển khung đáp án */}
-          {inventory.length > 0 && (
+          {/* Chỉ trò Kéo Co (TUG) mới hiển thị Túi kỹ năng */}
+          {gameType === 'TUG' && inventory.length > 0 && (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '6px 10px', background: '#1e1b4b', borderRadius: '12px', border: '1px solid #6366f1', marginTop: '14px', overflowX: 'auto' }}>
-              <span style={{ fontSize: '11px', fontWeight: 900, color: '#c7d2fe', whiteSpace: 'nowrap' }}>Túi kỹ năng:</span>
+              <span style={{ fontSize: '11px', fontWeight: 900, color: '#c7d2fe', whiteSpace: 'nowrap' }}>Túi kỹ năng Kéo Co:</span>
               {inventory.map((item, idx) => {
                 const label = item === 'SHIELD' ? '🛡️ Khiên' : item === 'FREEZE_OPPONENT' ? '❄️ Đóng băng' : item === 'FIFTY_FIFTY' ? '💡 50/50' : '⚡ x2 Kéo';
                 return (
@@ -1524,20 +1690,61 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Screen 4: Eliminated Screen */}
+      {/* Screen 4: Eliminated in Golden Bell -> Chế Độ Khán Giả Cổ Vũ */}
       {screen === 'ELIMINATED' && (
-        <div style={{ maxWidth: '480px', margin: '40px auto', padding: '24px', textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>💀</div>
-          <h2 style={{ fontSize: '22px', color: '#ef4444', margin: '0 0 10px 0' }}>
-            BẠN ĐÃ BỊ LOẠI KHỎI SÀN ĐẤU!
+        <div style={{ maxWidth: '480px', margin: '28px auto', padding: '22px', textAlign: 'center' }}>
+          <div style={{ fontSize: '52px', marginBottom: '8px' }}>📣</div>
+          <h2 style={{ fontSize: '21px', color: '#fbbf24', fontWeight: 900, margin: '0 0 8px 0' }}>
+            BẠN ĐÃ TRỞ THÀNH KHÁN GIẢ CỔ VŨ!
           </h2>
-          <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.5 }}>
-            Bạn đã dùng hết 3 lượt chơi (❤️❤️❤️).<br />
-            Hãy chú ý theo dõi màn hình lớn, <b>Thầy có thể tung phao cứu trợ hồi sinh bạn bất cứ lúc nào!</b>
+          <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.55, margin: '0 0 14px 0' }}>
+            Trong trò <b>Rung Chuông Vàng</b>, bạn đã dùng hết 3 mạng (❤️❤️❤️) và rời sàn đấu.<br />
+            Thành tích của bạn đã được bảo lưu: <b style={{ color: '#4ade80' }}>{fastScore} điểm ({myCorrectCount} câu đúng)</b>.
           </p>
-          <div style={{ marginTop: '20px', padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1px dashed #ef4444' }}>
-            <span style={{ fontSize: '13px', color: '#fca5a5' }}>
-              🛟 Chờ tín hiệu Cứu Trợ từ Giáo Viên...
+
+          {/* Hộp tương tác cổ vũ đồng đội trên sàn đấu */}
+          <div style={{ background: '#0f172a', border: '2px solid #f59e0b', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#fef08a', marginBottom: '10px' }}>
+              🎉 BẤM CỔ VŨ CÁC BẠN ĐANG THI ĐẤU TRÊN SÂN:
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {[
+                { label: '👏 Vỗ tay cổ vũ!', msg: '👏 Bạn vừa gửi tràng pháo tay cổ vũ nồng nhiệt lên sàn đấu!' },
+                { label: '🔥 Tiếp lửa!', msg: '🔥 Bạn vừa tiếp lửa tinh thần cho các sĩ tử trên sàn đấu!' },
+                { label: '🥁 Đánh trống!', msg: '🥁 Tiếng trống cổ vũ Rung Chuông Vàng vang dội!' }
+              ].map((btn, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    AudioFX.pullHeave();
+                    setCheerMessage(btn.msg);
+                    setTimeout(() => setCheerMessage(null), 3000);
+                  }}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#0f172a',
+                    border: 'none',
+                    fontWeight: 900,
+                    fontSize: '13px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+            {cheerMessage && (
+              <div style={{ marginTop: '10px', fontSize: '13px', color: '#4ade80', fontWeight: 800 }}>
+                {cheerMessage}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1.5px dashed #10b981' }}>
+            <span style={{ fontSize: '13px', color: '#6ee7b7', fontWeight: 800 }}>
+              🛟 Hãy chú ý màn hình chính: Giáo viên có thể tung Phao Cứu Trợ hồi sinh bạn trở lại thi đấu bất cứ lúc nào!
             </span>
           </div>
         </div>

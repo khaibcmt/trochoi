@@ -107,11 +107,24 @@ export const TeacherSetupView: React.FC<Props> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  const [formatCounts, setFormatCounts] = useState<{ mc: number; tf: number; sa: number }>({ mc: 0, tf: 0, sa: 0 });
+
+  const updateFormatStats = (items: QuizItem[]) => {
+    const mc = items.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE').length;
+    const tf = items.filter(q => q.format === 'TRUE_FALSE').length;
+    const sa = items.filter(q => q.format === 'SHORT_ANSWER').length;
+    setFormatCounts({ mc, tf, sa });
+  };
+
   const syncEditorQuestionsLive = () => {
     if (!editorRef.current || !onSyncQuizLive) return;
     const raw = editorRef.current.innerHTML.trim();
-    if (!raw) return;
+    if (!raw) {
+      updateFormatStats([]);
+      return;
+    }
     const parsed = parseHTMLToQuiz(raw);
+    updateFormatStats(parsed);
     if (parsed.length > 0) {
       onSyncQuizLive(parsed);
     }
@@ -122,6 +135,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     if (editorRef.current && subjectsDB[currentSubjectKey]) {
       editorRef.current.innerHTML = subjectsDB[currentSubjectKey].html;
       const parsed = parseHTMLToQuiz(subjectsDB[currentSubjectKey].html);
+      updateFormatStats(parsed);
       if (parsed.length > 0 && onSyncQuizLive) {
         onSyncQuizLive(parsed);
       }
@@ -382,9 +396,9 @@ export const TeacherSetupView: React.FC<Props> = ({
             <div className="gm-card-body">
               <div className="gm-icon">⚔️</div>
               <div className="gm-info">
-                <h3>KÉO CO 3D (3 HIỆP)</h3>
+                <h3>KÉO CO 3D (CHIA 2 ĐỘI)</h3>
                 <p>
-                  2 Đội Đỏ & Xanh đối kháng • Dẫn trước 3 câu là thắng hiệp • Kỹ năng: 🛡️ Khiên, ❄️ Băng, ⚡ x2 Kéo!
+                  Chia 2 Đội Đỏ & Xanh đối kháng • Tính điểm & câu đúng để kéo thắng • Có hiệu ứng: 🛡️ Khiên, ❄️ Đóng băng, ⚡ x2 Kéo!
                 </p>
               </div>
             </div>
@@ -410,7 +424,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               <div className="gm-info">
                 <h3>RUNG CHUÔNG VÀNG 3D</h3>
                 <p>
-                  Mỗi HS có 3 Tim (❤️❤️❤️) • Sai 3 câu bị loại • Giáo viên có nút <b>🛟 Tung Phao Cứu Trợ</b> hồi sinh!
+                  Chơi chung • Mỗi HS có 3 Mạng (❤️❤️❤️) • Trả lời sai mất 1 mạng, hết 3 mạng thành <b>Khán giả cổ vũ</b> • Có <b>🛟 Phao Cứu Trợ</b>!
                 </p>
               </div>
             </div>
@@ -434,9 +448,9 @@ export const TeacherSetupView: React.FC<Props> = ({
             <div className="gm-card-body">
               <div className="gm-icon">🏎️</div>
               <div className="gm-info">
-                <h3>ĐUA TỐC ĐỘ 3D</h3>
+                <h3>ĐUA TỐC ĐỘ 3D (CÁ NHÂN)</h3>
                 <p>
-                  Đúng & nhanh nhất trọn <b>1.000đ</b> • Bảng xếp hạng Realtime • Quy đổi điểm: <b>10đ, 9đ, 8đ, 7đ</b>!
+                  Chơi chung toàn lớp • Tính điểm cá nhân & số câu đúng để xếp hạng • Câu trả lời sai không bị phạt!
                 </p>
               </div>
             </div>
@@ -460,9 +474,9 @@ export const TeacherSetupView: React.FC<Props> = ({
             <div className="gm-card-body">
               <div className="gm-icon">🐉</div>
               <div className="gm-info">
-                <h3>ĐÁNH BOSS KIẾN THỨC</h3>
+                <h3>DIỆT BOSS KIẾN THỨC</h3>
                 <p>
-                  Cả lớp hợp sức bắn hạ Quái Vật ({matchSettings.bossMaxHP} HP) • Sai hoặc hết giờ Boss phản đòn!
+                  Chơi chung toàn lớp • Tính điểm cá nhân & câu đúng để trừ máu Boss ({matchSettings.bossMaxHP} HP) • Vinh danh Dũng Sĩ!
                 </p>
               </div>
             </div>
@@ -572,33 +586,33 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
 
           {/* Quick Insert GDPT 2018 Format Buttons & AI Tools */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', padding: '8px 0', borderTop: '1px dashed #cbd5e1', borderBottom: '1px dashed #cbd5e1', margin: '6px 0' }}>
-            <span style={{ fontWeight: 900, fontSize: '12px', color: '#475569' }}>
-              📝 3 Dạng Thức GDPT 2018:
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1', margin: '8px 0' }}>
+            <span style={{ fontWeight: 900, fontSize: '12.5px', color: '#0f172a' }}>
+              📚 Cấu Hình 3 Dạng Thức THPT 2018 ({formatCounts.mc + formatCounts.tf + formatCounts.sa} câu):
             </span>
             <button
               className="btn-action-sm"
-              style={{ background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8' }}
+              style={{ background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: 900 }}
               onClick={() => handleInsertSample(SAMPLE_PHAN_1_MC)}
-              title="Thêm mẫu Phần I: Trắc nghiệm 4 lựa chọn (A, B, C, D)"
+              title="Thêm câu hỏi Dạng thức I: Trắc nghiệm nhiều phương án lựa chọn (A, B, C, D - gạch chân đáp án đúng)"
             >
-              ➕ Mẫu Phần I (4 Lựa Chọn)
+              ➕ Dạng thức I: 4 Phương Án ({formatCounts.mc} câu)
             </button>
             <button
               className="btn-action-sm"
-              style={{ background: '#f5f3ff', borderColor: '#8b5cf6', color: '#6d28d9' }}
+              style={{ background: '#f5f3ff', borderColor: '#8b5cf6', color: '#6d28d9', fontWeight: 900 }}
               onClick={() => handleInsertSample(SAMPLE_PHAN_2_TF)}
-              title="Thêm mẫu Phần II: Đúng/Sai chùm 4 ý (a, b, c, d)"
+              title="Thêm câu hỏi Dạng thức II: Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)"
             >
-              ➕ Mẫu Phần II (Đúng/Sai 4 ý)
+              ➕ Dạng thức II: Đúng/Sai 4 Ý ({formatCounts.tf} câu)
             </button>
             <button
               className="btn-action-sm"
-              style={{ background: '#ecfdf5', borderColor: '#10b981', color: '#047857' }}
+              style={{ background: '#ecfdf5', borderColor: '#10b981', color: '#047857', fontWeight: 900 }}
               onClick={() => handleInsertSample(SAMPLE_PHAN_3_SA)}
-              title="Thêm mẫu Phần III: Câu hỏi trả lời ngắn (Điền số / từ khóa)"
+              title="Thêm câu hỏi Dạng thức III: Trắc nghiệm Trả lời ngắn (Điền số hoặc từ khóa)"
             >
-              ➕ Mẫu Phần III (Trả Lời Ngắn)
+              ➕ Dạng thức III: Trả Lời Ngắn ({formatCounts.sa} câu)
             </button>
 
             <span style={{ margin: '0 4px', color: '#cbd5e1' }}>|</span>
@@ -609,7 +623,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               style={{ background: 'linear-gradient(135deg, #e0e7ff, #fae8ff)', borderColor: '#818cf8', color: '#3730a3', fontWeight: 900 }}
               onClick={() => setShowAIGenModal(true)}
             >
-              🤖 AI Soạn Đề Tự Động
+              🤖 AI Soạn Đề 3 Dạng Thức
             </button>
             <button
               className="btn-action-sm"

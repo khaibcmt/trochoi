@@ -157,4 +157,7 @@ export interface CloudMessage {
   bossDamageGained?: number;
   tabSwitched?: boolean;
   fastScore?: number;
+  savedScore?: number;
+  savedCorrect?: number;
 }
+

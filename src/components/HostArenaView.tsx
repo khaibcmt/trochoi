@@ -755,9 +755,9 @@ export const HostArenaView: React.FC<Props> = ({
             g.position.x = baseX + ropeMesh.position.x;
           }
 
-          // Ice block toggle
+          // Ice block toggle: Chỉ trò Kéo Co (TUG) mới có hiệu ứng đóng băng, và Rung Chuông Vàng (BELL) khi bị loại
           if (u.ice) {
-            u.ice.visible = (pData.freeze || 0) > 0 || isElim;
+            u.ice.visible = curMode === 'TUG' ? (pData.freeze || 0) > Date.now() : (curMode === 'BELL' ? isElim : false);
           }
 
           // Chuyển động duy nhất: đứng im tại chỗ, chỉ lắc qua lắc lại nhẹ nhàng (trục Z)
@@ -1125,24 +1125,11 @@ export const HostArenaView: React.FC<Props> = ({
     };
   }, [matchState.status, matchState.globalQIndex, durationSec, quizList]);
 
-  // Handle Timeout (Không chọn = Coi như SAI, 0 điểm, trừ 1 mạng trong Rung Chuông Vàng)
+  // Handle Timeout: Chỉ trò Rung Chuông Vàng (BELL) mới trừ 1 mạng khi hết giờ; các trò khác câu sai/hết giờ không bị phạt
   const handleQuestionTimeout = () => {
-    AudioFX.freezeCrack();
-
-    // In Boss mode: Boss retaliates, heals 50 HP
-    if (matchState.gameType === 'BOSS') {
-      onUpdateMatchState(prev => {
-        const nextBossHP = Math.min(prev.settings?.bossMaxHP || 1000, (prev.bossHP || 1000) + 50);
-        return {
-          ...prev,
-          bossHP: nextBossHP,
-          bossLastAttack: 'Quái vật gầm thét, hồi 50 HP do hết giờ!'
-        };
-      });
-    }
-
-    // In Bell mode: Unanswered students lose 1 heart and get 0 points (wrongTotal + 1)
+    // In Bell mode ONLY: Unanswered students lose 1 heart and become spectators if 0 lives
     if (matchState.gameType === 'BELL') {
+      AudioFX.freezeCrack();
       onUpdateMatchState(prev => {
         const answeredIds = [...prev.redAnsweredIds, ...prev.blueAnsweredIds];
         const updatedRed = prev.redPlayers.map(p => {
@@ -1155,7 +1142,7 @@ export const HostArenaView: React.FC<Props> = ({
               lives: nextL,
               eliminated: nextElim
             });
-            return { ...p, lives: nextL, eliminated: nextElim, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
+            return { ...p, lives: nextL, eliminated: nextElim, role: nextElim ? 'SPECTATOR' : p.role, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
           }
           return p;
         });
@@ -1169,7 +1156,7 @@ export const HostArenaView: React.FC<Props> = ({
               lives: nextL,
               eliminated: nextElim
             });
-            return { ...p, lives: nextL, eliminated: nextElim, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
+            return { ...p, lives: nextL, eliminated: nextElim, role: nextElim ? 'SPECTATOR' : p.role, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
           }
           return p;
         });
@@ -1177,7 +1164,7 @@ export const HostArenaView: React.FC<Props> = ({
       });
     }
 
-    // Auto advance after 1.8s
+    // Auto advance after 1.5s
     setTimeout(() => {
       onUpdateMatchState(prev => ({
         ...prev,
@@ -1185,7 +1172,7 @@ export const HostArenaView: React.FC<Props> = ({
         redAnsweredIds: [],
         blueAnsweredIds: []
       }));
-    }, 1800);
+    }, 1500);
   };
 
   // Force advance
@@ -1452,331 +1439,174 @@ export const HostArenaView: React.FC<Props> = ({
   const partInfo = getQuestionPartInfo(currentQItem.format);
 
   return (
-    <section id="host-view" style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
-      {/* Floor 1: Host Control & HUD Header */}
+    <section id="host-view" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#070b14' }}>
+
+      {/* Floor 1: Thanh Điều Khiển Tinh Gọn 1 Hàng Duy Nhất (46px) */}
       <header id="arena-header" style={{
-        background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
-        borderBottom: '2.5px solid #38bdf8',
-        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+        height: '46px',
+        minHeight: '46px',
+        background: 'linear-gradient(90deg, #090d16 0%, #0f172a 50%, #090d16 100%)',
+        borderBottom: '1.5px solid rgba(56, 189, 248, 0.35)',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.45)',
         zIndex: 50,
         flexShrink: 0,
-        padding: '4px 8px'
+        padding: '0 12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        overflowX: 'auto'
       }}>
-        {/* 4 Khối 3D Màu Sắc Nằm Trên Cùng 1 Hàng */}
-        <div className="toolbar-3d-row">
-          {/* Khối 1: 🎮 ĐIỀU KHIỂN THI ĐẤU (Emerald 3D) */}
-          <div className="block-3d b3d-emerald">
-            <div className="block-3d-label">
-              <span>🎮 ĐIỀU KHIỂN TRẬN ĐẤU</span>
-              <span style={{ fontSize: '9.5px', color: '#a7f3d0' }}>
-                {matchState.status === 'LOBBY' ? 'CHỜ BẮT ĐẦU' : matchState.status === 'PLAYING' ? 'ĐANG ĐẤU' : 'TẠM DỪNG'}
-              </span>
-            </div>
-            <div className="block-3d-btns">
-              {matchState.status === 'LOBBY' ? (
-                <button
-                  className="b3d-btn"
-                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1.5px solid #a7f3d0', fontWeight: 900 }}
-                  onClick={handleStartContest}
-                  title="Bắt đầu phát câu hỏi thi đấu khi đã tập hợp đủ học sinh"
-                >
-                  ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
-                </button>
-              ) : (
-                <button
-                  className="b3d-btn"
-                  style={{ background: 'linear-gradient(135deg, #0284c7, #0369a1)', border: '1.5px solid #7dd3fc' }}
-                  onClick={handlePrepareArenaGather}
-                  title="Đưa về sảnh chuẩn bị để tập hợp đủ học sinh (Giữ nguyên các HS đã vào)"
-                >
-                  📣 CHUẨN BỊ SÀN ({allPlayers.length} HS)
-                </button>
-              )}
+        {/* Cụm Trái: Chọn Trò Chơi + Mã Phòng + Trạng Thái Nhanh */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {onSwitchGameType && (
+            <select
+              aria-label="Chuyển trò chơi nhanh"
+              value={matchState.gameType}
+              onChange={(e) => onSwitchGameType(e.target.value as GamePlayType)}
+              style={{
+                background: '#1e293b',
+                color: '#fde047',
+                border: '1.5px solid #38bdf8',
+                borderRadius: '8px',
+                padding: '5px 10px',
+                fontSize: '12.5px',
+                fontWeight: 900,
+                cursor: 'pointer'
+              }}
+              title="Đổi trò chơi ngay lập tức (Học sinh giữ nguyên kết nối)"
+            >
+              <option value="TUG">🪢 Kéo Co 3D (Chia Đội)</option>
+              <option value="BELL">🔔 Rung Chuông Vàng (3 ❤️)</option>
+              <option value="FAST">⚡ Đua Tốc Độ (Cá Nhân)</option>
+              <option value="BOSS">🐉 Diệt Boss (Cả Lớp)</option>
+            </select>
+          )}
 
-              {matchState.status !== 'LOBBY' && matchState.status !== 'ENDED' && (
-                <button
-                  className="b3d-btn"
-                  style={{ background: matchState.status === 'PLAYING' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #10b981, #059669)' }}
-                  onClick={handlePauseMatch}
-                  title={matchState.status === 'PLAYING' ? 'Tạm dừng trận đấu' : 'Tiếp tục trận đấu'}
-                >
-                  {matchState.status === 'PLAYING' ? '⏸ DỪNG' : '▶ TIẾP'}
-                </button>
-              )}
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
-                onClick={handleForceAdvanceQ}
-                title="Bỏ qua và chuyển sang câu hỏi tiếp theo"
-              >
-                ⏭️ QUA CÂU
-              </button>
-
-              {(matchState.gameType === 'BELL' || matchState.gameType === 'BOSS') && (
-                <button
-                  className="b3d-btn"
-                  style={{ background: 'linear-gradient(135deg, #059669, #047857)', border: '1px solid #6ee7b7' }}
-                  onClick={() => setShowRescueModal(true)}
-                  title="Mở bảng cứu trợ học sinh"
-                >
-                  🛟 CỨU TRỢ {bellOutCount > 0 ? `(${bellOutCount})` : ''}
-                </button>
-              )}
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', border: '1px solid #fca5a5' }}
-                onClick={handleEndMatch}
-                title="Kết thúc trận đấu và xem bảng tổng kết chung cuộc"
-              >
-                ⏹ KẾT THÚC
-              </button>
-            </div>
-          </div>
-
-          {/* Khối 2: 📱 PHÒNG & CHUYỂN TRÒ CHƠI (Sapphire 3D - Không cần quét lại QR) */}
-          <div className="block-3d b3d-sapphire">
-            <div className="block-3d-label">
-              <span>📱 PHÒNG & ĐỔI GAME (GIỮ HS)</span>
-              <span style={{ fontSize: '9.5px', color: '#bae6fd' }}>
-                🟢 P.{activeRoomId} ({allPlayers.length} HS)
-              </span>
-            </div>
-            <div className="block-3d-btns">
-              <button
-                className="b3d-btn"
-                style={{
-                  background: qrVisible ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #475569, #334155)',
-                  border: qrVisible ? '1.5px solid #7dd3fc' : '1px solid #94a3b8'
-                }}
-                onClick={() => setQrVisible(!qrVisible)}
-                title={qrVisible ? "Ẩn 2 mã QR trên màn hình" : "Hiện lại 2 mã QR để học sinh mới vào tiếp"}
-              >
-                {qrVisible ? '🙈 ẨN QR' : '📱 HIỆN QR'}
-              </button>
-
-              {onSwitchGameType && (
-                <select
-                  aria-label="Chuyển trò chơi nhanh không cần quét lại QR"
-                  value={matchState.gameType}
-                  onChange={(e) => onSwitchGameType(e.target.value as GamePlayType)}
-                  style={{
-                    background: 'linear-gradient(135deg, #0f172a, #1e293b)',
-                    color: '#fde047',
-                    border: '1.5px solid #38bdf8',
-                    borderRadius: '8px',
-                    padding: '3px 6px',
-                    fontSize: '11px',
-                    fontWeight: 900,
-                    cursor: 'pointer'
-                  }}
-                  title="Đổi trò chơi ngay lập tức - Học sinh đang chơi tự động chuyển theo không cần quét lại QR"
-                >
-                  <option value="TUG">🪢 Kéo Co 3D</option>
-                  <option value="BELL">🔔 Rung Chuông Vàng</option>
-                  <option value="FAST">⚡ Đua Tốc Độ</option>
-                  <option value="BOSS">🐉 Diệt Boss</option>
-                </select>
-              )}
-
-              <button
-                className="b3d-btn"
-                style={{ background: isReviewMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #0284c7, #075985)' }}
-                onClick={handleToggleReviewMode}
-                title="Bật/Tắt chế độ chữa bài cho học sinh"
-              >
-                {isReviewMode ? '⚔️ THI TIẾP' : '✅ CHỮA BÀI'}
-              </button>
-            </div>
-          </div>
-
-          {/* Khối 3: 🏆 VINH DANH & DỮ LIỆU (Amber 3D) */}
-          <div className="block-3d b3d-amber">
-            <div className="block-3d-label">
-              <span>🏆 VINH DANH & DỮ LIỆU</span>
-              <span style={{ fontSize: '9.5px', color: '#fef08a' }}>GDPT 2018</span>
-            </div>
-            <div className="block-3d-btns">
-              <button
-                className="b3d-btn"
-                style={{
-                  background: 'linear-gradient(135deg, #d97706, #b45309)',
-                  border: '1.5px solid #fde047',
-                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.4)'
-                }}
-                onClick={() => setShowTop10Modal(true)}
-                title="Mở Bảng vinh danh Top 10 cá nhân xuất sắc nhất"
-              >
-                🏆 TOP 10
-              </button>
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #0d9488, #0f766e)', border: '1px solid #5eead4' }}
-                onClick={handleDownloadCSV}
-                title="Tải bảng điểm học sinh dạng file Excel (.csv)"
-              >
-                📊 XUẤT CSV
-              </button>
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #4f46e5, #4338ca)', border: '1px solid #a5b4fc' }}
-                onClick={onExportHTMLSlide}
-                title="Tải Slide trình chiếu (.html)"
-              >
-                📥 SLIDE
-              </button>
-            </div>
-          </div>
-
-          {/* Khối 4: ⚙️ HỆ THỐNG & GIAO DIỆN (Violet 3D) */}
-          <div className="block-3d b3d-violet">
-            <div className="block-3d-label">
-              <span>⚙️ HỆ THỐNG & HIỂN THỊ</span>
-              <span style={{ fontSize: '9.5px', color: '#e9d5ff' }}>3D ENGINE</span>
-            </div>
-            <div className="block-3d-btns">
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
-                onClick={handleCycleSky}
-                title="Đổi bối cảnh bầu trời 3D"
-              >
-                🌤️ ĐỔI TRỜI
-              </button>
-
-              {onOpenKeyModal && (
-                <button
-                  className="b3d-btn"
-                  style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: '1px solid #c7d2fe' }}
-                  onClick={onOpenKeyModal}
-                  title="Cài đặt Google Gemini API Key"
-                >
-                  ⚙️ AI KEY
-                </button>
-              )}
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #0f766e, #115e59)' }}
-                onClick={onToggleFullScreen}
-                title="Bật/Tắt chế độ toàn màn hình"
-              >
-                🔲 TOÀN MÀN
-              </button>
-
-              <button
-                className="b3d-btn"
-                style={{ background: 'linear-gradient(135deg, #475569, #334155)', border: '1px solid #94a3b8' }}
-                onClick={onReturnToSetup}
-                title="Quay lại màn hình cài đặt của giáo viên"
-              >
-                🏠 CÀI ĐẶT
-              </button>
-            </div>
-          </div>
+          <span style={{ color: '#e2e8f0', fontSize: '12.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+            Phòng <b style={{ color: '#38bdf8', fontSize: '13.5px' }}>{activeRoomId}</b>
+            <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+            <b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b>
+            {matchState.gameType === 'BELL' && (
+              <>
+                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+                <span style={{ color: '#fde047' }}>Còn trụ: {bellAliveCount}/{allPlayers.length}</span>
+              </>
+            )}
+            {matchState.gameType === 'BOSS' && (
+              <>
+                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+                <span style={{ color: '#f87171' }}>🐉 Boss: {matchState.bossHP || 1000}/{matchState.maxBossHP || 1000} HP</span>
+              </>
+            )}
+            {matchState.gameType === 'TUG' && (
+              <>
+                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+                <span style={{ color: '#fca5a5' }}>Đỏ {matchState.redRoundWins}</span>
+                <span style={{ color: '#94a3b8', margin: '0 4px' }}>-</span>
+                <span style={{ color: '#7dd3fc' }}>{matchState.blueRoundWins} Xanh</span>
+              </>
+            )}
+          </span>
         </div>
 
-        {/* HUD Teams Row with Surplus +N Display */}
-        <div className="hud-teams-row">
-          {matchState.gameType === 'BOSS' ? (
-            <>
-              <div className="team-box red" style={{ borderColor: '#ef4444' }}>
-                <span>🔴 CHIẾN BINH LỚP: {matchState.redPlayers.length} HS</span>
-                {matchState.redPlayers.length > 10 && (
-                  <span style={{ fontSize: '11px', color: '#fef08a' }}>+{matchState.redPlayers.length - 10} tiếp sức</span>
-                )}
-              </div>
-              <div className="center-round-hud">
-                <div className="round-badge-top" id="hud-round-title" style={{ color: (matchState.bossHP || 1000) <= 300 ? '#f87171' : '#fde047' }}>
-                  {getRoundTitleText()}
-                </div>
-                <div className="tug-score-live" id="hud-rope-score">
-                  Mã Phòng: {activeRoomId} • Câu {matchState.globalQIndex + 1}/{quizList.length || 1} • {matchState.bossLastAttack || 'Cả lớp cùng dồn sát thương tiêu diệt Boss!'}
-                </div>
-              </div>
-              <div className="team-box blue" style={{ borderColor: '#38bdf8' }}>
-                <span>🔵 CHIẾN BINH LỚP: {matchState.bluePlayers.length} HS</span>
-                {matchState.bluePlayers.length > 10 && (
-                  <span style={{ fontSize: '11px', color: '#fef08a' }}>+{matchState.bluePlayers.length - 10} tiếp sức</span>
-                )}
-              </div>
-            </>
-          ) : matchState.gameType === 'FAST' ? (
-            <>
-              <div className="team-box purple-fast">
-                <span>⚡ THÍ SINH: {allPlayers.length} HS</span>
-                {allPlayers.length > 20 && (
-                  <span style={{ fontSize: '11px', color: '#38bdf8' }}>+{allPlayers.length - 20} tiếp sức</span>
-                )}
-              </div>
-              <div className="center-round-hud">
-                <div className="round-badge-top" id="hud-round-title">
-                  {getRoundTitleText()}
-                </div>
-                <div className="tug-score-live" id="hud-rope-score">
-                  Mã Phòng: {activeRoomId} | Câu {matchState.globalQIndex + 1}/{quizList.length || 1} • Đã nộp: {matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}/{allPlayers.length} HS
-                </div>
-              </div>
-              <div className="team-box purple-fast">
-                <span>👑 DẪN ĐẦU: {top1Fast && top1Fast.fastScore > 0 ? `${top1Fast.label} (${top1Fast.fastScore}đ)` : 'Chưa có điểm'}</span>
-                <span className="round-stars">🎯 Hạng 1-3: 10đ | 4-6: 9đ | 7-10: 8đ</span>
-              </div>
-            </>
-          ) : matchState.gameType === 'BELL' ? (
-            <>
-              <div className="team-box gold-bell">
-                <span>🔔 ĐANG TRỤ TRÊN SÀN: {bellAliveCount} HS</span>
-                {allPlayers.length > 20 && (
-                  <span style={{ fontSize: '11px', color: '#fef08a' }}>+{allPlayers.length - 20} tiếp viện</span>
-                )}
-              </div>
-              <div className="center-round-hud">
-                <div className="round-badge-top" id="hud-round-title">
-                  {getRoundTitleText()}
-                </div>
-                <div className="tug-score-live" id="hud-rope-score">
-                  Mã Phòng: {activeRoomId} | Còn lại: {bellAliveCount}/{allPlayers.length} thí sinh trên sàn
-                </div>
-              </div>
-              <div className="team-box gold-bell">
-                <span className="round-stars">🔥 Đúng 3 câu: +1 ❤️</span>
-                <span>🧊 ĐÃ BỊ LOẠI: {bellOutCount} HS</span>
-              </div>
-            </>
+        {/* Cụm Phải: Các nút điều khiển tinh gọn */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+          {matchState.status === 'LOBBY' ? (
+            <button
+              className="b3d-btn"
+              style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1px solid #6ee7b7', padding: '5px 12px', fontSize: '12px' }}
+              onClick={handleStartContest}
+            >
+              ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
+            </button>
           ) : (
             <>
-              <div className="team-box red">
-                <span>🔴 ĐỘI ĐỎ: {matchState.redPlayers.length} HS</span>
-                {matchState.redPlayers.length > 10 && (
-                  <span style={{ fontSize: '11px', color: '#fef08a' }}>+{matchState.redPlayers.length - 10} tiếp sức</span>
-                )}
-                <span className="round-stars">🏆 Hiệp thắng: {matchState.redRoundWins}/2</span>
-              </div>
-              <div className="center-round-hud">
-                <div className="round-badge-top" id="hud-round-title">
-                  {getRoundTitleText()}
-                </div>
-                <div className="tug-score-live" id="hud-rope-score">
-                  Mã Phòng: {activeRoomId} | {matchState.ropeScore === 0 ? 'Điểm kéo: HÒA (0)' : matchState.ropeScore > 0 ? `XANH DẪN +${matchState.ropeScore}/3 CÂU` : `ĐỎ DẪN +${Math.abs(matchState.ropeScore)}/3 CÂU`}
-                </div>
-              </div>
-              <div className="team-box blue">
-                <span className="round-stars">🏆 Hiệp thắng: {matchState.blueRoundWins}/2</span>
-                <span>🔵 ĐỘI XANH: {matchState.bluePlayers.length} HS</span>
-                {matchState.bluePlayers.length > 10 && (
-                  <span style={{ fontSize: '11px', color: '#fef08a' }}>+{matchState.bluePlayers.length - 10} tiếp sức</span>
-                )}
-              </div>
+              <button
+                className="b3d-btn"
+                style={{ background: '#1e293b', border: '1px solid #475569', padding: '5px 10px', fontSize: '11.5px' }}
+                onClick={handlePrepareArenaGather}
+                title="Đưa về sảnh chuẩn bị để tập hợp học sinh"
+              >
+                📣 Sảnh Chờ
+              </button>
+              <button
+                className="b3d-btn"
+                style={{ background: matchState.status === 'PLAYING' ? '#d97706' : '#059669', padding: '5px 10px', fontSize: '11.5px' }}
+                onClick={handlePauseMatch}
+              >
+                {matchState.status === 'PLAYING' ? '⏸ Dừng' : '▶ Tiếp'}
+              </button>
             </>
           )}
+
+          <button
+            className="b3d-btn"
+            style={{ background: '#0284c7', padding: '5px 10px', fontSize: '11.5px' }}
+            onClick={handleForceAdvanceQ}
+            title="Chuyển sang câu hỏi tiếp theo"
+          >
+            ⏭ Qua Câu
+          </button>
+
+          {matchState.gameType === 'BELL' && (
+            <button
+              className="b3d-btn"
+              style={{ background: '#059669', border: '1px solid #6ee7b7', padding: '5px 10px', fontSize: '11.5px' }}
+              onClick={() => setShowRescueModal(true)}
+              title="Cứu trợ học sinh bị loại trong Rung Chuông Vàng"
+            >
+              🛟 Cứu Trợ {bellOutCount > 0 ? `(${bellOutCount})` : ''}
+            </button>
+          )}
+
+          <button
+            className="b3d-btn"
+            style={{ background: qrVisible ? '#0369a1' : '#334155', padding: '5px 10px', fontSize: '11.5px' }}
+            onClick={() => setQrVisible(!qrVisible)}
+          >
+            {qrVisible ? '🙈 Ẩn QR' : '📱 Mã QR'}
+          </button>
+
+          <button
+            className="b3d-btn"
+            style={{ background: '#b45309', border: '1px solid #fde047', padding: '5px 10px', fontSize: '11.5px' }}
+            onClick={() => setShowTop10Modal(true)}
+          >
+            🏆 Top 10
+          </button>
+
+          <button
+            className="b3d-btn"
+            style={{ background: '#dc2626', padding: '5px 10px', fontSize: '11.5px' }}
+            onClick={handleEndMatch}
+            title="Kết thúc trận đấu và mở màn hình Vinh Danh"
+          >
+            ⏹ Kết Thúc
+          </button>
+
+          <button
+            className="b3d-btn"
+            style={{ background: '#334155', padding: '5px 9px', fontSize: '11.5px' }}
+            onClick={onToggleFullScreen}
+            title="Toàn màn hình"
+          >
+            🔲
+          </button>
+
+          <button
+            className="b3d-btn"
+            style={{ background: '#334155', padding: '5px 10px', fontSize: '11.5px' }}
+            onClick={onReturnToSetup}
+            title="Quay về màn hình cài đặt của giáo viên"
+          >
+            🏠 Cài Đặt
+          </button>
         </div>
       </header>
 
-      {/* Floor 2: 3D Stage Viewport */}
-      <div id="arena-3d-viewport" ref={viewportRef}>
+      {/* Floor 2: Sàn Đấu 3D Trực Quan (Chiếm 42% chiều cao, dành tối đa không gian cho Câu Hỏi & Sàn Đấu) */}
+      <div id="arena-3d-viewport" ref={viewportRef} style={{ flex: '1 1 42%', minHeight: '200px', position: 'relative', overflow: 'hidden' }}>
         <canvas id="canvas3d" ref={canvasRef} />
 
         {/* 3D Label tags container */}
@@ -1787,17 +1617,16 @@ export const HostArenaView: React.FC<Props> = ({
             const hasDoneQ = matchState.redAnsweredIds.includes(p.id) || matchState.blueAnsweredIds.includes(p.id);
 
             let labelText = '';
-            if (matchState.gameType === 'FAST') {
-              labelText = `${hasDoneQ ? '⚡ ' : '⏳ '}${p.label} (${p.fastScore || 0}đ)`;
-            } else if (matchState.gameType === 'BELL' || matchState.gameType === 'BOSS') {
-              if (p.eliminated) labelText = `💀 ${p.label} (Bị loại)`;
+            if (matchState.gameType === 'BELL') {
+              if (p.eliminated) labelText = `📣 ${p.label} (Khán giả)`;
               else {
                 const hearts = '❤️'.repeat(Math.max(0, p.lives));
-                const streakFire = p.streak > 0 ? ` 🔥${p.streak}` : '';
-                labelText = `${hasDoneQ ? '☑️ ' : ''}${p.label} [${hearts}${streakFire}]`;
+                labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} ${hearts}`;
               }
+            } else if (matchState.gameType === 'TUG') {
+              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} (${p.correct || 0})`;
             } else {
-              labelText = hasDoneQ ? `☑️ ${p.label}` : (p.ready ? `✅ ${p.label}` : `⏳ ${p.label}`);
+              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} (${p.fastScore || 0}đ)`;
             }
 
             return (
@@ -1807,7 +1636,9 @@ export const HostArenaView: React.FC<Props> = ({
                 style={{
                   left: `${coord.x}px`,
                   top: `${coord.y}px`,
-                  borderColor: p.team === 'RED' ? 'var(--red)' : 'var(--blue)'
+                  borderColor: matchState.gameType === 'TUG'
+                    ? (p.team === 'RED' ? 'var(--red)' : 'var(--blue)')
+                    : '#38bdf8'
                 }}
               >
                 {labelText}
@@ -1816,32 +1647,29 @@ export const HostArenaView: React.FC<Props> = ({
           })}
         </div>
 
-        {/* Floating QR Badges (Compact, Responsive, and Minimizable) */}
+        {/* Floating QR Badges: Chỉ hiện 2 mã Đỏ/Xanh khi chơi Kéo Co (TUG), các trò khác chỉ hiện 1 mã QR phòng chung */}
         {qrVisible && (
           <>
-            {/* Left QR Panel */}
             {qrMinimizedLeft ? (
               <button
                 className="qr-minimized-pill left"
                 onClick={() => setQrMinimizedLeft(false)}
-                title="Mở lại mã QR Đỏ / Phòng thi"
                 style={{
                   position: 'absolute',
                   top: '10px',
                   left: '10px',
                   background: 'rgba(15, 23, 42, 0.92)',
-                  border: '1.5px solid #ef4444',
+                  border: '1.5px solid #38bdf8',
                   color: '#fef08a',
                   padding: '4px 10px',
-                  borderRadius: '16px',
+                  borderRadius: '12px',
                   fontSize: '11px',
                   fontWeight: 900,
                   cursor: 'pointer',
-                  zIndex: 30,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                  zIndex: 30
                 }}
               >
-                📱 QR {matchState.gameType === 'TUG' ? 'ĐỎ' : 'PHÒNG'} ➕
+                📱 QR {matchState.gameType === 'TUG' ? 'ĐỘI ĐỎ' : `P.${activeRoomId}`} ➕
               </button>
             ) : (
               <div
@@ -1851,19 +1679,17 @@ export const HostArenaView: React.FC<Props> = ({
                 title="Bấm để phóng to QR"
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>QUÉT MÃ</span>
+                  <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>P.{activeRoomId}</span>
                   <div style={{ display: 'flex', gap: '3px' }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setQrMinimizedLeft(true); }}
                       style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer', padding: '0 2px' }}
-                      title="Thu nhỏ QR"
                     >
                       ➖
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setQrVisible(false); }}
                       style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '0 2px', fontWeight: 900 }}
-                      title="Ẩn mã QR"
                     >
                       ✕
                     </button>
@@ -1873,126 +1699,82 @@ export const HostArenaView: React.FC<Props> = ({
                   className="qr-box-inner"
                   onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
                 >
-                  {qrRedImg && <img src={qrRedImg} alt="QR Đỏ" width={80} height={80} />}
+                  {qrRedImg && <img src={qrRedImg} alt="QR Vào Phòng" width={76} height={76} />}
                 </div>
                 <div
                   className="qr-caption"
-                  style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--red)', fontSize: '10px', marginTop: '2px' }}
+                  style={{ color: matchState.gameType === 'TUG' ? 'var(--red)' : '#0284c7', fontSize: '10px', marginTop: '2px' }}
                   onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
                 >
-                  {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS' : matchState.gameType === 'FAST' ? '⚡ AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG' : 'ĐỘI ĐỎ 🔴'}
-                </div>
-                <div
-                  className="qr-zoom-hint"
-                  style={{ fontSize: '9px' }}
-                  onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
-                >
-                  🔍 Bấm phóng to
+                  {matchState.gameType === 'TUG' ? 'ĐỘI ĐỎ 🔴' : 'QUÉT VÀO SÀN'}
                 </div>
               </div>
             )}
 
-            {/* Right QR Panel */}
-            {qrMinimizedRight ? (
-              <button
-                className="qr-minimized-pill right"
-                onClick={() => setQrMinimizedRight(false)}
-                title="Mở lại mã QR Xanh / Phòng thi"
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  background: 'rgba(15, 23, 42, 0.92)',
-                  border: '1.5px solid #0284c7',
-                  color: '#fef08a',
-                  padding: '4px 10px',
-                  borderRadius: '16px',
-                  fontSize: '11px',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  zIndex: 30,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-                }}
-              >
-                📱 QR {matchState.gameType === 'TUG' ? 'XANH' : 'PHÒNG'} ➕
-              </button>
-            ) : (
-              <div
-                className="qr-panel right"
-                id="qr-panel-right"
-                style={{ position: 'absolute', top: '8px', right: '10px', zIndex: 25 }}
-                title="Bấm để phóng to QR"
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>QUÉT MÃ</span>
-                  <div style={{ display: 'flex', gap: '3px' }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setQrMinimizedRight(true); }}
-                      style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer', padding: '0 2px' }}
-                      title="Thu nhỏ QR"
-                    >
-                      ➖
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setQrVisible(false); }}
-                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '0 2px', fontWeight: 900 }}
-                      title="Ẩn mã QR"
-                    >
-                      ✕
-                    </button>
+            {/* Chỉ trò Kéo Co (TUG) mới chia đội nên mới có QR Đội Xanh bên phải */}
+            {matchState.gameType === 'TUG' && (
+              qrMinimizedRight ? (
+                <button
+                  className="qr-minimized-pill right"
+                  onClick={() => setQrMinimizedRight(false)}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    background: 'rgba(15, 23, 42, 0.92)',
+                    border: '1.5px solid #0284c7',
+                    color: '#fef08a',
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    zIndex: 30
+                  }}
+                >
+                  📱 QR ĐỘI XANH ➕
+                </button>
+              ) : (
+                <div
+                  className="qr-panel right"
+                  id="qr-panel-right"
+                  style={{ position: 'absolute', top: '8px', right: '10px', zIndex: 25 }}
+                  title="Bấm để phóng to QR"
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>P.{activeRoomId}</span>
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setQrMinimizedRight(true); }}
+                        style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer', padding: '0 2px' }}
+                      >
+                        ➖
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setQrVisible(false); }}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '0 2px', fontWeight: 900 }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    className="qr-box-inner"
+                    onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
+                  >
+                    {qrBlueImg && <img src={qrBlueImg} alt="QR Xanh" width={76} height={76} />}
+                  </div>
+                  <div
+                    className="qr-caption"
+                    style={{ color: 'var(--blue)', fontSize: '10px', marginTop: '2px' }}
+                    onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
+                  >
+                    ĐỘI XANH 🔵
                   </div>
                 </div>
-                <div
-                  className="qr-box-inner"
-                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
-                >
-                  {qrBlueImg && <img src={qrBlueImg} alt="QR Xanh" width={80} height={80} />}
-                </div>
-                <div
-                  className="qr-caption"
-                  style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--blue)', fontSize: '10px', marginTop: '2px' }}
-                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
-                >
-                  {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS' : matchState.gameType === 'FAST' ? '⚡ AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG' : 'ĐỘI XANH 🔵'}
-                </div>
-                <div
-                  className="qr-zoom-hint"
-                  style={{ fontSize: '9px' }}
-                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
-                >
-                  🔍 Bấm phóng to
-                </div>
-              </div>
+              )
             )}
           </>
-        )}
-
-        {/* Floating Quick Restore Button When QR Is Hidden */}
-        {!qrVisible && (
-          <button
-            onClick={() => setQrVisible(true)}
-            style={{
-              position: 'absolute',
-              top: '12px',
-              left: '12px',
-              background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-              color: '#ffffff',
-              border: '2px solid #38bdf8',
-              borderRadius: '20px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 900,
-              boxShadow: '0 4px 15px rgba(2, 132, 199, 0.55)',
-              cursor: 'pointer',
-              zIndex: 35,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            title="Bấm để hiện lại mã QR quét tham gia sàn đấu"
-          >
-            📱 HIỆN MÃ QR
-          </button>
         )}
 
         {/* Rescue Banner Notification */}
@@ -2005,81 +1787,62 @@ export const HostArenaView: React.FC<Props> = ({
               transform: 'translateX(-50%)',
               background: 'linear-gradient(135deg, #10b981, #047857)',
               color: '#ffffff',
-              padding: '16px 28px',
-              borderRadius: '20px',
-              border: '3px solid #fef08a',
+              padding: '14px 24px',
+              borderRadius: '16px',
+              border: '2px solid #fef08a',
               boxShadow: '0 15px 35px rgba(0,0,0,0.6)',
-              fontSize: '20px',
+              fontSize: '18px',
               fontWeight: 900,
               zIndex: 300,
-              textAlign: 'center',
-              animation: 'bounceIn 0.5s ease-out'
+              textAlign: 'center'
             }}
           >
             {rescueBannerMsg}
           </div>
         )}
 
-        {/* 2 Khung Thi Đấu Rộng 2 Bên: Tên Đội Đỏ & Tên Đội Xanh */}
-        <div style={{
-          position: 'absolute',
-          top: '12px',
-          left: qrVisible && !qrMinimizedLeft ? '110px' : '14px',
-          zIndex: 22,
-          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(185, 28, 28, 0.95))',
-          border: '2px solid #fecaca',
-          borderBottom: '4.5px solid #7f1d1d',
-          borderRadius: '16px',
-          padding: '6px 14px',
-          color: '#ffffff',
-          fontWeight: 900,
-          boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          transition: 'all 0.2s ease'
-        }}>
-          <span style={{ fontSize: '18px' }}>🔴</span>
-          <div>
-            <div style={{ fontSize: '13.5px', letterSpacing: '0.5px' }}>ĐỘI ĐỎ</div>
-            <div style={{ fontSize: '11px', color: '#fef08a' }}>
-              {matchState.redPlayers.length} Thí sinh • {matchState.redTotalCorrect || 0} câu đúng
+        {/* Chỉ hiển thị 2 bảng ĐỘI ĐỎ / ĐỘI XANH khi chơi Kéo Co (TUG) */}
+        {matchState.gameType === 'TUG' && (
+          <>
+            <div style={{
+              position: 'absolute',
+              top: '10px',
+              left: qrVisible && !qrMinimizedLeft ? '106px' : '12px',
+              zIndex: 22,
+              background: 'rgba(185, 28, 28, 0.92)',
+              border: '1.5px solid #fca5a5',
+              borderRadius: '12px',
+              padding: '5px 12px',
+              color: '#ffffff',
+              fontWeight: 900,
+              fontSize: '12px'
+            }}>
+              🔴 ĐỘI ĐỎ: {matchState.redPlayers.length} HS • {matchState.redTotalCorrect || 0} đúng
             </div>
-          </div>
-        </div>
 
-        <div style={{
-          position: 'absolute',
-          top: '12px',
-          right: qrVisible && !qrMinimizedRight ? '110px' : (showLiveTop10 && allPlayers.length > 0 ? '340px' : '14px'),
-          zIndex: 22,
-          background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.95), rgba(3, 105, 161, 0.95))',
-          border: '2px solid #bae6fd',
-          borderBottom: '4.5px solid #082f49',
-          borderRadius: '16px',
-          padding: '6px 14px',
-          color: '#ffffff',
-          fontWeight: 900,
-          boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          transition: 'all 0.2s ease'
-        }}>
-          <div>
-            <div style={{ fontSize: '13.5px', letterSpacing: '0.5px', textAlign: 'right' }}>ĐỘI XANH</div>
-            <div style={{ fontSize: '11px', color: '#fef08a', textAlign: 'right' }}>
-              {matchState.bluePlayers.length} Thí sinh • {matchState.blueTotalCorrect || 0} câu đúng
+            <div style={{
+              position: 'absolute',
+              top: '10px',
+              right: qrVisible && !qrMinimizedRight ? '106px' : (showLiveTop10 && allPlayers.length > 0 ? '290px' : '12px'),
+              zIndex: 22,
+              background: 'rgba(3, 105, 161, 0.92)',
+              border: '1.5px solid #7dd3fc',
+              borderRadius: '12px',
+              padding: '5px 12px',
+              color: '#ffffff',
+              fontWeight: 900,
+              fontSize: '12px'
+            }}>
+              🔵 ĐỘI XANH: {matchState.bluePlayers.length} HS • {matchState.blueTotalCorrect || 0} đúng
             </div>
-          </div>
-          <span style={{ fontSize: '18px' }}>🔵</span>
-        </div>
+          </>
+        )}
 
-        {/* Live Top 10 Leaderboard (Bảng Ghi Nhận Top 10) */}
+        {/* Live Top 10 Leaderboard (Bảng Xếp Hạng Cá Nhân Trực Tiếp) */}
         {allPlayers.length > 0 && showLiveTop10 && (
-          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex' }} aria-label="Bảng ghi nhận Top 10 trực tiếp">
+          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex', width: '265px' }} aria-label="Bảng ghi nhận Top 10 trực tiếp">
             <div className="flb-title">
-              <span>🏆 BẢNG GHI NHẬN TOP 10</span>
+              <span>🏆 BẢNG XẾP HẠNG TOP 10</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '11px', color: '#38bdf8' }}>{allPlayers.length} HS</span>
                 <button
@@ -2095,18 +1858,17 @@ export const HostArenaView: React.FC<Props> = ({
               {top10Leaderboard.slice(0, 10).map((p, idx) => {
                 const rank = idx + 1;
                 const medal = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : `#${rank}`));
-                const isRedTeam = p.team === 'RED';
-                const scoreDisplay = matchState.gameType === 'FAST'
-                  ? `${p.fastScore || 0}đ`
-                  : matchState.gameType === 'BELL'
-                  ? `${p.correct || 0}đ [${p.lives || 0}❤️]`
-                  : `${p.correct || 0} câu đúng`;
+                const scoreDisplay = matchState.gameType === 'BELL'
+                  ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
+                  : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
                 return (
                   <div key={p.id} className={`flb-row rank-${rank}`}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-name" title={p.label}>
-                      <span style={{ fontSize: '10px', marginRight: '4px' }}>{isRedTeam ? '🔴' : '🔵'}</span>
-                      {p.label} {p.lastDelta && p.lastDelta > 0 ? <span style={{ color: '#4ade80', fontSize: '10.5px' }}>(+{p.lastDelta})</span> : null}
+                      {matchState.gameType === 'TUG' && (
+                        <span style={{ fontSize: '10px', marginRight: '4px' }}>{p.team === 'RED' ? '🔴' : '🔵'}</span>
+                      )}
+                      {p.label}
                     </div>
                     <div className="flb-pts">
                       {scoreDisplay}
@@ -2124,22 +1886,20 @@ export const HostArenaView: React.FC<Props> = ({
             onClick={() => setShowLiveTop10(true)}
             style={{
               position: 'absolute',
-              bottom: '12px',
-              right: '12px',
-              background: 'linear-gradient(135deg, #d97706, #b45309)',
+              bottom: '10px',
+              right: '10px',
+              background: '#b45309',
               color: '#ffffff',
-              border: '2px solid #fde047',
-              borderRadius: '16px',
-              padding: '6px 12px',
+              border: '1.5px solid #fde047',
+              borderRadius: '12px',
+              padding: '5px 12px',
               fontSize: '11.5px',
               fontWeight: 900,
               cursor: 'pointer',
-              zIndex: 30,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+              zIndex: 30
             }}
-            title="Mở lại Bảng ghi nhận Top 10"
           >
-            🏆 BẢNG TOP 10 ➕
+            🏆 Top 10 ➕
           </button>
         )}
 
@@ -2151,41 +1911,35 @@ export const HostArenaView: React.FC<Props> = ({
               bottom: '10px',
               left: '50%',
               transform: 'translateX(-50%)',
-              background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96))',
-              border: '2.5px solid #10b981',
-              borderRadius: '20px',
-              padding: '10px 22px',
+              background: 'rgba(15, 23, 42, 0.95)',
+              border: '2px solid #10b981',
+              borderRadius: '16px',
+              padding: '8px 18px',
               zIndex: 40,
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.65)'
+              gap: '14px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.6)'
             }}
           >
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 900, color: '#fde047' }}>
-                📣 ĐANG TẬP HỢP HỌC SINH VÀO SÀN ĐẤU • MÃ PHÒNG: {activeRoomId} ({allPlayers.length} HS ĐÃ SẴN SÀNG)
-              </div>
-              <div style={{ fontSize: '11.5px', color: '#bae6fd', fontWeight: 700 }}>
-                Học sinh cũ tự động giữ kết nối khi đổi trò chơi • Học sinh mới quét mã QR 2 bên để tiếp tục vào!
-              </div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: '#e2e8f0' }}>
+              📣 Sảnh tập hợp học sinh • Phòng <b style={{ color: '#fde047' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b> đã sẵn sàng)
             </div>
             <button
               onClick={handleStartContest}
               style={{
                 background: 'linear-gradient(135deg, #10b981, #059669)',
                 color: '#ffffff',
-                border: '2px solid #a7f3d0',
-                borderRadius: '14px',
-                padding: '8px 18px',
-                fontSize: '14px',
+                border: '1.5px solid #a7f3d0',
+                borderRadius: '10px',
+                padding: '6px 14px',
+                fontSize: '13px',
                 fontWeight: 900,
                 cursor: 'pointer',
-                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.5)',
                 whiteSpace: 'nowrap'
               }}
             >
-              🚀 PHÁT CÂU HỎI BẮT ĐẦU THI ({allPlayers.length} HS)
+              🚀 BẮT ĐẦU THI NGAY
             </button>
           </div>
         )}
@@ -2193,15 +1947,11 @@ export const HostArenaView: React.FC<Props> = ({
         {/* Round Break Modal (Tug Mode) */}
         {matchState.status === 'ROUND_BREAK' && (
           <div id="round-modal" style={{ display: 'block' }}>
-            <h2 id="round-modal-title" style={{ fontSize: '28px', color: 'var(--gold)', margin: 0 }}>
+            <h2 id="round-modal-title" style={{ fontSize: '26px', color: 'var(--gold)', margin: 0 }}>
               🎉 KẾT THÚC HIỆP {matchState.currentRound}!
             </h2>
-            <p id="round-modal-sub" style={{ fontSize: '16.5px', color: '#f8fafc', margin: '8px 0 14px 0' }}>
-              Tỉ số Hiệp: <b>Đỏ ({matchState.redRoundWins}) - Xanh ({matchState.blueRoundWins})</b><br />
-              <span style={{ fontSize: '14px', color: '#fde047' }}>
-                Bối cảnh Hiệp {matchState.currentRound + 1} tiếp theo:{' '}
-                <b>{matchState.currentRound + 1 === 2 ? '🌅 Hoàng Hôn Cam' : '🌌 Đêm Chung Kết'}</b>
-              </span>
+            <p id="round-modal-sub" style={{ fontSize: '16px', color: '#f8fafc', margin: '8px 0 14px 0' }}>
+              Tỉ số Hiệp: <b>Đỏ ({matchState.redRoundWins}) - Xanh ({matchState.blueRoundWins})</b>
             </p>
             <button
               className="btn-launch"
@@ -2213,163 +1963,280 @@ export const HostArenaView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Dedicated Grand Finale Celebration Screen */}
-        {matchState.status === 'ENDED' && (
-          <GrandFinaleScreen
-            matchState={matchState}
-            activeRoomId={activeRoomId}
-            onReviewMatch={() => {
-              setIsReviewMode(true);
-              setReviewQIdx(0);
-              onUpdateMatchState(prev => ({ ...prev, status: 'PAUSED' }));
-            }}
-            onDownloadCSV={handleDownloadCSV}
-            onExportHTMLSlide={onExportHTMLSlide}
-            onPrintPDFEvidence={onPrintPDFEvidence}
-            onRestartMatch={handleRestartMatch}
-            onReturnToSetup={onReturnToSetup}
-          />
+        {/* Nút quay lại màn hình Vinh Danh khi đang ở chế độ Xem Lại Câu Hỏi */}
+        {matchState.status === 'ENDED' && isReviewMode && (
+          <div style={{ position: 'absolute', bottom: '12px', right: '16px', zIndex: 90 }}>
+            <button
+              type="button"
+              onClick={() => setIsReviewMode(false)}
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#0f172a',
+                border: '2px solid #fde047',
+                borderRadius: '12px',
+                padding: '8px 16px',
+                fontSize: '13px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                boxShadow: '0 8px 25px rgba(245, 158, 11, 0.5)'
+              }}
+            >
+              🏆 Quay Lại Màn Hình Vinh Danh
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Floor 3: Khung Câu Hỏi & Đáp Án Chiếm 50% Chiều Cao Màn Hình - Bố Trí Lưới Đối Xứng 2x2 (4 Ô) - Chữ To Từ 24pt Trở Lên */}
+      {/* Màn hình Kết Thúc Trống Vinh Danh Top 10 & Quán Quân (Rung Chuông Vàng, Diệt Boss, Đội Kéo Co) */}
+      {matchState.status === 'ENDED' && !isReviewMode && (
+        <GrandFinaleScreen
+          matchState={matchState}
+          activeRoomId={activeRoomId}
+          onReviewMatch={() => {
+            setIsReviewMode(true);
+            setReviewQIdx(0);
+          }}
+          onDownloadCSV={handleDownloadCSV}
+          onExportHTMLSlide={onExportHTMLSlide}
+          onPrintPDFEvidence={onPrintPDFEvidence}
+          onRestartMatch={handleRestartMatch}
+          onReturnToSetup={onReturnToSetup}
+        />
+      )}
+
+      {/* Floor 3: Khung Câu Hỏi & Đáp Án Chuẩn THPT 2018 — Chiếm 56% Màn Hình, Đẹp Mắt, Tinh Gọn, Rõ Nét */}
       <section
         id="host-question-board"
         className={isReviewMode ? 'review-active' : ''}
         style={{
+          flex: '0 0 56vh',
+          height: '56vh',
+          minHeight: '56vh',
+          maxHeight: '56vh',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          height: '50vh',
-          minHeight: '50vh',
-          maxHeight: '50vh',
           overflow: 'hidden',
-          padding: '8px 18px 6px 18px',
+          padding: '10px 20px 10px 20px',
+          background: 'linear-gradient(180deg, #0b1120 0%, #070b14 100%)',
+          borderTop: '2px solid #38bdf8',
           boxSizing: 'border-box'
         }}
-        aria-label="Khung câu hỏi và đáp án chiếm 50% màn hình"
+        aria-label="Khung câu hỏi và đáp án chuẩn THPT 2018"
       >
-        {/* Section Part Badge according to GDPT 2018 format */}
-        <div style={{ order: 0, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px', flexShrink: 0 }}>
-          <span style={{
-            background: partInfo.badgeColor,
-            color: '#0f172a',
-            padding: '3px 12px',
-            borderRadius: '12px',
-            fontSize: '12px',
-            fontWeight: 900,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-            textTransform: 'uppercase'
-          }}>
-            {partInfo.partBadge}
-          </span>
-          <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 800 }}>
-            {partInfo.partTitle}
-          </span>
-        </div>
-
-        {/* Order 1: Khung Câu Hỏi Chữ To Từ 24pt Trở Lên, Tự Động Xuống Dòng Vừa Khung, Không Bị Mất Chữ */}
+        {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
         <div
-          id="hq-q-text"
-          className="hq-title"
           style={{
-            fontSize: qTextFontSize,
-            lineHeight: 1.34,
-            fontWeight: 900,
-            wordBreak: 'break-word',
-            overflowWrap: 'break-word',
-            whiteSpace: 'normal',
-            maxHeight: '17vh',
+            background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
+            border: '1.5px solid rgba(56, 189, 248, 0.4)',
+            borderRadius: '16px',
+            padding: '10px 18px',
+            marginBottom: '10px',
+            boxShadow: '0 6px 20px rgba(0, 0, 0, 0.45)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            flexShrink: 0,
+            maxHeight: '22vh',
             overflowY: 'auto'
           }}
         >
-          Câu {((currentQIndex % quizList.length) + 1)}: <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
+          {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
+              <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
+                CÂU {((currentQIndex % (quizList.length || 1)) + 1)}/{quizList.length || 1}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span style={{ color: '#38bdf8' }}>
+                {currentQItem.format === 'TRUE_FALSE'
+                  ? 'Dạng thức II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)'
+                  : currentQItem.format === 'SHORT_ANSWER'
+                  ? 'Dạng thức III: Trắc nghiệm Trả lời ngắn'
+                  : 'Dạng thức I: Trắc nghiệm 4 phương án lựa chọn'}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span style={{ color: '#cbd5e1' }}>
+                Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
+              </span>
+            </div>
+
+            {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                fontSize: '13.5px',
+                fontWeight: 900,
+                color: remainingSec > 10 ? '#34d399' : remainingSec > 5 ? '#fbbf24' : '#f87171',
+                marginRight: '4px'
+              }}>
+                ⏱️ {remainingSec.toFixed(1)}s
+              </span>
+              <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(-1)}>
+                ◀ Trước
+              </button>
+              <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
+                Tiếp ▶
+              </button>
+              <button
+                className="hq-nav-btn"
+                id="hq-reveal-btn"
+                style={{ padding: '3px 10px', fontSize: '12px', background: isReviewMode ? '#d97706' : '#059669', borderColor: '#6ee7b7', color: '#fff' }}
+                onClick={handleToggleReviewMode}
+              >
+                {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Đáp Án'}
+              </button>
+              <button
+                className="hq-nav-btn"
+                style={{ padding: '3px 10px', fontSize: '12px', background: '#4f46e5', borderColor: '#a5b4fc', color: '#fff', fontWeight: 800 }}
+                onClick={handleRequestAIExplanation}
+              >
+                💡 Giải Thích
+              </button>
+            </div>
+          </div>
+
+          {/* Nội dung câu hỏi chữ lớn rõ nét */}
+          <div
+            id="hq-q-text"
+            style={{
+              fontSize: qTextFontSize,
+              lineHeight: 1.35,
+              fontWeight: 900,
+              color: '#ffffff',
+              wordBreak: 'break-word',
+              overflowWrap: 'break-word',
+              whiteSpace: 'normal'
+            }}
+          >
+            <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
+          </div>
         </div>
 
-        {/* Order 2: Khung Đáp Án Bố Trí Lưới Đối Xứng 2x2 (4 Ô) */}
+        {/* Khung Đáp Án 3 Dạng Thức Chuẩn Chương Trình THPT 2018 */}
         <div
           id="hq-q-opts"
           className="hq-opts"
           style={{
-            order: 2,
             flex: '1 1 auto',
-            maxHeight: '23vh',
             overflowY: 'auto',
             display: 'grid',
             gridTemplateColumns: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? 'auto' : 'repeat(2, 1fr)',
-            gap: '10px',
-            marginBottom: '4px'
+            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
+            gap: '12px',
+            marginBottom: '8px'
           }}
         >
           {currentQItem.format === 'TRUE_FALSE' ? (
-            // Dạng Phần II: Đúng/Sai 4 ý (a, b, c, d) bố trí lưới 2x2
+            // Dạng thức 2 (Phần II THPT 2018): Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)
             (currentQItem.tfItems || []).map((tf, idx) => {
               const reveal = isReviewMode;
               return (
                 <div
                   key={idx}
-                  className={`hq-opt-item opt-color-${idx % 4}`}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '8px 16px',
+                    gap: '14px',
+                    padding: '12px 18px',
                     borderRadius: '14px',
+                    background: reveal
+                      ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)')
+                      : 'linear-gradient(135deg, #1e293b, #0f172a)',
+                    border: reveal
+                      ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171')
+                      : '1.5px solid #334155',
+                    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
                     wordBreak: 'break-word',
                     overflowWrap: 'break-word',
                     whiteSpace: 'normal',
-                    fontSize: '20px',
+                    fontSize: '21px',
                     fontWeight: 800,
                     lineHeight: 1.32,
-                    background: reveal ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)') : undefined,
-                    border: reveal ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171') : undefined
+                    color: '#f8fafc'
                   }}
                 >
-                  <span style={{ fontSize: '20px', flex: 1 }}>
-                    <b style={{ color: '#fef08a', fontSize: '24px' }}>{tf.label})</b> <MathRenderer text={tf.text} />
-                  </span>
-                  {reveal && (
-                    <span style={{ fontWeight: 900, color: tf.isCorrect ? '#4ade80' : '#fca5a5', fontSize: '15px', flexShrink: 0, marginLeft: '10px' }}>
-                      {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1 }}>
+                    <span style={{
+                      minWidth: '34px',
+                      height: '34px',
+                      borderRadius: '8px',
+                      background: '#0284c7',
+                      color: '#fef08a',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: '20px',
+                      flexShrink: 0
+                    }}>
+                      {tf.label})
                     </span>
-                  )}
+                    <span style={{ flex: 1, paddingTop: '2px' }}>
+                      <MathRenderer text={tf.text} />
+                    </span>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    {reveal ? (
+                      <span style={{
+                        fontWeight: 900,
+                        color: tf.isCorrect ? '#4ade80' : '#fca5a5',
+                        fontSize: '17px',
+                        padding: '4px 10px',
+                        borderRadius: '8px',
+                        background: 'rgba(0,0,0,0.35)'
+                      }}>
+                        {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
+                        Đúng / Sai
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })
           ) : currentQItem.format === 'SHORT_ANSWER' ? (
-            // Dạng Phần III: Trả lời ngắn / Điền số
+            // Dạng thức 3 (Phần III THPT 2018): Trắc nghiệm Trả lời ngắn
             <div
               style={{
                 gridColumn: '1 / -1',
-                padding: '16px 20px',
+                padding: '20px 28px',
                 borderRadius: '16px',
-                background: 'linear-gradient(135deg, #1e1b4b, #312e81)',
-                border: '2.5px dashed #818cf8',
+                background: 'linear-gradient(135deg, #172554, #1e1b4b)',
+                border: isReviewMode ? '2.5px solid #4ade80' : '2px solid #38bdf8',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
                 textAlign: 'center',
                 color: '#ffffff',
-                fontSize: '22px',
-                fontWeight: 800,
-                wordBreak: 'break-word',
-                overflowWrap: 'break-word',
-                whiteSpace: 'normal'
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
               }}
             >
               {isReviewMode ? (
                 <div>
-                  <span style={{ color: '#fef08a', fontWeight: 900, fontSize: '24px' }}>🎯 ĐÁP ÁN ĐÚNG: </span>
-                  <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '28px' }}>
+                  <div style={{ color: '#94a3b8', fontWeight: 800, fontSize: '15px', marginBottom: '6px' }}>
+                    ĐÁP ÁN CHUẨN (DẠNG THỨC III - TRẢ LỜI NGẮN):
+                  </div>
+                  <div style={{ color: '#4ade80', fontWeight: 900, fontSize: '36px', letterSpacing: '1px' }}>
                     <MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} />
-                  </span>
+                  </div>
                 </div>
               ) : (
-                <div style={{ color: '#cbd5e1' }}>
-                  ❓ <b>Dạng Trả Lời Ngắn:</b> Học sinh đang nhập số hoặc từ khóa trên điện thoại...
+                <div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: '#fde047', marginBottom: '6px' }}>
+                    ✍️ CÂU HỎI TRẢ LỜI NGẮN (CHƯƠNG TRÌNH THPT 2018)
+                  </div>
+                  <div style={{ fontSize: '17px', color: '#cbd5e1', fontWeight: 700 }}>
+                    Học sinh nhập kết quả số hoặc từ khóa trực tiếp trên màn hình điện thoại và bấm Gửi 1 lần duy nhất.
+                  </div>
                 </div>
               )}
             </div>
           ) : (
-            // Dạng Phần I: 4 lựa chọn truyền thống (A, B, C, D) bố trí lưới 2x2 đối xứng, chữ to 24pt+
+            // Dạng thức 1 (Phần I THPT 2018): Trắc nghiệm 4 phương án A, B, C, D bố trí lưới 2x2 đẹp mắt
             currentQItem.opts.map((opt, idx) => {
               const isCorrect = idx === currentQItem.correct;
               const letter = String.fromCharCode(65 + idx);
@@ -2379,22 +2246,41 @@ export const HostArenaView: React.FC<Props> = ({
                   key={idx}
                   className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`}
                   style={{
-                    padding: '8px 16px',
+                    padding: '10px 18px',
                     borderRadius: '14px',
                     wordBreak: 'break-word',
                     overflowWrap: 'break-word',
                     whiteSpace: 'normal',
-                    fontSize: opt.length > 70 ? '22px' : '26px',
+                    fontSize: opt.length > 75 ? '21px' : '25px',
                     fontWeight: 900,
-                    lineHeight: 1.3
+                    lineHeight: 1.32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
                   }}
                 >
-                  <span style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
-                    <b style={{ color: '#fef08a', flexShrink: 0, fontSize: '28px' }}>{letter}.</b>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                    <span style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '10px',
+                      background: 'rgba(15, 23, 42, 0.45)',
+                      border: '1.5px solid rgba(254, 240, 138, 0.65)',
+                      color: '#fef08a',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '22px',
+                      fontWeight: 900,
+                      flexShrink: 0
+                    }}>
+                      {letter}
+                    </span>
                     <span style={{ flex: 1 }}><MathRenderer text={opt} /></span>
                   </span>
                   {isReviewMode && isCorrect && (
-                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '15px', flexShrink: 0, marginLeft: '8px' }}>
+                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '16px', flexShrink: 0, background: 'rgba(0,0,0,0.45)', padding: '4px 10px', borderRadius: '8px' }}>
                       ✓ ĐÚNG
                     </span>
                   )}
@@ -2404,76 +2290,16 @@ export const HostArenaView: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Order 4: Header Controls Bar (Sát dưới cùng ngay trên Timer Bar) */}
-        <div
-          className="hq-header"
-          style={{
-            order: 4,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '6px',
-            padding: '4px 0',
-            borderTop: '1px solid rgba(255,255,255,0.1)'
-          }}
-        >
-          <span id="hq-mode-badge" style={{ color: isReviewMode ? '#fef08a' : '#38bdf8', fontSize: '12.5px', fontWeight: 900 }}>
-            {isReviewMode ? '✨ CHỮA BÀI' : `${matchState.gameType === 'BOSS' ? '🐉 DIỆT BOSS' : matchState.gameType === 'FAST' ? '⚡ AI NHANH' : matchState.gameType === 'BELL' ? '🔔 RUNG CHUÔNG' : '🔥 KÉO CO'} #${matchState.globalQIndex + 1}`}
-          </span>
-
-          <span id="hq-team-progress" style={{ color: '#cbd5e1', fontSize: '12px' }}>
-            {matchState.gameType === 'BELL'
-              ? `Đã nộp: ${matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}/${bellAliveCount} HS còn trên sàn`
-              : `Đã nộp: ${matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}/${allPlayers.length} HS`}
-          </span>
-
-          <span id="hq-answer-stats" style={{ color: '#fef08a', fontSize: '12px' }}>
-            ✅ {currentQItem.rightCount || 0} Đúng • 🧊 {currentQItem.wrongCount || 0} Sai
-          </span>
-
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <button
-              className="hq-nav-btn"
-              style={{ background: '#7c3aed', borderColor: '#c084fc', color: '#fff', fontWeight: 900 }}
-              onClick={handleRequestAIExplanation}
-              title="Xem giải thích chi tiết và phân tích lỗi sai từ AI Tutor"
-            >
-              💡 AI Giải Thích
-            </button>
-
-            <button className="hq-nav-btn" onClick={() => handleStepQ(-1)}>
-              ◀ Trước
-            </button>
-            <span id="hq-counter" style={{ color: '#fef08a', fontSize: '12.5px' }}>
-              {(currentQIndex % quizList.length) + 1}/{quizList.length}
-            </span>
-            <button className="hq-nav-btn" onClick={() => handleStepQ(1)}>
-              Tiếp ▶
-            </button>
-            <button
-              className="hq-nav-btn"
-              id="hq-reveal-btn"
-              style={{ background: '#059669', borderColor: '#a7f3d0' }}
-              onClick={handleToggleReviewMode}
-            >
-              {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Hiện Đáp Án'}
-            </button>
-          </div>
-        </div>
-
-        {/* Order 5: 30-Second Countdown Timer Bar (Sát dưới cùng màn hình) */}
+        {/* Thanh tiến trình thời gian gọn đẹp sát đáy màn hình */}
         <div
           id="fast-timer-bar-wrap"
           style={{
-            order: 5,
-            display: 'block',
-            height: '18px',
-            background: 'rgba(0,0,0,0.5)',
-            borderRadius: '9px',
+            height: '8px',
+            background: '#1e293b',
+            borderRadius: '4px',
             overflow: 'hidden',
             position: 'relative',
-            marginTop: '4px'
+            flexShrink: 0
           }}
         >
           <div
@@ -2489,22 +2315,6 @@ export const HostArenaView: React.FC<Props> = ({
               transition: 'width 0.1s linear'
             }}
           />
-          <div
-            id="fast-timer-text"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '11px',
-              fontWeight: 900,
-              color: '#ffffff',
-              textShadow: '0 1px 3px rgba(0,0,0,0.8)'
-            }}
-          >
-            ⏱️ THỜI GIAN CÒN LẠI: {remainingSec.toFixed(1)}s / {durationSec}s • (Không chọn = coi như SAI, tự động qua câu)
-          </div>
         </div>
       </section>
 

@@ -119,7 +119,7 @@ export const App: React.FC = () => {
   const saveSubjects = (newDB: Record<string, SubjectData>) => {
     setSubjectsDB(newDB);
     try {
-      localStorage.setItem('thpt_mangthit_subjects_v9', JSON.stringify(newDB));
+      localStorage.setItem('thpt_mangthit_subjects_v10', JSON.stringify(newDB));
     } catch (e) {}
   };
 
@@ -409,6 +409,14 @@ export const App: React.FC = () => {
             AudioFX.stepInRope();
             updated = true;
           }
+          if (typeof d.savedScore === 'number' && d.savedScore > (existing.fastScore || 0)) {
+            existing.fastScore = d.savedScore;
+            updated = true;
+          }
+          if (typeof d.savedCorrect === 'number' && d.savedCorrect > (existing.correct || 0)) {
+            existing.correct = d.savedCorrect;
+            updated = true;
+          }
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
           const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
@@ -428,10 +436,11 @@ export const App: React.FC = () => {
             gameType: prev.gameType,
             matchStatus: prev.status,
             globalQIndex: prev.globalQIndex,
-            lives: existing.lives,
+            lives: prev.gameType === 'BELL' ? existing.lives : 3,
             streak: existing.streak,
-            eliminated: existing.eliminated,
+            eliminated: prev.gameType === 'BELL' ? existing.eliminated : false,
             fastScore: existing.fastScore || 0,
+            savedCorrect: existing.correct || 0,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
             quiz: currentList,
@@ -489,13 +498,14 @@ export const App: React.FC = () => {
             team: assignedTeam,
             ready: isReady,
             spawned: false,
-            correct: 0,
+            correct: typeof d.savedCorrect === 'number' ? d.savedCorrect : 0,
             freeze: 0,
             role: 'PULLER',
             lives: 3,
             wrongTotal: 0,
             streak: 0,
             eliminated: false,
+            fastScore: typeof d.savedScore === 'number' ? d.savedScore : 0,
             avatar: d.avatar
           };
 
@@ -514,6 +524,8 @@ export const App: React.FC = () => {
             lives: newP.lives,
             streak: newP.streak,
             eliminated: newP.eliminated,
+            fastScore: newP.fastScore || 0,
+            savedCorrect: newP.correct || 0,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
             quiz: currentList,
@@ -541,8 +553,10 @@ export const App: React.FC = () => {
       });
     }
     else if (d.type === 'USE_POWERUP') {
+      // Chỉ có trò Kéo Co (TUG) mới chia đội và có hiệu ứng kỹ năng lên đối thủ
       if (d.powerUpUsed === 'FREEZE_OPPONENT') {
         setMatchState(prev => {
+          if (prev.gameType !== 'TUG') return prev;
           const opponentTeam = d.team === 'RED' ? prev.bluePlayers : prev.redPlayers;
           const activeOpponents = opponentTeam.filter(x => !x.eliminated && x.id !== d.playerId);
           if (activeOpponents.length > 0) {
@@ -561,13 +575,25 @@ export const App: React.FC = () => {
         if (prev.status !== 'PLAYING') return prev;
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
-        if (!pObj || pObj.eliminated) return prev;
+        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
         // Không cho phép nộp lại nếu đã trả lời câu hỏi này rồi
         if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
 
         AudioFX.pullHeave();
-        pObj.correct++;
+        pObj.correct = (pObj.correct || 0) + 1;
         pObj.streak = (pObj.streak || 0) + 1;
+
+        const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
+        const orderIdx = prev.redAnsweredIds.length + prev.blueAnsweredIds.length;
+        const baseFastPts = calculateFastestPoints(studentElapsedSec, orderIdx);
+        const gainedScore = prev.gameType === 'FAST'
+          ? baseFastPts
+          : (typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : baseFastPts);
+
+        pObj.fastScore = (pObj.fastScore || 0) + gainedScore;
+        pObj.lastDelta = gainedScore;
+        pObj.lastTimeSec = studentElapsedSec;
+        pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
 
         // Record question rightCount
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
@@ -577,9 +603,16 @@ export const App: React.FC = () => {
           setQuizList([...activeDeck]);
         }
 
-        // BOSS Mode: Deal damage to Boss
+        const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
+          ? [...prev.redAnsweredIds, pObj.id]
+          : prev.redAnsweredIds;
+        const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
+          ? [...prev.blueAnsweredIds, pObj.id]
+          : prev.blueAnsweredIds;
+
+        // BOSS Mode: Deal damage to Boss & rank individuals by score/correct
         if (prev.gameType === 'BOSS') {
-          const dmg = typeof d.gainedPts === 'number' ? d.gainedPts : 50;
+          const dmg = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 100;
           const nextBossHP = Math.max(0, (prev.bossHP || 1000) - dmg);
           let nextStatus: MatchStatus = prev.status;
 
@@ -588,42 +621,19 @@ export const App: React.FC = () => {
             nextStatus = 'ENDED';
           }
 
-          const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
-            ? [...prev.redAnsweredIds, pObj.id]
-            : prev.redAnsweredIds;
-          const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
-            ? [...prev.blueAnsweredIds, pObj.id]
-            : prev.blueAnsweredIds;
-
           return {
             ...prev,
             bossHP: nextBossHP,
             status: nextStatus,
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
-            bossLastAttack: `Chiến binh ${pObj.label} giáng đòn chí mạng gây -${dmg} HP Boss!`,
+            bossLastAttack: `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (Tổng: ${pObj.fastScore}đ)`,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
         }
 
         if (prev.gameType === 'FAST') {
-          const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
-          const orderIdx = prev.redAnsweredIds.length + prev.blueAnsweredIds.length;
-          const gainedPts = calculateFastestPoints(studentElapsedSec, orderIdx);
-
-          pObj.fastScore = (pObj.fastScore || 0) + gainedPts;
-          pObj.lastDelta = gainedPts;
-          pObj.lastTimeSec = studentElapsedSec;
-          pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
-
-          const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
-            ? [...prev.redAnsweredIds, pObj.id]
-            : prev.redAnsweredIds;
-          const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
-            ? [...prev.blueAnsweredIds, pObj.id]
-            : prev.blueAnsweredIds;
-
           const ranked = [...allP].sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
           const myRank = ranked.findIndex(x => x.id === pObj.id) + 1;
 
@@ -632,7 +642,7 @@ export const App: React.FC = () => {
             playerId: pObj.id,
             qIndex: prev.globalQIndex,
             isCorrect: true,
-            gainedPts: gainedPts,
+            gainedPts: gainedScore,
             elapsedSec: studentElapsedSec,
             totalScore: pObj.fastScore,
             rank: myRank,
@@ -651,7 +661,7 @@ export const App: React.FC = () => {
         if (prev.gameType === 'BELL') {
           let bonusAwarded = false;
           if (pObj.streak >= 3) {
-            pObj.lives = (pObj.lives || 3) + 1;
+            pObj.lives = Math.min(5, (pObj.lives || 3) + 1);
             pObj.streak = 0;
             bonusAwarded = true;
             AudioFX.bonusLifeChime();
@@ -663,17 +673,10 @@ export const App: React.FC = () => {
             lives: pObj.lives,
             streak: pObj.streak,
             eliminated: pObj.eliminated,
+            fastScore: pObj.fastScore,
             bonusAwarded
           });
 
-          const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
-            ? [...prev.redAnsweredIds, pObj.id]
-            : prev.redAnsweredIds;
-          const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
-            ? [...prev.blueAnsweredIds, pObj.id]
-            : prev.blueAnsweredIds;
-
-          // Hết 30 giây mới chuyển sang câu mới theo yêu cầu: không tự động chuyển câu sớm khi làm bài xong
           return {
             ...prev,
             redAnsweredIds: nextRedAns,
@@ -683,8 +686,9 @@ export const App: React.FC = () => {
           };
         }
 
-        // TUG mode
-        let nextRope = prev.ropeScore + (pObj.team === 'BLUE' ? 1 : -1);
+        // TUG mode (Kéo Co 3D): Chia 2 đội Đỏ - Xanh, tính điểm & số câu đúng để kéo dây và xếp hạng
+        const pullPower = d.gainedPts && d.gainedPts >= 200 ? 2 : 1;
+        let nextRope = prev.ropeScore + (pObj.team === 'BLUE' ? pullPower : -pullPower);
         let nextRedWins = prev.redRoundWins;
         let nextBlueWins = prev.blueRoundWins;
         let nextStatus: MatchStatus = prev.status;
@@ -701,14 +705,6 @@ export const App: React.FC = () => {
           else nextStatus = 'ROUND_BREAK';
         }
 
-        const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
-          ? [...prev.redAnsweredIds, pObj.id]
-          : prev.redAnsweredIds;
-        const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
-          ? [...prev.blueAnsweredIds, pObj.id]
-          : prev.blueAnsweredIds;
-
-        // Hết 30 giây mới chuyển sang câu mới: giữ nguyên globalQIndex cho đến khi hết 30s trên Host
         return {
           ...prev,
           ropeScore: nextRope,
@@ -728,21 +724,13 @@ export const App: React.FC = () => {
       setMatchState(prev => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
-        if (!pObj || pObj.eliminated) return prev;
-        // Không cho phép chọn lại hoặc trừ mạng 2 lần trên cùng 1 câu hỏi
+        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
+        // Không cho phép chọn lại trên cùng 1 câu hỏi
         if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
 
-        AudioFX.freezeCrack();
-        pObj.freeze++;
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
-        pObj.lastDelta = 0; // Câu trả lời sai được 0 điểm
-
-        // HS làm sai không được chọn lại đáp án khác, câu đó tính sai 0 điểm và mất 1 mạng
-        pObj.lives = Math.max(0, (pObj.lives ?? 3) - 1);
-        if (pObj.lives <= 0) {
-          pObj.eliminated = true;
-        }
+        pObj.lastDelta = 0;
 
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
         const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
@@ -758,39 +746,31 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        // Đồng bộ mạng, 0 điểm và trạng thái loại về máy học sinh
-        CloudNetwork.sendMessage({
-          type: 'PLAYER_LIVES_SYNC',
-          playerId: pObj.id,
-          lives: pObj.lives,
-          streak: pObj.streak,
-          eliminated: pObj.eliminated,
-          bonusAwarded: false
-        });
+        // CHỈ CÓ RUNG CHUÔNG VÀNG (BELL) mới bị mất 1 mạng khi trả lời sai và hết 3 mạng thì rời cuộc chơi thành khán giả cổ vũ
+        if (prev.gameType === 'BELL') {
+          AudioFX.freezeCrack();
+          pObj.lives = Math.max(0, (pObj.lives ?? 3) - 1);
+          if (pObj.lives <= 0) {
+            pObj.eliminated = true;
+            pObj.role = 'SPECTATOR';
+          }
 
-        if (prev.gameType === 'FAST') {
           CloudNetwork.sendMessage({
-            type: 'FAST_SCORE_SYNC',
+            type: 'PLAYER_LIVES_SYNC',
             playerId: pObj.id,
-            qIndex: prev.globalQIndex,
-            isCorrect: false,
-            gainedPts: 0,
-            totalScore: pObj.fastScore || 0
+            lives: pObj.lives,
+            streak: 0,
+            eliminated: pObj.eliminated,
+            bonusAwarded: false
           });
-        }
-
-        if (prev.gameType === 'BOSS') {
-          // Boss retaliates
-          const nextBossHP = Math.min(prev.settings?.bossMaxHP || 1000, (prev.bossHP || 1000) + 50);
-          return {
-            ...prev,
-            bossHP: nextBossHP,
-            bossLastAttack: `Boss phản đòn trúng ${pObj.label}, Quái vật hồi +50 HP!`,
-            redAnsweredIds: nextRedAns,
-            blueAnsweredIds: nextBlueAns,
-            redPlayers: [...prev.redPlayers],
-            bluePlayers: [...prev.bluePlayers]
-          };
+        } else {
+          // Các trò chơi khác (Kéo Co, Đua Tốc Độ, Diệt Boss): Câu sai không bị trừ mạng, không bị loại
+          pObj.lives = 3;
+          pObj.eliminated = false;
+          if (prev.gameType === 'TUG') {
+            AudioFX.freezeCrack();
+            pObj.freeze = Date.now() + 3000; // Chỉ hiệu ứng hình ảnh nhẹ trong Kéo Co
+          }
         }
 
         return {
@@ -889,10 +869,12 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <TopAuthorBanner
-        onToggleFullScreen={handleToggleFullScreen}
-        onOpenKeyModal={() => setShowKeyModal(true)}
-      />
+      {view === 'TEACHER_SETUP' && (
+        <TopAuthorBanner
+          onToggleFullScreen={handleToggleFullScreen}
+          onOpenKeyModal={() => setShowKeyModal(true)}
+        />
+      )}
 
       {view === 'TEACHER_SETUP' && (
         <TeacherSetupView
