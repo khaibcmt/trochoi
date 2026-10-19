@@ -184,6 +184,7 @@ export const App: React.FC = () => {
   const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string) => {
     const allP = [...currentMS.redPlayers, ...currentMS.bluePlayers];
     const aliveCount = allP.filter(x => !x.eliminated).length;
+    const activeQ = currentQ[currentMS.globalQIndex % (currentQ.length || 1)];
 
     CloudNetwork.sendMessage({
       type: 'HOST_HEARTBEAT',
@@ -203,7 +204,8 @@ export const App: React.FC = () => {
       bossHP: currentMS.bossHP,
       maxBossHP: currentMS.maxBossHP,
       subj: currentSubjectKey,
-      quiz: currentQ
+      quiz: currentQ,
+      question: activeQ
     });
   };
 
@@ -503,15 +505,11 @@ export const App: React.FC = () => {
             ? [...prev.blueAnsweredIds, pObj.id]
             : prev.blueAnsweredIds;
 
-          const alive = allP.filter(x => !x.eliminated);
-          const totalAnswered = nextRedAns.length + nextBlueAns.length;
-          const shouldAdvance = alive.length > 0 && totalAnswered >= alive.length;
-
+          // Hết 30 giây mới chuyển sang câu mới theo yêu cầu: không tự động chuyển câu sớm khi làm bài xong
           return {
             ...prev,
-            globalQIndex: shouldAdvance ? prev.globalQIndex + 1 : prev.globalQIndex,
-            redAnsweredIds: shouldAdvance ? [] : nextRedAns,
-            blueAnsweredIds: shouldAdvance ? [] : nextBlueAns,
+            redAnsweredIds: nextRedAns,
+            blueAnsweredIds: nextBlueAns,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
@@ -542,19 +540,15 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        const redDone = prev.redPlayers.length > 0 && nextRedAns.length >= prev.redPlayers.length;
-        const blueDone = prev.bluePlayers.length > 0 && nextBlueAns.length >= prev.bluePlayers.length;
-        const shouldAdvance = redDone || blueDone;
-
+        // Hết 30 giây mới chuyển sang câu mới: giữ nguyên globalQIndex cho đến khi hết 30s trên Host
         return {
           ...prev,
           ropeScore: nextRope,
           redRoundWins: nextRedWins,
           blueRoundWins: nextBlueWins,
           status: nextStatus,
-          globalQIndex: shouldAdvance ? prev.globalQIndex + 1 : prev.globalQIndex,
-          redAnsweredIds: shouldAdvance ? [] : nextRedAns,
-          blueAnsweredIds: shouldAdvance ? [] : nextBlueAns,
+          redAnsweredIds: nextRedAns,
+          blueAnsweredIds: nextBlueAns,
           redTotalCorrect: pObj.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect,
           blueTotalCorrect: pObj.team === 'BLUE' ? prev.blueTotalCorrect + 1 : prev.blueTotalCorrect,
           redPlayers: [...prev.redPlayers],
@@ -573,8 +567,31 @@ export const App: React.FC = () => {
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
 
+        // HS làm sai không được chọn lại đáp án khác, câu đó tính sai 0 điểm và mất 1 mạng
+        pObj.lives = Math.max(0, (pObj.lives || 3) - 1);
+        if (pObj.lives <= 0) {
+          pObj.eliminated = true;
+        }
+
         const curQ = quizList[prev.globalQIndex % (quizList.length || 1)];
         if (curQ) curQ.wrongCount = (curQ.wrongCount || 0) + 1;
+
+        const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
+          ? [...prev.redAnsweredIds, pObj.id]
+          : prev.redAnsweredIds;
+        const nextBlueAns = pObj.team === 'BLUE' && !prev.blueAnsweredIds.includes(pObj.id)
+          ? [...prev.blueAnsweredIds, pObj.id]
+          : prev.blueAnsweredIds;
+
+        // Đồng bộ mạng và trạng thái loại về máy học sinh
+        CloudNetwork.sendMessage({
+          type: 'PLAYER_LIVES_SYNC',
+          playerId: pObj.id,
+          lives: pObj.lives,
+          streak: pObj.streak,
+          eliminated: pObj.eliminated,
+          bonusAwarded: false
+        });
 
         if (prev.gameType === 'BOSS') {
           // Boss retaliates
@@ -583,30 +600,20 @@ export const App: React.FC = () => {
             ...prev,
             bossHP: nextBossHP,
             bossLastAttack: `Boss phản đòn trúng ${pObj.label}, Quái vật hồi +50 HP!`,
+            redAnsweredIds: nextRedAns,
+            blueAnsweredIds: nextBlueAns,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
         }
 
-        if (prev.gameType === 'BELL') {
-          pObj.lives = Math.max(0, (pObj.lives || 3) - 1);
-          if (pObj.lives <= 0) {
-            pObj.eliminated = true;
-          }
-
-          CloudNetwork.sendMessage({
-            type: 'PLAYER_LIVES_SYNC',
-            playerId: pObj.id,
-            lives: pObj.lives,
-            streak: pObj.streak,
-            eliminated: pObj.eliminated,
-            bonusAwarded: false
-          });
-
-          return { ...prev, redPlayers: [...prev.redPlayers], bluePlayers: [...prev.bluePlayers] };
-        }
-
-        return { ...prev, redPlayers: [...prev.redPlayers], bluePlayers: [...prev.bluePlayers] };
+        return {
+          ...prev,
+          redAnsweredIds: nextRedAns,
+          blueAnsweredIds: nextBlueAns,
+          redPlayers: [...prev.redPlayers],
+          bluePlayers: [...prev.bluePlayers]
+        };
       });
     }
   };

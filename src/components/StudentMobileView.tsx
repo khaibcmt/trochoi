@@ -88,8 +88,9 @@ export const StudentMobileView: React.FC<Props> = ({
   const [eliminated, setEliminated] = useState(false);
   const [matchStatText, setMatchStatText] = useState('Đang chờ trận đấu bắt đầu...');
 
-  // Questions deck & pointers
+  // Questions deck & pointers - Đồng bộ câu hỏi trực tiếp từ Host màn hình chính
   const [quizDeck, setQuizDeck] = useState<QuizItem[]>(() => getPresetQuizBySubject(initialSubjectKey || 'ALL_SUBJ'));
+  const [currentBroadcastQ, setCurrentBroadcastQ] = useState<QuizItem | null>(null);
   const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState(0);
   const [lastCompletedQIndex, setLastCompletedQIndex] = useState(-1);
 
@@ -254,51 +255,44 @@ export const StudentMobileView: React.FC<Props> = ({
     };
   }, [screen, currentGlobalQIndex, isFrozen, eliminated]);
 
-  // Xáo trộn đáp án ngẫu nhiên đúng 1 lần duy nhất cho mỗi câu hỏi và giữ cố định tuyệt đối tránh nhảy vị trí
+  // Câu hỏi và các phương án của học sinh và trên màn hình bắt buộc phải giống nhau 100%
   useEffect(() => {
-    if (lastShuffledQIndexRef.current === currentGlobalQIndex && shuffledOpts.length > 0) {
-      return;
-    }
-    const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
+    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     if (!rawQ || !rawQ.opts || rawQ.opts.length === 0) {
       setShuffledOpts([]);
       return;
     }
+    // Giữ nguyên thứ tự chính xác A, B, C, D như trên màn hình lớn của Giáo viên
     const items: StudentShuffledOption[] = rawQ.opts.map((text, idx) => ({
       originalIndex: idx,
       letter: String.fromCharCode(65 + idx),
       text
     }));
-    // Fisher-Yates shuffle ngẫu nhiên đúng 1 lần
-    for (let i = items.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [items[i], items[j]] = [items[j], items[i]];
-    }
-    // Gán nhãn A, B, C, D cố định theo thứ tự hiển thị
-    const finalized = items.map((it, pos) => ({
-      ...it,
-      letter: String.fromCharCode(65 + pos)
-    }));
     lastShuffledQIndexRef.current = currentGlobalQIndex;
-    setShuffledOpts(finalized);
-  }, [currentGlobalQIndex]);
+    setShuffledOpts(items);
+  }, [currentGlobalQIndex, currentBroadcastQ, quizDeck]);
 
   const handleTimeoutFail = () => {
-    if (activeShield) {
-      setActiveShield(false);
-      triggerBonusToast('🛡️ KHIÊN ĐÃ CHẶN ĐÒN PHẠT HẾT GIỜ!');
-      return;
-    }
+    if (hasAnsweredCurrentQ || isAnswerLocked) return;
+    setHasAnsweredCurrentQ(true);
+    setIsAnswerLocked(true);
+
     AudioFX.freezeCrack();
-    triggerBonusToast('⌛ HẾT GIỜ! Chưa nộp câu trả lời bị tính là SAI!');
+    setStreak(0);
+    // Hết 30 giây không trả lời: tính sai 0 điểm và mất 1 mạng
+    setLives(prev => {
+      const nextL = Math.max(0, prev - 1);
+      if (nextL <= 0) setEliminated(true);
+      return nextL;
+    });
+
     CloudNetwork.sendMessage({
       type: 'FREEZE_WRONG',
       playerId: myPlayerId,
       team,
       globalQIndex: currentGlobalQIndex
     });
-    setStreak(0);
-    triggerFreeze(3);
+    triggerFreeze(20);
   };
 
   const handleIncomingMessage = (d: CloudMessage) => {
@@ -322,6 +316,8 @@ export const StudentMobileView: React.FC<Props> = ({
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
       if (typeof d.globalQIndex === 'number') setCurrentGlobalQIndex(d.globalQIndex);
+      if (d.question) setCurrentBroadcastQ(d.question);
+      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) setQuizDeck(d.quiz);
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
@@ -385,6 +381,13 @@ export const StudentMobileView: React.FC<Props> = ({
         setMatchStatText(`Tỉ số kéo: Đỏ ${d.redRoundWins || 0} - Xanh ${d.blueRoundWins || 0}`);
       }
 
+      if (d.question) {
+        setCurrentBroadcastQ(d.question);
+      }
+      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+        setQuizDeck(d.quiz);
+      }
+
       if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndex) {
         setCurrentGlobalQIndex(d.globalQIndex);
         setLastCompletedQIndex(-1);
@@ -407,6 +410,12 @@ export const StudentMobileView: React.FC<Props> = ({
         setCurrentGlobalQIndex(d.qIndex);
         setLastCompletedQIndex(-1);
         clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
+        if (d.question) {
+          setCurrentBroadcastQ(d.question);
+        }
+        if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+          setQuizDeck(d.quiz);
+        }
         if (!eliminated) setScreen('QUIZ');
       }
     }
@@ -489,14 +498,14 @@ export const StudentMobileView: React.FC<Props> = ({
     setIsAnswerLocked(true);
     setSelectedOptionOriginalIdx(origIdx);
 
-    const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
+    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     const isCorrect = origIdx === rawQ.correct;
 
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? '✨ CHÍNH XÁC! Em được ưu tiên chuyển sang câu tiếp theo (Đáp án đã khóa an toàn)'
-        : '❌ CHƯA CHÍNH XÁC! (Đáp án đã khóa)'
+        ? '✨ CHÍNH XÁC!'
+        : '❌ CHƯA CHÍNH XÁC! (Mất 1 mạng, không được chọn lại)'
     });
 
     processAnswerOutcome(isCorrect, 1);
@@ -508,7 +517,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
+    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     const items = rawQ.tfItems || [];
 
     let correctCount = 0;
@@ -526,8 +535,8 @@ export const StudentMobileView: React.FC<Props> = ({
     setLastLockedResult({
       isCorrect: won,
       text: won
-        ? `✨ XUẤT SẮC! Đúng ${correctCount}/${items.length} ý! Em được ưu tiên mở câu tiếp theo`
-        : `❌ Đúng ${correctCount}/${items.length} ý (Đáp án đã khóa)`
+        ? `✨ XUẤT SẮC! Đúng ${correctCount}/${items.length} ý!`
+        : `❌ Đúng ${correctCount}/${items.length} ý (Mất 1 mạng, không được chọn lại)`
     });
 
     processAnswerOutcome(won, correctCount);
@@ -539,7 +548,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
+    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     const correctVal = (rawQ.shortAnswer || rawQ.opts[0] || '').trim().toLowerCase();
     const userVal = shortAnswerInput.trim().toLowerCase();
 
@@ -580,20 +589,24 @@ export const StudentMobileView: React.FC<Props> = ({
 
       triggerBonusToast(doublePowerActive ? '⚡ X2 LỰC KÉO! CÂU TRẢ LỜI CHÍNH XÁC!' : '✨ CHÍNH XÁC! TUYỆT VỜI!');
     } else {
-      if (activeShield) {
-        setActiveShield(false);
-        triggerBonusToast('🛡️ KHIÊN BẢO VỆ ĐÃ ĐỠ ĐÒN PHẠT CHO BẠN!');
-      } else {
-        AudioFX.freezeCrack();
-        setStreak(0);
-        CloudNetwork.sendMessage({
-          type: 'FREEZE_WRONG',
-          playerId: myPlayerId,
-          team,
-          globalQIndex: currentGlobalQIndex
-        });
-        triggerFreeze(20);
-      }
+      AudioFX.freezeCrack();
+      setStreak(0);
+      // HS làm sai: câu đó tính sai và 0 điểm, mất 1 mạng
+      setLives(prev => {
+        const nextL = Math.max(0, prev - 1);
+        if (nextL <= 0) {
+          setEliminated(true);
+        }
+        return nextL;
+      });
+
+      CloudNetwork.sendMessage({
+        type: 'FREEZE_WRONG',
+        playerId: myPlayerId,
+        team,
+        globalQIndex: currentGlobalQIndex
+      });
+      triggerFreeze(20);
     }
 
     setLastCompletedQIndex(currentGlobalQIndex);
@@ -616,7 +629,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setScreen('WAITING');
   };
 
-  const currentQItem = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)] || {
+  const currentQItem = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)] || {
     qid: 0,
     q: 'Đang tải câu hỏi...',
     opts: ['A', 'B', 'C', 'D'],
@@ -967,11 +980,9 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {(gameType === 'BELL' || gameType === 'BOSS') && (
-                <div style={{ fontSize: '14px', color: '#ef4444' }}>
-                  {'❤️'.repeat(Math.max(0, lives))}
-                </div>
-              )}
+              <div style={{ fontSize: '14px', color: '#ef4444', fontWeight: 900 }}>
+                {lives > 0 ? '❤️'.repeat(lives) : '💀 Hết mạng'}
+              </div>
               {streak > 0 && (
                 <div style={{ fontSize: '12px', background: '#ef4444', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 900 }}>
                   🔥 x{streak}

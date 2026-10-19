@@ -132,6 +132,7 @@ export interface CloudMessage {
   bellTotalCount?: number;
   subj?: string;
   quiz?: QuizItem[];
+  question?: QuizItem;
   emoji?: string;
   winner?: string;
   durationSec?: number;

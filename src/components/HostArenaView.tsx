@@ -1116,12 +1116,14 @@ export const HostArenaView: React.FC<Props> = ({
     isTransitioningRef.current = false;
     correctOrderCountRef.current = 0;
 
-    // Broadcast question started with duration
+    // Broadcast question started with duration, exact question, and quiz deck
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
       qIndex: matchState.globalQIndex,
       durationSec: durationSec,
-      serverStartTime: timerStartMsRef.current
+      serverStartTime: timerStartMsRef.current,
+      question: currentQItem,
+      quiz: quizList
     });
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
