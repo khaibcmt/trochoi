@@ -40,8 +40,22 @@ class NetworkService {
       }
     } catch (e) {}
 
-    // Auto-reconnect when device comes back online
+    // Instant cross-tab localStorage event sync fallback & auto-reconnect when device comes back online
     if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (ev) => {
+        if (ev.key === 'kc3d_instant_bus_v1' && ev.newValue) {
+          try {
+            const data = JSON.parse(ev.newValue) as CloudMessage;
+            if (data && data._mid && !this.seenMsgIds.has(data._mid)) {
+              this.recordMsgId(data._mid);
+              if (this.onMessageCallback) {
+                this.onMessageCallback(data);
+              }
+            }
+          } catch {}
+        }
+      });
+
       window.addEventListener('online', () => {
         if (!this.isIntentionalDisconnect && this.currentRoomId && this.status !== 'CONNECTED') {
           this.reconnectImmediate();
@@ -193,14 +207,17 @@ class NetworkService {
     }
     this.recordMsgId(payload._mid);
 
-    // Send via BroadcastChannel always for 0-latency same-browser sync
+    // Send via BroadcastChannel + localStorage storage event for 0-latency same-device sync
     if (this.localBus) {
       try {
         this.localBus.postMessage(payload);
       } catch (e) {}
     }
+    try {
+      localStorage.setItem('kc3d_instant_bus_v1', JSON.stringify(payload));
+    } catch (e) {}
 
-    // If connected to MQTT, publish
+    // If connected to MQTT, publish immediately
     if (this.client && this.client.connected && this.currentRoomTopic) {
       try {
         const raw = JSON.stringify(payload);
@@ -209,10 +226,19 @@ class NetworkService {
         this.offlineQueue.push(payload);
       }
     } else {
-      // If currently reconnecting or offline, queue critical messages (answers, syncs)
-      const isCritical = ['PULL_CORRECT', 'FREEZE_WRONG', 'AUTO_ENTER_ARENA', 'QUESTION_START'].includes(payload.type);
+      // If currently reconnecting or connecting, queue critical messages so student join & name are NEVER lost
+      const isCritical = [
+        'PULL_CORRECT',
+        'FREEZE_WRONG',
+        'AUTO_ENTER_ARENA',
+        'PLAYER_READY_ROPE',
+        'ENTER_CONFIRMED',
+        'QUESTION_START',
+        'GAME_SWITCH',
+        'GAME_SWITCHED'
+      ].includes(payload.type);
       if (isCritical) {
-        if (this.offlineQueue.length < 50) {
+        if (this.offlineQueue.length < 100) {
           this.offlineQueue.push(payload);
         }
       }

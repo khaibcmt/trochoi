@@ -190,10 +190,39 @@ export const StudentMobileView: React.FC<Props> = ({
   // Tab switch anti-cheat warning
   const [tabWarning, setTabWarning] = useState<string | null>(null);
 
+  // Keep refs in sync with latest profile & score so network callbacks NEVER use stale closure values
+  const studentNameRef = useRef<string>(studentName);
+  const teamRef = useRef<PlayerTeam>(team);
+  const avatarRef = useRef<AvatarConfig>(avatar);
+  const fastScoreRef = useRef<number>(fastScore);
+  const myCorrectCountRef = useRef<number>(myCorrectCount);
+  const hasConfirmedEnterRef = useRef<boolean>(hasConfirmedEnter);
+
+  useEffect(() => {
+    studentNameRef.current = studentName;
+  }, [studentName]);
+  useEffect(() => {
+    teamRef.current = team;
+  }, [team]);
+  useEffect(() => {
+    avatarRef.current = avatar;
+  }, [avatar]);
+  useEffect(() => {
+    fastScoreRef.current = fastScore;
+  }, [fastScore]);
+  useEffect(() => {
+    myCorrectCountRef.current = myCorrectCount;
+  }, [myCorrectCount]);
+  useEffect(() => {
+    hasConfirmedEnterRef.current = hasConfirmedEnter;
+  }, [hasConfirmedEnter]);
+
   // Save student name and avatar to localStorage
   const handleSaveProfile = (name: string, av: AvatarConfig) => {
     setStudentName(name);
+    studentNameRef.current = name;
     setAvatar(av);
+    avatarRef.current = av;
     try {
       localStorage.setItem('student_saved_name', name);
       localStorage.setItem('student_saved_avatar', JSON.stringify(av));
@@ -212,6 +241,25 @@ export const StudentMobileView: React.FC<Props> = ({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [screen]);
 
+  const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
+    const cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
+    // Chỉ gửi thông tin vào sàn đấu khi học sinh đã nhập tên hoặc đã bấm tham gia (tránh hiện "Học sinh" rỗng khi chưa nhập tên)
+    if (!cleanName && !hasJoinedArenaRef.current) return;
+
+    const finalName = cleanName || 'Học sinh';
+    const finalTeam = overrideTeam || teamRef.current;
+
+    CloudNetwork.sendMessage({
+      type: hasJoinedArenaRef.current ? 'PLAYER_READY_ROPE' : 'AUTO_ENTER_ARENA',
+      playerId: myPlayerId,
+      preferredTeam: finalTeam,
+      playerName: finalName,
+      avatar: avatarRef.current,
+      savedScore: fastScoreRef.current,
+      savedCorrect: myCorrectCountRef.current
+    });
+  };
+
   // Connect to room with network status tracking
   useEffect(() => {
     CloudNetwork.connect(
@@ -220,13 +268,17 @@ export const StudentMobileView: React.FC<Props> = ({
       () => {
         setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
         setNetworkState('CONNECTED');
-        sendEnter();
+        if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+          sendEnter();
+        }
       },
       (newStatus) => {
         setNetworkState(newStatus);
         if (newStatus === 'CONNECTED') {
           setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-          sendEnter();
+          if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+            sendEnter();
+          }
         } else if (newStatus === 'RECONNECTING') {
           setConnStatus(`🔄 Đang kết nối lại mạng...`);
         } else {
@@ -236,10 +288,10 @@ export const StudentMobileView: React.FC<Props> = ({
     );
 
     const interval = setInterval(() => {
-      if (!hasConfirmedEnter) {
+      if (hasJoinedArenaRef.current && !hasConfirmedEnterRef.current && studentNameRef.current.trim()) {
         sendEnter();
       }
-    }, 1800);
+    }, 1200);
 
     return () => {
       clearInterval(interval);
@@ -247,45 +299,23 @@ export const StudentMobileView: React.FC<Props> = ({
     };
   }, [roomId]);
 
-  const sendEnter = () => {
-    CloudNetwork.sendMessage({
-      type: 'AUTO_ENTER_ARENA',
-      playerId: myPlayerId,
-      preferredTeam: team,
-      playerName: studentName || 'Học sinh',
-      avatar,
-      savedScore: fastScore,
-      savedCorrect: myCorrectCount
-    });
-  };
-
   const handleManualReconnect = () => {
     setConnStatus('🔄 Đang kết nối lại & khôi phục điểm số...');
     CloudNetwork.reconnectImmediate();
     setTimeout(() => {
+      const cleanName = studentNameRef.current.trim() || 'Học sinh';
       CloudNetwork.sendMessage({
-        type: 'AUTO_ENTER_ARENA',
+        type: 'PLAYER_READY_ROPE',
         playerId: myPlayerId,
-        preferredTeam: team,
-        playerName: studentName || 'Học sinh',
-        avatar,
-        savedScore: fastScore,
-        savedCorrect: myCorrectCount
+        preferredTeam: teamRef.current,
+        playerName: cleanName,
+        avatar: avatarRef.current,
+        savedScore: fastScoreRef.current,
+        savedCorrect: myCorrectCountRef.current
       });
-      if (hasJoinedArenaRef.current || screen !== 'LOBBY') {
-        CloudNetwork.sendMessage({
-          type: 'PLAYER_READY_ROPE',
-          playerId: myPlayerId,
-          preferredTeam: team,
-          playerName: studentName || 'Học sinh',
-          avatar,
-          savedScore: fastScore,
-          savedCorrect: myCorrectCount
-        });
-      }
-      setConnStatus(`🟢 Đã kết nối lại Phòng ${roomId} (Bảo lưu ${fastScore}đ • ${myCorrectCount} câu đúng)`);
-      triggerBonusToast(`✅ Đã kết nối lại thành công! Bảo lưu ${fastScore} điểm (${myCorrectCount} câu đúng).`);
-    }, 250);
+      setConnStatus(`🟢 Đã kết nối lại Phòng ${roomId} (Bảo lưu ${fastScoreRef.current}đ • ${myCorrectCountRef.current} câu đúng)`);
+      triggerBonusToast(`✅ Đã kết nối lại thành công! Bảo lưu ${fastScoreRef.current} điểm (${myCorrectCountRef.current} câu đúng).`);
+    }, 200);
   };
 
   // 30s Local countdown timer per question:
@@ -850,23 +880,39 @@ export const StudentMobileView: React.FC<Props> = ({
     setLastCompletedQIndex(currentGlobalQIndex);
   };
 
-  // Ready in Arena - Bắt buộc học sinh phải ghi tên
+  // Ready in Arena - Bắt buộc học sinh phải ghi tên và đồng bộ ngay lập tức lên màn hình chính
   const handleReadyInRope = () => {
-    if (!studentName || !studentName.trim()) {
+    const cleanName = (studentName || '').trim();
+    if (!cleanName) {
       setShowNameAlert(true);
       return;
     }
+    studentNameRef.current = cleanName;
+    try {
+      localStorage.setItem('student_saved_name', cleanName);
+      localStorage.setItem('student_saved_avatar', JSON.stringify(avatar));
+    } catch {}
+
     hasJoinedArenaRef.current = true;
+    hasConfirmedEnterRef.current = false;
+    setHasConfirmedEnter(false);
     AudioFX.stepInRope();
-    CloudNetwork.sendMessage({
+
+    const joinPayload: CloudMessage = {
       type: 'PLAYER_READY_ROPE',
       playerId: myPlayerId,
       preferredTeam: team,
-      playerName: studentName.trim(),
+      playerName: cleanName,
       avatar,
       savedScore: fastScore,
       savedCorrect: myCorrectCount
-    });
+    };
+
+    // Gửi ngay tức thì + gửi lặp bảo đảm 100% hiển thị ngay lập tức trên màn hình chính
+    CloudNetwork.sendMessage(joinPayload);
+    setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 250);
+    setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 800);
+
     setScreen('WAITING');
   };
 

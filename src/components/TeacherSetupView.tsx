@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings } from '../types';
+import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings, Player } from '../types';
 import {
   parseHTMLToQuiz,
+  splitQuizTo3FormatHTML,
   cleanQuestionTitleText,
   formatQuizToHTML,
   aiAutoDetectCorrectIndex,
@@ -37,6 +38,7 @@ interface Props {
   onOpenKeyModal?: () => void;
   activeRoomId?: string;
   connectedStudentCount?: number;
+  connectedPlayers?: Player[];
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -63,9 +65,14 @@ export const TeacherSetupView: React.FC<Props> = ({
   onImportJSON,
   onOpenKeyModal,
   activeRoomId,
-  connectedStudentCount = 0
+  connectedStudentCount = 0,
+  connectedPlayers = []
 }) => {
-  const editorRef = useRef<HTMLDivElement>(null);
+  // 3 Khung Dạng Thức Chia Sẵn Riêng Biệt (Chuẩn THPT 2018)
+  const mcEditorRef = useRef<HTMLDivElement>(null);
+  const tfEditorRef = useRef<HTMLDivElement>(null);
+  const saEditorRef = useRef<HTMLDivElement>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +93,10 @@ export const TeacherSetupView: React.FC<Props> = ({
   const [showOCRModal, setShowOCRModal] = useState(false);
   const [ocrText, setOcrText] = useState('');
   const [ocrLoading, setOcrLoading] = useState(false);
+
+  // Live parsed questions preview state
+  const [livePreviewItems, setLivePreviewItems] = useState<QuizItem[]>([]);
+  const [showPreviewList, setShowPreviewList] = useState<boolean>(true);
 
   // Generate Room QR Code
   useEffect(() => {
@@ -109,33 +120,54 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   const [formatCounts, setFormatCounts] = useState<{ mc: number; tf: number; sa: number }>({ mc: 0, tf: 0, sa: 0 });
 
-  const updateFormatStats = (items: QuizItem[]) => {
+  // Đọc & ghép câu hỏi từ 3 khung riêng biệt (Dạng I, Dạng II, Dạng III) mà không bao giờ bị lẫn hay mất câu
+  const getCombinedQuizFrom3Boxes = (): QuizItem[] => {
+    const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
+    const tfRaw = tfEditorRef.current?.innerHTML?.trim() || '';
+    const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
+
+    const mcItems = mcRaw ? parseHTMLToQuiz(mcRaw, 'MULTIPLE_CHOICE') : [];
+    const tfItems = tfRaw ? parseHTMLToQuiz(tfRaw, 'TRUE_FALSE') : [];
+    const saItems = saRaw ? parseHTMLToQuiz(saRaw, 'SHORT_ANSWER') : [];
+
+    const combined = [...mcItems, ...tfItems, ...saItems].map((item, idx) => ({
+      ...item,
+      qid: idx
+    }));
+
+    return combined;
+  };
+
+  const populate3BoxesFromItems = (items: QuizItem[]) => {
+    const { mcHTML, tfHTML, saHTML } = splitQuizTo3FormatHTML(items);
+    if (mcEditorRef.current) mcEditorRef.current.innerHTML = mcHTML;
+    if (tfEditorRef.current) tfEditorRef.current.innerHTML = tfHTML;
+    if (saEditorRef.current) saEditorRef.current.innerHTML = saHTML;
+
     const mc = items.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE').length;
     const tf = items.filter(q => q.format === 'TRUE_FALSE').length;
     const sa = items.filter(q => q.format === 'SHORT_ANSWER').length;
     setFormatCounts({ mc, tf, sa });
+    setLivePreviewItems(items);
   };
 
   const syncEditorQuestionsLive = () => {
-    if (!editorRef.current || !onSyncQuizLive) return;
-    const raw = editorRef.current.innerHTML.trim();
-    if (!raw) {
-      updateFormatStats([]);
-      return;
-    }
-    const parsed = parseHTMLToQuiz(raw);
-    updateFormatStats(parsed);
-    if (parsed.length > 0) {
-      onSyncQuizLive(parsed);
+    const combined = getCombinedQuizFrom3Boxes();
+    const mc = combined.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE').length;
+    const tf = combined.filter(q => q.format === 'TRUE_FALSE').length;
+    const sa = combined.filter(q => q.format === 'SHORT_ANSWER').length;
+    setFormatCounts({ mc, tf, sa });
+    setLivePreviewItems(combined);
+    if (combined.length > 0 && onSyncQuizLive) {
+      onSyncQuizLive(combined);
     }
   };
 
-  // Sync editor innerHTML when subject changes
+  // Sync 3 format boxes when subject changes
   useEffect(() => {
-    if (editorRef.current && subjectsDB[currentSubjectKey]) {
-      editorRef.current.innerHTML = subjectsDB[currentSubjectKey].html;
+    if (subjectsDB[currentSubjectKey]) {
       const parsed = parseHTMLToQuiz(subjectsDB[currentSubjectKey].html);
-      updateFormatStats(parsed);
+      populate3BoxesFromItems(parsed);
       if (parsed.length > 0 && onSyncQuizLive) {
         onSyncQuizLive(parsed);
       }
@@ -147,33 +179,79 @@ export const TeacherSetupView: React.FC<Props> = ({
     syncEditorQuestionsLive();
   };
 
-  const handleClearEditor = () => {
-    if (editorRef.current && confirm('Bạn có chắc muốn xóa trắng nội dung khung soạn thảo?')) {
-      editorRef.current.innerHTML = '';
-    }
-  };
-
-  const handleInsertSample = (sampleHTML: string) => {
-    if (editorRef.current) {
-      editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + sampleHTML;
-      editorRef.current.scrollTop = editorRef.current.scrollHeight;
+  const handleClearSingleBox = (boxType: 'MC' | 'TF' | 'SA') => {
+    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
+    const labelName = boxType === 'MC' ? 'Khung Dạng thức I (4 lựa chọn)' : boxType === 'TF' ? 'Khung Dạng thức II (Đúng/Sai)' : 'Khung Dạng thức III (Trả lời ngắn)';
+    if (targetRef.current && confirm(`Bạn có chắc muốn xóa trắng ${labelName}?`)) {
+      targetRef.current.innerHTML = '';
       syncEditorQuestionsLive();
     }
   };
 
+  const handleClearEditor = () => {
+    if (confirm('Bạn có chắc muốn xóa trắng toàn bộ cả 3 khung câu hỏi?')) {
+      if (mcEditorRef.current) mcEditorRef.current.innerHTML = '';
+      if (tfEditorRef.current) tfEditorRef.current.innerHTML = '';
+      if (saEditorRef.current) saEditorRef.current.innerHTML = '';
+      syncEditorQuestionsLive();
+    }
+  };
+
+  const handleInsertSample = (sampleHTML: string, boxType: 'MC' | 'TF' | 'SA') => {
+    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
+    if (targetRef.current) {
+      targetRef.current.innerHTML = (targetRef.current.innerHTML.trim() ? targetRef.current.innerHTML + '<br>' : '') + sampleHTML;
+      targetRef.current.scrollTop = targetRef.current.scrollHeight;
+      syncEditorQuestionsLive();
+    }
+  };
+
+  // Cho phép giáo viên bấm chọn nhanh đáp án đúng ngay trên Bảng Xem Trước (Live Preview)
+  const handleQuickChangeCorrectMC = (qIdx: number, newCorrectOptIdx: number) => {
+    const updated = livePreviewItems.map((item, idx) =>
+      idx === qIdx ? { ...item, correct: newCorrectOptIdx, aiSelected: false } : item
+    );
+    populate3BoxesFromItems(updated);
+    if (onSyncQuizLive) onSyncQuizLive(updated);
+  };
+
+  const handleQuickToggleTFItem = (qIdx: number, tfIdx: number) => {
+    const updated = livePreviewItems.map((item, idx) => {
+      if (idx !== qIdx || !item.tfItems) return item;
+      const nextTf = item.tfItems.map((tf, i) => (i === tfIdx ? { ...tf, isCorrect: !tf.isCorrect } : tf));
+      return {
+        ...item,
+        tfItems: nextTf,
+        opts: nextTf.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`)
+      };
+    });
+    populate3BoxesFromItems(updated);
+    if (onSyncQuizLive) onSyncQuizLive(updated);
+  };
+
+  const handleQuickEditShortAnswer = (qIdx: number, newVal: string) => {
+    const updated = livePreviewItems.map((item, idx) =>
+      idx === qIdx ? { ...item, shortAnswer: newVal, opts: [newVal] } : item
+    );
+    populate3BoxesFromItems(updated);
+    if (onSyncQuizLive) onSyncQuizLive(updated);
+  };
+
+  const handleQuickDeleteQuestion = (qIdx: number) => {
+    const updated = livePreviewItems.filter((_, idx) => idx !== qIdx).map((item, i) => ({ ...item, qid: i }));
+    populate3BoxesFromItems(updated);
+    if (onSyncQuizLive) onSyncQuizLive(updated);
+  };
+
   const handleAIAutoMark = () => {
-    if (!editorRef.current) return;
-    const raw = editorRef.current.innerHTML;
-    const parsed = parseHTMLToQuiz(raw);
+    const parsed = getCombinedQuizFrom3Boxes();
     if (!parsed.length) {
-      alert("Vui lòng nhập hoặc dán câu hỏi vào khung soạn thảo trước!");
+      alert('Vui lòng nhập hoặc dán câu hỏi vào ít nhất 1 trong 3 khung Dạng thức trước!');
       return;
     }
-
-    const updatedHTML = formatQuizToHTML(parsed);
-    editorRef.current.innerHTML = updatedHTML;
+    populate3BoxesFromItems(parsed);
     if (onSyncQuizLive) onSyncQuizLive(parsed);
-    alert(`🤖 Trình AI đã tự động phân tích và gạch chân đáp án đúng cho toàn bộ ${parsed.length} câu hỏi chuẩn GDPT 2018!`);
+    alert(`🤖 Hệ thống đã tự động chuẩn hóa định dạng và gạch chân đáp án đúng cho toàn bộ ${parsed.length} câu hỏi chuẩn GDPT 2018!`);
   };
 
   // AI Question Generation (Client-Side Gemini & Intelligent Offline Fallback)
@@ -192,14 +270,13 @@ export const TeacherSetupView: React.FC<Props> = ({
       });
 
       if (newItems && newItems.length > 0) {
-        const newHTML = formatQuizToHTML(newItems);
-        if (editorRef.current) {
-          editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
-          editorRef.current.scrollTop = editorRef.current.scrollHeight;
-        }
+        const currentItems = getCombinedQuizFrom3Boxes();
+        const merged = [...currentItems, ...newItems].map((it, idx) => ({ ...it, qid: idx }));
+        populate3BoxesFromItems(merged);
+        if (onSyncQuizLive) onSyncQuizLive(merged);
         setShowAIGenModal(false);
         const hasKey = !!getStoredGeminiKey();
-        alert(`🎉 ${hasKey ? 'Google Gemini AI' : 'Hệ thống (Ngân hàng chuẩn GDPT 2018)'} đã nạp thành công ${newItems.length} câu hỏi theo chủ đề "${aiTopic}"!`);
+        alert(`🎉 ${hasKey ? 'Google Gemini AI' : 'Hệ thống (Ngân hàng chuẩn GDPT 2018)'} đã nạp thành công ${newItems.length} câu hỏi vào 3 khung Dạng thức!`);
       } else {
         alert('Không tìm thấy câu hỏi phù hợp. Vui lòng thử lại!');
       }
@@ -224,14 +301,13 @@ export const TeacherSetupView: React.FC<Props> = ({
       });
 
       if (newItems && newItems.length > 0) {
-        const newHTML = formatQuizToHTML(newItems);
-        if (editorRef.current) {
-          editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
-          editorRef.current.scrollTop = editorRef.current.scrollHeight;
-        }
+        const currentItems = getCombinedQuizFrom3Boxes();
+        const merged = [...currentItems, ...newItems].map((it, idx) => ({ ...it, qid: idx }));
+        populate3BoxesFromItems(merged);
+        if (onSyncQuizLive) onSyncQuizLive(merged);
         setShowOCRModal(false);
         setOcrText('');
-        alert(`🎉 Đã bóc tách thành công ${newItems.length} câu hỏi chuẩn GDPT 2018 vào khung soạn thảo!`);
+        alert(`🎉 Đã bóc tách thành công ${newItems.length} câu hỏi chuẩn GDPT 2018 và chia vào đúng 3 khung Dạng thức!`);
       } else {
         alert('Không tìm thấy câu hỏi trắc nghiệm nào trong tài liệu.');
       }
@@ -258,41 +334,34 @@ export const TeacherSetupView: React.FC<Props> = ({
   };
 
   const handleSaveToSubject = () => {
-    if (!editorRef.current) return;
-    const raw = editorRef.current.innerHTML.trim();
-    const parsed = parseHTMLToQuiz(raw);
+    const parsed = getCombinedQuizFrom3Boxes();
     if (!parsed.length) {
-      alert("Chưa phát hiện câu hỏi hợp lệ! Mỗi câu cần có phương án hoặc mệnh đề.");
+      alert('Chưa phát hiện câu hỏi hợp lệ! Vui lòng dán câu hỏi vào ít nhất 1 trong 3 khung Dạng thức.');
       return;
     }
     const updatedHTML = formatQuizToHTML(parsed);
-    editorRef.current.innerHTML = updatedHTML;
+    populate3BoxesFromItems(parsed);
     onSaveCurrentQuizToSubject(parsed, updatedHTML, false);
   };
 
   const handleStartArena = () => {
-    if (!editorRef.current) return;
-    const raw = editorRef.current.innerHTML.trim();
-    const parsed = parseHTMLToQuiz(raw);
+    const parsed = getCombinedQuizFrom3Boxes();
     if (!parsed.length) {
-      alert("Vui lòng chọn hoặc nhập ít nhất 1 câu hỏi hợp lệ!");
+      alert('Vui lòng chọn hoặc nhập ít nhất 1 câu hỏi hợp lệ vào 1 trong 3 khung Dạng thức!');
       return;
     }
     const updatedHTML = formatQuizToHTML(parsed);
-    editorRef.current.innerHTML = updatedHTML;
+    populate3BoxesFromItems(parsed);
     onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
     onLaunchArena(parsed);
   };
 
   const handleSwitchToStudentWithSync = () => {
-    if (editorRef.current) {
-      const raw = editorRef.current.innerHTML.trim();
-      const parsed = parseHTMLToQuiz(raw);
-      if (parsed.length > 0) {
-        const updatedHTML = formatQuizToHTML(parsed);
-        editorRef.current.innerHTML = updatedHTML;
-        onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
-      }
+    const parsed = getCombinedQuizFrom3Boxes();
+    if (parsed.length > 0) {
+      const updatedHTML = formatQuizToHTML(parsed);
+      populate3BoxesFromItems(parsed);
+      onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
     }
     onSwitchToStudentMode();
   };
@@ -304,7 +373,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     reader.onload = (ev) => {
       try {
         const arr = JSON.parse(ev.target?.result as string);
-        if (!Array.isArray(arr)) throw new Error("Invalid format");
+        if (!Array.isArray(arr)) throw new Error('Invalid format');
         const parsedItems: QuizItem[] = arr.map((item: any, i: number) => ({
           qid: i,
           q: cleanQuestionTitleText(item.q || item.question || ''),
@@ -316,12 +385,11 @@ export const TeacherSetupView: React.FC<Props> = ({
           rightCount: 0,
           wrongCount: 0
         }));
-        const html = formatQuizToHTML(parsedItems);
-        if (editorRef.current) editorRef.current.innerHTML = html;
+        populate3BoxesFromItems(parsedItems);
         onImportJSON(parsedItems);
-        alert(`✅ Đã nhập thành công ${parsedItems.length} câu hỏi từ file JSON!`);
+        alert(`✅ Đã nhập thành công ${parsedItems.length} câu hỏi vào 3 khung Dạng thức!`);
       } catch (err) {
-        alert("File JSON không hợp lệ!");
+        alert('File JSON không hợp lệ!');
       }
     };
     reader.readAsText(file);
@@ -374,6 +442,79 @@ export const TeacherSetupView: React.FC<Props> = ({
               onChange={handleFileChange}
             />
           </div>
+        </div>
+
+        {/* Live Student Roster Banner right on Teacher Setup Screen */}
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '10px 14px',
+            background: 'linear-gradient(90deg, #064e3b, #0f172a)',
+            border: '2px solid #10b981',
+            borderRadius: '14px',
+            color: '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ background: '#10b981', color: '#022c22', fontWeight: 900, fontSize: '12.5px', padding: '4px 10px', borderRadius: '999px' }}>
+                🟢 MÃ PHÒNG: {activeRoomId}
+              </span>
+              <span style={{ fontWeight: 900, fontSize: '13.5px', color: '#fef08a' }}>
+                👥 Sĩ số học sinh đã vào phòng: <b style={{ color: '#4ade80', fontSize: '15px' }}>{connectedPlayers.length}</b> / {matchSettings.roomCapacity} HS
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#0284c7', color: '#ffffff', borderColor: '#38bdf8', fontWeight: 900 }}
+                onClick={() => setShowQRModal(true)}
+              >
+                📱 Hiện Mã QR Cho HS Quét
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#10b981', color: '#022c22', borderColor: '#6ee7b7', fontWeight: 900 }}
+                onClick={handleStartArena}
+              >
+                🚀 Mở Sàn Đấu 3D Ngay
+              </button>
+            </div>
+          </div>
+
+          {connectedPlayers.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '78px', overflowY: 'auto', paddingTop: '2px' }}>
+              {connectedPlayers.map((p, idx) => (
+                <span
+                  key={p.id || idx}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    fontSize: '12px',
+                    fontWeight: 900,
+                    background: p.team === 'RED' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.25)',
+                    border: `1.5px solid ${p.team === 'RED' ? '#f87171' : '#38bdf8'}`,
+                    color: '#ffffff'
+                  }}
+                >
+                  <span>{p.ready ? '✅' : '⏳'}</span>
+                  <span>{p.label}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '12px', color: '#a7f3d0', fontWeight: 700 }}>
+              💡 Học sinh quét mã QR hoặc nhập mã phòng <b>{activeRoomId}</b> và bấm <b>"BƯỚC VÀO SÀN ĐẤU"</b> sẽ hiện tên ngay lập tức tại đây và trên sân 3D!
+            </div>
+          )}
         </div>
 
         {/* 4 Game Modes Grid - Single Row with 4 distinct 3D Colors */}
@@ -514,7 +655,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 value={matchSettings.roomCapacity}
                 onChange={e => onUpdateSettings({ ...matchSettings, roomCapacity: Math.max(2, parseInt(e.target.value) || 50) })}
                 style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, textAlign: 'center' }}
-                title="Khống chế sĩ số học sinh kết nối vào phòng"
               />
             </label>
 
@@ -527,7 +667,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 value={matchSettings.max3DRenderCount}
                 onChange={e => onUpdateSettings({ ...matchSettings, max3DRenderCount: Math.min(20, Math.max(2, parseInt(e.target.value) || 20)) })}
                 style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#4ade80', fontWeight: 900, textAlign: 'center' }}
-                title="Giới hạn tối đa 20 nhân vật 3D vẽ trên sân, số còn lại cộng gộp +N tiếp sức"
               />
             </label>
 
@@ -540,7 +679,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 value={matchSettings.questionDurationSec}
                 onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSec: Math.max(5, parseInt(e.target.value) || 30) })}
                 style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f59e0b', fontWeight: 900, textAlign: 'center' }}
-                title="Thời gian làm bài mỗi câu (30s tự động chuyển câu, không chọn = sai)"
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây</span>
             </label>
@@ -555,7 +693,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 value={matchSettings.bossMaxHP}
                 onChange={e => onUpdateSettings({ ...matchSettings, bossMaxHP: Math.max(200, parseInt(e.target.value) || 1000) })}
                 style={{ width: '70px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f87171', fontWeight: 900, textAlign: 'center' }}
-                title="Tổng lượng máu của Boss Quái vật trong chế độ Đánh Boss"
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>HP</span>
             </label>
@@ -585,63 +722,36 @@ export const TeacherSetupView: React.FC<Props> = ({
             })}
           </div>
 
-          {/* Quick Insert GDPT 2018 Format Buttons & AI Tools */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1', margin: '8px 0' }}>
-            <span style={{ fontWeight: 900, fontSize: '12.5px', color: '#0f172a' }}>
-              📚 Cấu Hình 3 Dạng Thức THPT 2018 ({formatCounts.mc + formatCounts.tf + formatCounts.sa} câu):
-            </span>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: 900 }}
-              onClick={() => handleInsertSample(SAMPLE_PHAN_1_MC)}
-              title="Thêm câu hỏi Dạng thức I: Trắc nghiệm nhiều phương án lựa chọn (A, B, C, D - gạch chân đáp án đúng)"
-            >
-              ➕ Dạng thức I: 4 Phương Án ({formatCounts.mc} câu)
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#f5f3ff', borderColor: '#8b5cf6', color: '#6d28d9', fontWeight: 900 }}
-              onClick={() => handleInsertSample(SAMPLE_PHAN_2_TF)}
-              title="Thêm câu hỏi Dạng thức II: Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)"
-            >
-              ➕ Dạng thức II: Đúng/Sai 4 Ý ({formatCounts.tf} câu)
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#ecfdf5', borderColor: '#10b981', color: '#047857', fontWeight: 900 }}
-              onClick={() => handleInsertSample(SAMPLE_PHAN_3_SA)}
-              title="Thêm câu hỏi Dạng thức III: Trắc nghiệm Trả lời ngắn (Điền số hoặc từ khóa)"
-            >
-              ➕ Dạng thức III: Trả Lời Ngắn ({formatCounts.sa} câu)
-            </button>
+          {/* Action Toolbar */}
+          <div className="flex-between" style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1', margin: '8px 0' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>
+                📚 Tổng số câu đã nhận diện: <b style={{ color: '#0284c7', fontSize: '15px' }}>{formatCounts.mc + formatCounts.tf + formatCounts.sa} câu</b>
+                {' '}({formatCounts.mc} Dạng I • {formatCounts.tf} Dạng II • {formatCounts.sa} Dạng III)
+              </span>
+              <button
+                className="btn-action-sm"
+                style={{ background: 'linear-gradient(135deg, #e0e7ff, #fae8ff)', borderColor: '#818cf8', color: '#3730a3', fontWeight: 900 }}
+                onClick={() => setShowAIGenModal(true)}
+              >
+                🤖 AI Soạn Đề 3 Dạng Thức
+              </button>
+              <button
+                className="btn-action-sm"
+                style={{ background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e', fontWeight: 900 }}
+                onClick={() => setShowOCRModal(true)}
+              >
+                📸 AI Quét Đề Từ Ảnh / Văn Bản
+              </button>
+            </div>
 
-            <span style={{ margin: '0 4px', color: '#cbd5e1' }}>|</span>
-
-            {/* AI Studio Pro Actions */}
-            <button
-              className="btn-action-sm"
-              style={{ background: 'linear-gradient(135deg, #e0e7ff, #fae8ff)', borderColor: '#818cf8', color: '#3730a3', fontWeight: 900 }}
-              onClick={() => setShowAIGenModal(true)}
-            >
-              🤖 AI Soạn Đề 3 Dạng Thức
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e', fontWeight: 900 }}
-              onClick={() => setShowOCRModal(true)}
-            >
-              📸 AI Quét Đề Từ Ảnh / Văn Bản
-            </button>
-          </div>
-
-          <div className="flex-between" style={{ paddingTop: '6px' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               <button
                 className="btn-action-sm"
                 style={{ background: '#dcfce7', borderColor: '#86efac', color: '#166534' }}
                 onClick={onAddSubject}
               >
-                ➕ Thêm Môn / Bài Mới
+                ➕ Thêm Môn Mới
               </button>
               <button
                 className="btn-action-sm"
@@ -655,7 +765,13 @@ export const TeacherSetupView: React.FC<Props> = ({
                 style={{ background: '#fae8ff', borderColor: '#d8b4fe', color: '#6b21a8' }}
                 onClick={handleAIAutoMark}
               >
-                🤖 AI Tự Chọn Đáp Án Đúng
+                🤖 Chuẩn Hóa & Tự Gạch Chân Đáp Án
+              </button>
+              <button className="btn-action-sm" onClick={handleUnderline} title="Bôi đen phương án đúng rồi bấm nút này để gạch chân">
+                <u>U</u> Gạch chân đáp án
+              </button>
+              <button className="btn-action-sm" style={{ background: '#fee2e2', borderColor: '#fca5a5', color: '#991b1b' }} onClick={handleClearEditor}>
+                🗑️ Xóa trắng cả 3 khung
               </button>
               {!subjectsDB[currentSubjectKey]?.fixed && (
                 <button
@@ -667,27 +783,432 @@ export const TeacherSetupView: React.FC<Props> = ({
                 </button>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button className="btn-action-sm" onClick={handleUnderline}>
-                <u>U</u> Gạch chân
-              </button>
-              <button className="btn-action-sm" onClick={handleClearEditor}>
-                Xóa trắng
-              </button>
-            </div>
           </div>
         </section>
 
-        {/* Contenteditable Rich Editor */}
-        <div
-          id="editor"
-          ref={editorRef}
-          contentEditable={true}
-          suppressContentEditableWarning={true}
-          onInput={syncEditorQuestionsLive}
-          onBlur={syncEditorQuestionsLive}
-          style={{ minHeight: '180px', maxHeight: '340px', overflowY: 'auto' }}
-        />
+        {/* CHIA SẴN 3 KHUNG DẠNG THỨC ĐỘC LẬP ĐỂ GIÁO VIÊN COPY - DÁN KHÔNG BAO GIỜ LỖI */}
+        <section
+          aria-label="Ba khung dán câu hỏi theo 3 dạng thức THPT 2018"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+            gap: '12px',
+            margin: '10px 0'
+          }}
+        >
+          {/* KHUNG 1: DẠNG THỨC I - TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D) */}
+          <div
+            style={{
+              background: '#eff6ff',
+              border: '2.5px solid #3b82f6',
+              borderRadius: '14px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.1)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#1d4ed8' }}>
+                  🟦 KHUNG 1 — DẠNG THỨC I: 4 LỰA CHỌN (A, B, C, D)
+                </div>
+                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
+                  Copy dán câu hỏi A, B, C, D vào đây (Gạch chân <u>A</u>, đánh dấu <b>*A.</b> hoặc ghi <b>Đáp án: A</b>)
+                </div>
+              </div>
+              <span style={{ background: '#1d4ed8', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
+                {formatCounts.mc} câu
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#dbeafe', borderColor: '#60a5fa', color: '#1e3a8a' }}
+                onClick={() => handleInsertSample(SAMPLE_PHAN_1_MC, 'MC')}
+              >
+                ➕ Thêm mẫu Dạng I
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px' }}
+                onClick={handleUnderline}
+              >
+                <u>U</u> Gạch chân ĐA
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                onClick={() => handleClearSingleBox('MC')}
+              >
+                🗑️ Xóa khung 1
+              </button>
+            </div>
+
+            <div
+              id="editor-mc"
+              ref={mcEditorRef}
+              contentEditable={true}
+              suppressContentEditableWarning={true}
+              onInput={syncEditorQuestionsLive}
+              onBlur={syncEditorQuestionsLive}
+              style={{
+                minHeight: '190px',
+                maxHeight: '290px',
+                overflowY: 'auto',
+                background: '#ffffff',
+                border: '2px solid #93c5fd',
+                borderRadius: '10px',
+                padding: '10px',
+                fontSize: '13.5px',
+                lineHeight: 1.5,
+                outline: 'none',
+                color: '#0f172a'
+              }}
+            />
+          </div>
+
+          {/* KHUNG 2: DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
+          <div
+            style={{
+              background: '#f5f3ff',
+              border: '2.5px solid #8b5cf6',
+              borderRadius: '14px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(139, 92, 246, 0.1)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#6d28d9' }}>
+                  🟪 KHUNG 2 — DẠNG THỨC II: ĐÚNG / SAI (a, b, c, d)
+                </div>
+                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
+                  Copy dán câu hỏi có 4 ý a), b), c), d) (Gạch chân ý Đúng, ghi <b>(Đúng)/(Sai)</b> hoặc <b>Đáp án: Đ-S-Đ-S</b>)
+                </div>
+              </div>
+              <span style={{ background: '#6d28d9', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
+                {formatCounts.tf} câu
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#ede9fe', borderColor: '#a78bfa', color: '#4c1d95' }}
+                onClick={() => handleInsertSample(SAMPLE_PHAN_2_TF, 'TF')}
+              >
+                ➕ Thêm mẫu Dạng II
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px' }}
+                onClick={handleUnderline}
+              >
+                <u>U</u> Gạch chân ý Đúng
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                onClick={() => handleClearSingleBox('TF')}
+              >
+                🗑️ Xóa khung 2
+              </button>
+            </div>
+
+            <div
+              id="editor-tf"
+              ref={tfEditorRef}
+              contentEditable={true}
+              suppressContentEditableWarning={true}
+              onInput={syncEditorQuestionsLive}
+              onBlur={syncEditorQuestionsLive}
+              style={{
+                minHeight: '190px',
+                maxHeight: '290px',
+                overflowY: 'auto',
+                background: '#ffffff',
+                border: '2px solid #c4b5fd',
+                borderRadius: '10px',
+                padding: '10px',
+                fontSize: '13.5px',
+                lineHeight: 1.5,
+                outline: 'none',
+                color: '#0f172a'
+              }}
+            />
+          </div>
+
+          {/* KHUNG 3: DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
+          <div
+            style={{
+              background: '#ecfdf5',
+              border: '2.5px solid #10b981',
+              borderRadius: '14px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#047857' }}>
+                  🟩 KHUNG 3 — DẠNG THỨC III: TRẢ LỜI NGẮN
+                </div>
+                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
+                  Copy dán câu hỏi Trả lời ngắn kèm dòng <b>Đáp án: ...</b> hoặc <b>ĐS: ...</b> ở dưới mỗi câu
+                </div>
+              </div>
+              <span style={{ background: '#047857', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
+                {formatCounts.sa} câu
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#d1fae5', borderColor: '#34d399', color: '#065f46' }}
+                onClick={() => handleInsertSample(SAMPLE_PHAN_3_SA, 'SA')}
+              >
+                ➕ Thêm mẫu Dạng III
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px' }}
+                onClick={handleUnderline}
+              >
+                <u>U</u> Gạch chân ĐA
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                onClick={() => handleClearSingleBox('SA')}
+              >
+                🗑️ Xóa khung 3
+              </button>
+            </div>
+
+            <div
+              id="editor-sa"
+              ref={saEditorRef}
+              contentEditable={true}
+              suppressContentEditableWarning={true}
+              onInput={syncEditorQuestionsLive}
+              onBlur={syncEditorQuestionsLive}
+              style={{
+                minHeight: '190px',
+                maxHeight: '290px',
+                overflowY: 'auto',
+                background: '#ffffff',
+                border: '2px solid #6ee7b7',
+                borderRadius: '10px',
+                padding: '10px',
+                fontSize: '13.5px',
+                lineHeight: 1.5,
+                outline: 'none',
+                color: '#0f172a'
+              }}
+            />
+          </div>
+        </section>
+
+        {/* BẢNG KIỂM TRA & CHỈNH SỬA NHANH CÂU HỎI ĐÃ NHẬN DIỆN (LIVE PARSED PREVIEW) */}
+        <section
+          style={{
+            margin: '10px 0',
+            background: '#ffffff',
+            border: '2px solid #cbd5e1',
+            borderRadius: '14px',
+            padding: '10px 14px'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#0f172a' }}>
+              ✅ Kiểm Tra Danh Sách Câu Hỏi Đã Nhận Diện ({livePreviewItems.length} câu — Bấm trực tiếp vào phương án để đổi Đáp án đúng nếu cần):
+            </div>
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{ fontSize: '11.5px', padding: '4px 10px' }}
+              onClick={() => setShowPreviewList(!showPreviewList)}
+            >
+              {showPreviewList ? '🔽 Thu gọn danh sách kiểm tra' : '▶️ Mở danh sách kiểm tra câu hỏi'}
+            </button>
+          </div>
+
+          {showPreviewList && (
+            <div
+              style={{
+                marginTop: '8px',
+                maxHeight: '240px',
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                paddingRight: '4px'
+              }}
+            >
+              {livePreviewItems.length === 0 ? (
+                <div style={{ padding: '14px', textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px' }}>
+                  Chưa có câu hỏi nào. Hãy copy và dán câu hỏi vào 1 trong 3 khung Dạng thức ở trên!
+                </div>
+              ) : (
+                livePreviewItems.map((item, qIdx) => {
+                  const fmtLabel =
+                    item.format === 'TRUE_FALSE'
+                      ? 'Dạng II: Đúng/Sai'
+                      : item.format === 'SHORT_ANSWER'
+                      ? 'Dạng III: Trả lời ngắn'
+                      : 'Dạng I: 4 lựa chọn';
+                  const fmtColor =
+                    item.format === 'TRUE_FALSE' ? '#6d28d9' : item.format === 'SHORT_ANSWER' ? '#047857' : '#1d4ed8';
+
+                  return (
+                    <div
+                      key={qIdx}
+                      style={{
+                        background: '#f8fafc',
+                        border: '1.5px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '8px 12px',
+                        fontSize: '12.5px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                        <div style={{ fontWeight: 900, color: '#0f172a', lineHeight: 1.4 }}>
+                          <span
+                            style={{
+                              background: fmtColor,
+                              color: '#fff',
+                              padding: '2px 7px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              marginRight: '6px'
+                            }}
+                          >
+                            Câu {qIdx + 1} • {fmtLabel}
+                          </span>
+                          {item.q}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickDeleteQuestion(qIdx)}
+                          style={{
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #fca5a5',
+                            borderRadius: '6px',
+                            padding: '2px 7px',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                            flexShrink: 0
+                          }}
+                          title="Xóa câu này"
+                        >
+                          ✕ Xóa
+                        </button>
+                      </div>
+
+                      {(!item.format || item.format === 'MULTIPLE_CHOICE') && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px' }}>
+                          {item.opts.map((optTxt, oIdx) => {
+                            const isCorr = item.correct === oIdx;
+                            const letter = String.fromCharCode(65 + oIdx);
+                            return (
+                              <button
+                                key={oIdx}
+                                type="button"
+                                onClick={() => handleQuickChangeCorrectMC(qIdx, oIdx)}
+                                style={{
+                                  textAlign: 'left',
+                                  padding: '5px 8px',
+                                  borderRadius: '8px',
+                                  border: isCorr ? '2px solid #059669' : '1px solid #cbd5e1',
+                                  background: isCorr ? '#dcfce7' : '#ffffff',
+                                  color: isCorr ? '#065f46' : '#334155',
+                                  fontWeight: isCorr ? 900 : 700,
+                                  fontSize: '12px',
+                                  cursor: 'pointer'
+                                }}
+                                title="Bấm để đặt phương án này làm Đáp án Đúng"
+                              >
+                                {isCorr ? '✅ ' : ''}{letter}. {optTxt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {item.format === 'TRUE_FALSE' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px' }}>
+                          {(item.tfItems || []).map((tf, tfIdx) => (
+                            <button
+                              key={tfIdx}
+                              type="button"
+                              onClick={() => handleQuickToggleTFItem(qIdx, tfIdx)}
+                              style={{
+                                textAlign: 'left',
+                                padding: '5px 8px',
+                                borderRadius: '8px',
+                                border: tf.isCorrect ? '2px solid #059669' : '1.5px solid #f43f5e',
+                                background: tf.isCorrect ? '#dcfce7' : '#ffe4e6',
+                                color: tf.isCorrect ? '#065f46' : '#9f1239',
+                                fontWeight: 800,
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                              }}
+                              title="Bấm để chuyển đổi Đúng / Sai cho mệnh đề này"
+                            >
+                              <b>{tf.label})</b> {tf.text} — <b>[{tf.isCorrect ? 'ĐÚNG' : 'SAI'}]</b>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {item.format === 'SHORT_ANSWER' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 900, color: '#047857', fontSize: '12px' }}>🔑 Đáp số đúng:</span>
+                          <input
+                            type="text"
+                            value={item.shortAnswer || item.opts[0] || ''}
+                            onChange={e => handleQuickEditShortAnswer(qIdx, e.target.value)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              border: '2px solid #10b981',
+                              background: '#ecfdf5',
+                              color: '#065f46',
+                              fontWeight: 900,
+                              fontSize: '12.5px',
+                              width: '220px'
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </section>
 
         {/* Team Configuration (Only for Tug of War) */}
         {gameType === 'TUG' && (
