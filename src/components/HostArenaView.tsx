@@ -83,6 +83,12 @@ export const HostArenaView: React.FC<Props> = ({
   // Floating cheers
   const [floatingCheers, setFloatingCheers] = useState<{ id: string; emoji: string; left: number }[]>([]);
 
+  // Keep latest matchState accessible in 60fps render loop
+  const matchStateRef = useRef<MatchState>(matchState);
+  useEffect(() => {
+    matchStateRef.current = matchState;
+  }, [matchState]);
+
   // Three.js references
   const threeRef = useRef<{
     scene: THREE.Scene;
@@ -256,7 +262,73 @@ export const HostArenaView: React.FC<Props> = ({
     ice.visible = false;
     g.add(ice);
 
-    g.userData = { ice: ice, dropY: 8.0, isReadyInRope: false, currentZ: -1.8, baseBellX: 0, baseBellZ: 0 };
+    // Seated Floor Mat for Golden Bell
+    const matGroup = new THREE.Group();
+    const matMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.25, 0.08, 1.25),
+      new THREE.MeshStandardMaterial({ color: isRed ? 0x991b1b : 0x0369a1, roughness: 0.5 })
+    );
+    const matBorder = new THREE.Mesh(
+      new THREE.BoxGeometry(1.32, 0.05, 1.32),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.3 })
+    );
+    matGroup.add(matBorder);
+    matGroup.add(matMesh);
+    matGroup.position.y = 0.04;
+    matGroup.visible = false;
+    g.add(matGroup);
+
+    // Answer Board for Golden Bell (Contestant raises board when answered)
+    const boardGroup = new THREE.Group();
+    const boardFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(0.72, 0.52, 0.04),
+      new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 })
+    );
+    const boardFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.64, 0.44),
+      new THREE.MeshStandardMaterial({ color: 0x064e3b, roughness: 0.4 })
+    );
+    boardFace.position.z = 0.025;
+    boardGroup.add(boardFrame);
+    boardGroup.add(boardFace);
+    boardGroup.position.set(0, 0.82, 0.38);
+    boardGroup.visible = false;
+    g.add(boardGroup);
+
+    // Hero Magic Weapon / Energy Orb for Boss Raid
+    const weaponOrb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 16, 16),
+      new THREE.MeshStandardMaterial({
+        color: isRed ? 0xf59e0b : 0x38bdf8,
+        emissive: isRed ? 0xd97706 : 0x0284c7,
+        emissiveIntensity: 0.85,
+        roughness: 0.2
+      })
+    );
+    weaponOrb.position.set(0.48, 0.95, 0.35);
+    weaponOrb.visible = false;
+    g.add(weaponOrb);
+
+    g.userData = {
+      ice,
+      armL,
+      armR,
+      gloveL,
+      gloveR,
+      body,
+      head,
+      shoeL,
+      shoeR,
+      boardGroup,
+      weaponOrb,
+      matGroup,
+      dropY: 8.0,
+      isReadyInRope: false,
+      currentZ: -1.8,
+      baseBellX: 0,
+      baseBellZ: 0,
+      isRedTeam: isRed
+    };
     return g;
   };
 
@@ -626,35 +698,149 @@ export const HostArenaView: React.FC<Props> = ({
       const vpH = viewportRef.current?.clientHeight || window.innerHeight;
 
       const updatePullerAnim = (pullers: THREE.Group[], isRedTeam: boolean) => {
-        pullers.forEach(g => {
+        const curMode = matchStateRef.current?.gameType || 'TUG';
+        const curStatus = matchStateRef.current?.status || 'LOBBY';
+        const answeredIds = [
+          ...(matchStateRef.current?.redAnsweredIds || []),
+          ...(matchStateRef.current?.blueAnsweredIds || [])
+        ];
+
+        pullers.forEach((g, idx) => {
           const u = g.userData;
           const pData: Player | undefined = u.playerData;
           if (!pData) return;
 
+          const isElim = pData.eliminated || (pData.lives !== undefined && pData.lives <= 0);
+          const hasDoneQ = answeredIds.includes(pData.id);
+
           // Drop-in spawn animation
           if (u.dropY > 0) {
             u.dropY = Math.max(0, u.dropY - 0.32);
-            g.position.y = (g.userData.baseBellY || 0) + u.dropY;
+            g.position.y = (u.baseBellY || 0) + u.dropY;
           }
 
-          // Step in/ready animation
+          // Step in/ready animation for tug
           if (pData.ready && !u.isReadyInRope) {
-            u.currentZ += (0 - u.currentZ) * 0.14;
-            g.position.z = u.currentZ;
-            if (Math.abs(u.currentZ) < 0.05) u.isReadyInRope = true;
-          }
-
-          // Pulling / walking motion
-          if (pData.ready && !pData.eliminated && u.dropY <= 0) {
-            const pullFreq = 6;
-            const leanFactor = isRedTeam ? 0.22 : -0.22;
-            g.rotation.z = leanFactor + Math.sin(elapsed * pullFreq) * 0.08;
-            g.position.y = Math.abs(Math.sin(elapsed * pullFreq)) * 0.06;
+            u.currentZ += (0.42 - u.currentZ) * 0.14;
+            if (curMode === 'TUG') g.position.z = u.currentZ;
+            if (Math.abs(u.currentZ - 0.42) < 0.05) u.isReadyInRope = true;
           }
 
           // Ice block toggle
           if (u.ice) {
-            u.ice.visible = (pData.freeze || 0) > 0 || pData.eliminated;
+            u.ice.visible = (pData.freeze || 0) > 0 || isElim;
+          }
+
+          // Mode-specific character animations
+          if (curMode === 'BELL') {
+            // Golden Bell: Contestants SIT on arena mats
+            if (u.matGroup) u.matGroup.visible = true;
+            if (u.boardGroup) u.boardGroup.visible = true;
+            if (u.weaponOrb) u.weaponOrb.visible = false;
+
+            if (u.body) u.body.position.y = 0.38;
+            if (u.head) u.head.position.y = 0.98;
+            if (u.shoeL) { u.shoeL.position.set(0.2, 0.08, 0.18); u.shoeL.rotation.z = 0.5; }
+            if (u.shoeR) { u.shoeR.position.set(-0.2, 0.08, 0.18); u.shoeR.rotation.z = -0.5; }
+
+            if (!isElim) {
+              if (hasDoneQ) {
+                // Raise answer board high in the air
+                if (u.boardGroup) {
+                  u.boardGroup.position.set(0, 1.25 + Math.sin(elapsed * 4.5 + idx) * 0.06, 0.2);
+                  u.boardGroup.rotation.x = -0.15;
+                }
+                if (u.head) u.head.rotation.x = -0.15;
+                if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
+                if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
+              } else {
+                // Seated thinking posture with board resting on lap
+                if (u.boardGroup) {
+                  u.boardGroup.position.set(0, 0.55, 0.36);
+                  u.boardGroup.rotation.x = 0.1;
+                }
+                if (u.head) u.head.rotation.x = Math.sin(elapsed * 2.5 + idx) * 0.04;
+                if (u.armL) u.armL.rotation.x = -0.65;
+                if (u.armR) u.armR.rotation.x = -0.65;
+              }
+            } else {
+              // Eliminated: bowed head
+              if (u.head) u.head.rotation.x = 0.45;
+              if (u.boardGroup) u.boardGroup.position.set(0, 0.22, 0.36);
+            }
+          } else if (curMode === 'BOSS') {
+            // Boss Raid: Hero combat battle stance
+            if (u.weaponOrb) u.weaponOrb.visible = true;
+            if (u.boardGroup) u.boardGroup.visible = false;
+            if (u.matGroup) u.matGroup.visible = false;
+
+            if (u.body) u.body.position.y = 0.65;
+            if (u.head) u.head.position.y = 1.36;
+
+            // Combat stance bobbing
+            g.position.y = Math.abs(Math.sin(elapsed * 3.5 + idx)) * 0.06;
+
+            // Spinning & pulsing magical elemental orb
+            if (u.weaponOrb) {
+              u.weaponOrb.rotation.y += 0.08;
+              u.weaponOrb.position.y = 0.95 + Math.sin(elapsed * 5.0 + idx) * 0.08;
+              u.weaponOrb.scale.setScalar(hasDoneQ ? 1.5 + Math.sin(elapsed * 10) * 0.25 : 1.0 + Math.sin(elapsed * 6 + idx) * 0.15);
+            }
+
+            if (hasDoneQ) {
+              // Attack thrust towards boss!
+              g.rotation.x = -0.22;
+              if (u.armR) u.armR.rotation.x = -Math.PI * 0.65;
+              if (u.armL) u.armL.rotation.x = -Math.PI / 4;
+            } else {
+              g.rotation.x = 0;
+              if (u.armR) u.armR.rotation.x = -Math.PI / 3;
+              if (u.armL) u.armL.rotation.x = -Math.PI / 3;
+            }
+          } else if (curMode === 'TUG') {
+            // Tug-of-war
+            if (u.boardGroup) u.boardGroup.visible = false;
+            if (u.matGroup) u.matGroup.visible = false;
+            if (u.weaponOrb) u.weaponOrb.visible = false;
+
+            if (u.body) u.body.position.y = 0.65;
+            if (u.head) u.head.position.y = 1.36;
+
+            if (curStatus === 'PLAYING' && !isElim && u.dropY <= 0) {
+              // High intensity heave-ho pulling rhythm!
+              const pullFreq = 6.8;
+              const leanFactor = isRedTeam ? 0.34 : -0.34;
+              g.rotation.z = leanFactor + Math.sin(elapsed * pullFreq) * 0.14;
+              g.position.y = Math.abs(Math.sin(elapsed * pullFreq)) * 0.09;
+              const armStrain = Math.sin(elapsed * pullFreq) * 0.3;
+              if (u.armL) u.armL.rotation.x = -Math.PI / 3 + armStrain;
+              if (u.armR) u.armR.rotation.x = -Math.PI / 3 + armStrain;
+            } else if ((curStatus === 'ROUND_BREAK' || curStatus === 'ENDED') && !isElim) {
+              const ropeVal = matchStateRef.current?.ropeScore || 0;
+              const isWinTeam = (isRedTeam && ropeVal < 0) || (!isRedTeam && ropeVal > 0);
+              if (isWinTeam) {
+                // Joyful celebration jump & waving arms
+                g.position.y = Math.abs(Math.sin(elapsed * 7.5 + idx)) * 0.35;
+                g.rotation.z = Math.sin(elapsed * 5) * 0.1;
+                if (u.armL) u.armL.rotation.x = -Math.PI * 0.8;
+                if (u.armR) u.armR.rotation.x = -Math.PI * 0.8;
+              } else {
+                g.rotation.x = 0.22;
+                g.position.y = 0;
+              }
+            } else {
+              // LOBBY / IDLE stance
+              g.position.y = (u.baseBellY || 0) + Math.abs(Math.sin(elapsed * 2.5 + idx)) * 0.04;
+              g.rotation.z = 0;
+              if (u.armL) u.armL.rotation.x = -Math.PI / 3;
+              if (u.armR) u.armR.rotation.x = -Math.PI / 3;
+            }
+          } else {
+            // Speed race mode
+            g.rotation.x = -0.15;
+            g.position.y = Math.abs(Math.sin(elapsed * 8 + idx)) * 0.08;
+            if (u.armL) u.armL.rotation.x = Math.sin(elapsed * 8 + idx) * 0.5;
+            if (u.armR) u.armR.rotation.x = -Math.sin(elapsed * 8 + idx) * 0.5;
           }
 
           // Project head position to 2D screen
@@ -735,88 +921,124 @@ export const HostArenaView: React.FC<Props> = ({
     const { scene, redPullers3D, bluePullers3D } = threeRef.current;
     const max3D = matchState.settings?.max3DRenderCount || 20;
 
-    // Filter up to max3D players to render
-    const allP = [...matchState.redPlayers, ...matchState.bluePlayers];
-    const redToRender = matchState.redPlayers.slice(0, Math.ceil(max3D / 2));
-    const blueToRender = matchState.bluePlayers.slice(0, Math.floor(max3D / 2));
-
-    // Clear old 3D groups
-    redPullers3D.forEach(g => scene.remove(g));
-    bluePullers3D.forEach(g => scene.remove(g));
-    redPullers3D.length = 0;
-    bluePullers3D.length = 0;
-
     const isBell = matchState.gameType === 'BELL';
     const isFast = matchState.gameType === 'FAST';
     const isBoss = matchState.gameType === 'BOSS';
 
-    // Position Red Players
-    redToRender.forEach((p, idx) => {
-      const g = createCartoonCharacter('RED', p);
-      g.userData.playerData = p;
+    let redToRender: Player[] = [];
+    let blueToRender: Player[] = [];
 
-      if (isBoss) {
-        // Semi-circle facing the boss
-        const angle = Math.PI * 0.15 + (idx / Math.max(1, redToRender.length)) * Math.PI * 0.7;
-        const rad = 6.2;
-        g.position.set(Math.cos(angle) * rad, 0, Math.sin(angle) * rad - 1);
-        g.lookAt(0, 2.5, -2.5);
-      } else if (isBell) {
-        const angle = (idx / Math.max(1, allP.length)) * Math.PI * 2;
-        const rad = 4.2;
-        g.position.set(Math.cos(angle) * rad, 0.35, Math.sin(angle) * rad - 1.5);
-        g.lookAt(0, 1.5, -1.5);
-        g.userData.baseBellY = 0.35;
-      } else if (isFast) {
-        const row = Math.floor(idx / 5);
-        const col = idx % 5;
-        g.position.set(-4.5 + col * 1.8, 0, 1.5 - row * 2.2);
-        g.lookAt(0, 1.5, -5);
-      } else {
-        // Tug of war: Left side pulling right
-        const spacing = 1.35;
-        const startX = -1.8 - idx * spacing;
-        g.position.set(startX, 0, p.ready ? 0 : -1.8);
+    if (isBell || isFast || isBoss) {
+      // Individual Modes: Sort all players by score / survival and strictly pick TOP 20
+      const allP = [...matchState.redPlayers, ...matchState.bluePlayers];
+      const sortedOverall = [...allP].sort((a, b) => {
+        if (isBell) {
+          if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
+          if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+          return (b.correct || 0) - (a.correct || 0);
+        }
+        const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
+        const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
+        return sB - sA;
+      });
+
+      const top20 = sortedOverall.slice(0, 20);
+      redToRender = top20.filter(p => p.team === 'RED');
+      blueToRender = top20.filter(p => p.team === 'BLUE');
+
+      // Clear old 3D groups
+      redPullers3D.forEach(g => scene.remove(g));
+      bluePullers3D.forEach(g => scene.remove(g));
+      redPullers3D.length = 0;
+      bluePullers3D.length = 0;
+
+      // Position all Top 20 players systematically
+      top20.forEach((p, idx) => {
+        const isRed = p.team === 'RED';
+        const g = createCartoonCharacter(isRed ? 'RED' : 'BLUE', p);
+        g.userData.playerData = p;
+
+        if (isBoss) {
+          // Semi-circle combat battle formation facing the Boss
+          const totalHeroes = top20.length;
+          const angle = -Math.PI * 0.72 + (idx / Math.max(1, totalHeroes - 1)) * Math.PI * 1.44;
+          const rad = 6.4;
+          g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
+          g.lookAt(0, 2.5, -2.5);
+        } else if (isBell) {
+          // Golden Bell: Seated on arena mats in 2 concentric rings
+          let rad = 4.4;
+          let tierY = 0.22;
+          let angle = 0;
+          if (idx < 8) {
+            rad = 2.6;
+            tierY = 0.55;
+            angle = (idx / 8) * Math.PI * 2;
+          } else {
+            rad = 4.5;
+            tierY = 0.22;
+            angle = ((idx - 8) / 12) * Math.PI * 2;
+          }
+          g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.5);
+          g.userData.baseBellY = tierY;
+          g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.5) * 2 - 1.5);
+        } else {
+          // Speed racing: 4 rows of 5 racers
+          const row = Math.floor(idx / 5);
+          const col = idx % 5;
+          g.position.set(-4.0 + col * 2.0, 0, 1.8 - row * 2.0);
+          g.lookAt(0, 1.5, -6);
+        }
+
+        scene.add(g);
+        if (isRed) redPullers3D.push(g);
+        else bluePullers3D.push(g);
+      });
+    } else {
+      // Tug of war: Top 10 Red + Top 10 Blue by score
+      const sortedRed = [...matchState.redPlayers].sort((a, b) => {
+        const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
+        const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
+        return sB - sA;
+      });
+      const sortedBlue = [...matchState.bluePlayers].sort((a, b) => {
+        const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
+        const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
+        return sB - sA;
+      });
+      redToRender = sortedRed.slice(0, 10);
+      blueToRender = sortedBlue.slice(0, 10);
+
+      // Clear old 3D groups
+      redPullers3D.forEach(g => scene.remove(g));
+      bluePullers3D.forEach(g => scene.remove(g));
+      redPullers3D.length = 0;
+      bluePullers3D.length = 0;
+
+      // Position Red pullers firmly alongside the rope at z = 0.42
+      redToRender.forEach((p, idx) => {
+        const g = createCartoonCharacter('RED', p);
+        g.userData.playerData = p;
+        const spacing = 1.25;
+        const startX = -1.6 - idx * spacing;
+        g.position.set(startX, 0, 0.42);
         g.rotation.y = Math.PI / 2;
-      }
+        scene.add(g);
+        redPullers3D.push(g);
+      });
 
-      scene.add(g);
-      redPullers3D.push(g);
-    });
-
-    // Position Blue Players
-    blueToRender.forEach((p, idx) => {
-      const g = createCartoonCharacter('BLUE', p);
-      g.userData.playerData = p;
-
-      if (isBoss) {
-        const angle = Math.PI * 0.85 + (idx / Math.max(1, blueToRender.length)) * Math.PI * 0.7;
-        const rad = 6.2;
-        g.position.set(Math.cos(angle) * rad, 0, Math.sin(angle) * rad - 1);
-        g.lookAt(0, 2.5, -2.5);
-      } else if (isBell) {
-        const offset = redToRender.length;
-        const angle = ((offset + idx) / Math.max(1, allP.length)) * Math.PI * 2;
-        const rad = 4.2;
-        g.position.set(Math.cos(angle) * rad, 0.35, Math.sin(angle) * rad - 1.5);
-        g.lookAt(0, 1.5, -1.5);
-        g.userData.baseBellY = 0.35;
-      } else if (isFast) {
-        const row = Math.floor((idx + redToRender.length) / 5);
-        const col = (idx + redToRender.length) % 5;
-        g.position.set(-4.5 + col * 1.8, 0, 1.5 - row * 2.2);
-        g.lookAt(0, 1.5, -5);
-      } else {
-        // Tug of war: Right side pulling left
-        const spacing = 1.35;
-        const startX = 1.8 + idx * spacing;
-        g.position.set(startX, 0, p.ready ? 0 : -1.8);
+      // Position Blue pullers firmly alongside the rope at z = 0.42
+      blueToRender.forEach((p, idx) => {
+        const g = createCartoonCharacter('BLUE', p);
+        g.userData.playerData = p;
+        const spacing = 1.25;
+        const startX = 1.6 + idx * spacing;
+        g.position.set(startX, 0, 0.42);
         g.rotation.y = -Math.PI / 2;
-      }
-
-      scene.add(g);
-      bluePullers3D.push(g);
-    });
+        scene.add(g);
+        bluePullers3D.push(g);
+      });
+    }
   }, [matchState.redPlayers, matchState.bluePlayers, matchState.gameType, matchState.settings?.max3DRenderCount]);
 
   // Sync Rope Target Position

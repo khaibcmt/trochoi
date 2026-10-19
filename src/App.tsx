@@ -264,6 +264,26 @@ export const App: React.FC = () => {
             AudioFX.stepInRope();
             updated = true;
           }
+
+          // Crucial: Send confirmation back to student so their phone restores full session & score
+          CloudNetwork.sendMessage({
+            type: 'ENTER_CONFIRMED',
+            playerId: existing.id,
+            team: existing.team,
+            role: existing.role,
+            label: existing.label,
+            gameType: prev.gameType,
+            matchStatus: prev.status,
+            globalQIndex: prev.globalQIndex,
+            lives: existing.lives,
+            streak: existing.streak,
+            eliminated: existing.eliminated,
+            fastScore: existing.fastScore || 0,
+            bossHP: prev.bossHP,
+            maxBossHP: prev.maxBossHP,
+            quiz: quizList
+          });
+
           if (updated) {
             return {
               ...prev,

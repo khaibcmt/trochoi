@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat } from '../types';
 import { AudioFX } from '../services/audio';
-import { CloudNetwork } from '../services/network';
+import { CloudNetwork, NetworkConnStatus } from '../services/network';
 import {
   cleanQuestionTitleText,
   getStableShuffledQuestion,
@@ -64,11 +64,25 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Connection & Screen state
   const [connStatus, setConnStatus] = useState('🔄 Đang kết nối sân đấu 3D...');
+  const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
   const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED'>('LOBBY');
   const [hasConfirmedEnter, setHasConfirmedEnter] = useState(false);
 
-  // Gameplay state
-  const [myPlayerId] = useState(() => 'hs_' + Math.random().toString(36).substring(2, 8));
+  // Gameplay state - Persistent student player ID per room to avoid losing score on disconnect/refresh
+  const [myPlayerId] = useState(() => {
+    try {
+      const key = `kc3d_pid_${roomId}`;
+      const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
+      if (saved) return saved;
+      const newId = 'hs_' + Math.random().toString(36).substring(2, 8);
+      sessionStorage.setItem(key, newId);
+      localStorage.setItem(key, newId);
+      return newId;
+    } catch {
+      return 'hs_' + Math.random().toString(36).substring(2, 8);
+    }
+  });
+
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
   const [eliminated, setEliminated] = useState(false);
@@ -92,10 +106,24 @@ export const StudentMobileView: React.FC<Props> = ({
   const startMsRef = useRef<number>(Date.now());
   const [hasAnsweredCurrentQ, setHasAnsweredCurrentQ] = useState(false);
 
-  // FAST mode state
-  const [fastScore, setFastScore] = useState(0);
+  // FAST mode state - Persistent score in sessionStorage
+  const [fastScore, setFastScore] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem(`kc3d_score_${roomId}`);
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [fastRank, setFastRank] = useState(0);
   const [fastAnswerFeedback, setFastAnswerFeedback] = useState<string | null>(null);
+
+  // Save score to storage whenever updated
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`kc3d_score_${roomId}`, String(fastScore));
+    } catch {}
+  }, [fastScore, roomId]);
 
   // Boss Mode state
   const [bossHP, setBossHP] = useState<number>(1000);
@@ -126,14 +154,26 @@ export const StudentMobileView: React.FC<Props> = ({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [screen]);
 
-  // Connect to room
+  // Connect to room with network status tracking
   useEffect(() => {
     CloudNetwork.connect(
       roomId,
       handleIncomingMessage,
       () => {
         setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
+        setNetworkState('CONNECTED');
         sendEnter();
+      },
+      (newStatus) => {
+        setNetworkState(newStatus);
+        if (newStatus === 'CONNECTED') {
+          setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
+          sendEnter();
+        } else if (newStatus === 'RECONNECTING') {
+          setConnStatus(`🔄 Đang kết nối lại mạng...`);
+        } else {
+          setConnStatus(`⚠️ Mất kết nối mạng`);
+        }
       }
     );
 
@@ -236,6 +276,12 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
+      if (typeof d.fastScore === 'number' && d.fastScore > 0) {
+        setFastScore(d.fastScore);
+        try {
+          sessionStorage.setItem(`kc3d_score_${roomId}`, String(d.fastScore));
+        } catch {}
+      }
 
       if (d.matchStatus === 'PLAYING') {
         setScreen('QUIZ');
@@ -499,9 +545,54 @@ export const StudentMobileView: React.FC<Props> = ({
 
   return (
     <div id="student-view" style={{ position: 'absolute', inset: 0, overflowY: 'auto', background: '#070b14', color: '#ffffff' }}>
+      {/* Network reconnecting status banner avoiding loss of points */}
+      {networkState !== 'CONNECTED' && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 99999,
+          background: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+          color: '#ffffff',
+          padding: '12px 16px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          borderBottom: '3px solid #fbbf24',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          textAlign: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 900 }}>
+            <span style={{ display: 'inline-block', fontSize: '18px' }}>🔄</span>
+            <span>MẤT KẾT NỐI - ĐANG TỰ ĐỘNG KẾT NỐI LẠI...</span>
+          </div>
+          <div style={{ fontSize: '12.5px', color: '#fef08a', marginTop: '4px', fontWeight: 700 }}>
+            🛡️ Điểm số ({fastScore}đ) và tiến trình thi đấu của bạn đã được bảo lưu an toàn tránh mất điểm!
+          </div>
+          <button
+            onClick={() => CloudNetwork.reconnectImmediate()}
+            style={{
+              marginTop: '8px',
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#0f172a',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '6px 14px',
+              fontWeight: 900,
+              fontSize: '12.5px',
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            }}
+          >
+            ⚡ Thử Kết Nối Lại Ngay
+          </button>
+        </div>
+      )}
+
       {/* Tab switch anti-cheat warning banner */}
       {tabWarning && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: '#ef4444', color: '#fff', padding: '10px', textAlign: 'center', fontWeight: 900, zIndex: 1000 }}>
+        <div style={{ position: 'fixed', top: networkState !== 'CONNECTED' ? '88px' : 0, left: 0, right: 0, background: '#ef4444', color: '#fff', padding: '10px', textAlign: 'center', fontWeight: 900, zIndex: 1000 }}>
           {tabWarning}
         </div>
       )}

@@ -155,4 +155,5 @@ export interface CloudMessage {
   maxBossHP?: number;
   bossDamageGained?: number;
   tabSwitched?: boolean;
+  fastScore?: number;
 }
