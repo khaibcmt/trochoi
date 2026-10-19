@@ -328,66 +328,109 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 4 Game Modes Grid */}
+        {/* 4 Game Modes Grid - Single Row with 4 distinct 3D Colors */}
         <section className="gamemode-selector" aria-label="Chọn chế độ thi đấu">
+          {/* Khối 1: ĐỎ CHIẾN BINH - KÉO CO 3D */}
           <div
-            className={`gm-card ${gameType === 'TUG' ? 'active-gm' : ''}`}
+            className={`gm-card tug-gm ${gameType === 'TUG' ? 'active-gm' : ''}`}
             id="gm-card-TUG"
             onClick={() => onSelectGameType('TUG')}
+            title="Bấm để chọn Chế độ 1: Đấu Trường Kéo Co 3D"
           >
-            <div className="gm-icon">⚔️</div>
-            <div className="gm-info">
-              <h3>CHẾ ĐỘ 1: ĐẤU TRƯỜNG KÉO CO 3D (ĐỒNG ĐỘI 3 HIỆP)</h3>
-              <p>
-                Chia 2 Đội Đỏ & Xanh đối kháng 3 Hiệp. Mỗi hiệp dẫn trước 3 câu là thắng hiệp. Nhận thẻ kỹ năng: 🛡️ Khiên, ❄️ Đóng băng đối thủ 3s, ⚡ Nhân đôi lực kéo!
-              </p>
+            <div className="gm-top-row">
+              <span className="gm-badge" style={{ background: gameType === 'TUG' ? 'rgba(0,0,0,0.35)' : '#fee2e2', color: gameType === 'TUG' ? '#ffffff' : '#991b1b' }}>
+                ⚔️ CHẾ ĐỘ 1
+              </span>
+              <span className="gm-check-indicator" style={{ background: gameType === 'TUG' ? '#ffffff' : '#fee2e2', color: gameType === 'TUG' ? '#b91c1c' : '#7f1d1d' }}>
+                {gameType === 'TUG' ? '✓ Đang chọn' : 'Chọn'}
+              </span>
+            </div>
+            <div className="gm-card-body">
+              <div className="gm-icon">⚔️</div>
+              <div className="gm-info">
+                <h3>KÉO CO 3D (3 HIỆP)</h3>
+                <p>
+                  2 Đội Đỏ & Xanh đối kháng • Dẫn trước 3 câu là thắng hiệp • Kỹ năng: 🛡️ Khiên, ❄️ Băng, ⚡ x2 Kéo!
+                </p>
+              </div>
             </div>
           </div>
 
+          {/* Khối 2: VÀNG HOÀNG KIM - RUNG CHUÔNG VÀNG 3D */}
           <div
             className={`gm-card bell-gm ${gameType === 'BELL' ? 'active-gm' : ''}`}
             id="gm-card-BELL"
             onClick={() => onSelectGameType('BELL')}
+            title="Bấm để chọn Chế độ 2: Rung Chuông Vàng 3D"
           >
-            <div className="gm-icon">🔔</div>
-            <div className="gm-info">
-              <h3>CHẾ ĐỘ 2: RUNG CHUÔNG VÀNG 3D (SINH TỒN & PHAO CỨU TRỢ)</h3>
-              <p>
-                Mỗi HS có 3 lượt (❤️❤️❤️). <b>Sai 3 câu bị loại</b>. Đúng 3 câu liên tiếp nhận +1❤️ và Thẻ 50/50. Khi bị loại hết, Giáo viên có nút <b>🛟 Tung Phao Cứu Trợ</b> hồi sinh toàn bộ!
-              </p>
+            <div className="gm-top-row">
+              <span className="gm-badge" style={{ background: gameType === 'BELL' ? 'rgba(0,0,0,0.35)' : '#fef3c7', color: gameType === 'BELL' ? '#ffffff' : '#92400e' }}>
+                🔔 CHẾ ĐỘ 2
+              </span>
+              <span className="gm-check-indicator" style={{ background: gameType === 'BELL' ? '#ffffff' : '#fef3c7', color: gameType === 'BELL' ? '#b45309' : '#78350f' }}>
+                {gameType === 'BELL' ? '✓ Đang chọn' : 'Chọn'}
+              </span>
+            </div>
+            <div className="gm-card-body">
+              <div className="gm-icon">🔔</div>
+              <div className="gm-info">
+                <h3>RUNG CHUÔNG VÀNG 3D</h3>
+                <p>
+                  Mỗi HS có 3 Tim (❤️❤️❤️) • Sai 3 câu bị loại • Giáo viên có nút <b>🛟 Tung Phao Cứu Trợ</b> hồi sinh!
+                </p>
+              </div>
             </div>
           </div>
 
+          {/* Khối 3: XANH CYAN SIÊU TỐC - ĐUA TỐC ĐỘ 3D */}
           <div
             className={`gm-card fast-gm ${gameType === 'FAST' ? 'active-gm' : ''}`}
             id="gm-card-FAST"
             onClick={() => onSelectGameType('FAST')}
+            title="Bấm để chọn Chế độ 3: Đua Tốc Độ 3D"
           >
-            <div className="gm-icon">🏎️</div>
-            <div className="gm-info">
-              <h3>CHẾ ĐỘ 3: AI NHANH NHẤT & ĐUA TỐC ĐỘ 3D</h3>
-              <p>
-                Đúng & nhanh nhất trọn <b>1.000đ</b>. Vinh danh <b>Top 10 Realtime</b>. Quy đổi điểm số chính xác: <b>Hạng 1–3 (10đ), 4–6 (9đ), 7–10 (8đ), 11–15 (7đ)</b>!
-              </p>
+            <div className="gm-top-row">
+              <span className="gm-badge" style={{ background: gameType === 'FAST' ? 'rgba(0,0,0,0.35)' : '#e0f2fe', color: gameType === 'FAST' ? '#ffffff' : '#075985' }}>
+                🏎️ CHẾ ĐỘ 3
+              </span>
+              <span className="gm-check-indicator" style={{ background: gameType === 'FAST' ? '#ffffff' : '#e0f2fe', color: gameType === 'FAST' ? '#0369a1' : '#0c4a6e' }}>
+                {gameType === 'FAST' ? '✓ Đang chọn' : 'Chọn'}
+              </span>
+            </div>
+            <div className="gm-card-body">
+              <div className="gm-icon">🏎️</div>
+              <div className="gm-info">
+                <h3>ĐUA TỐC ĐỘ 3D</h3>
+                <p>
+                  Đúng & nhanh nhất trọn <b>1.000đ</b> • Bảng xếp hạng Realtime • Quy đổi điểm: <b>10đ, 9đ, 8đ, 7đ</b>!
+                </p>
+              </div>
             </div>
           </div>
 
+          {/* Khối 4: TÍM HUYỀN BÍ - ĐÁNH BOSS KIẾN THỨC 3D */}
           <div
             className={`gm-card boss-gm ${gameType === 'BOSS' ? 'active-gm' : ''}`}
             id="gm-card-BOSS"
-            style={{
-              borderColor: gameType === 'BOSS' ? '#ef4444' : '#f87171',
-              background: gameType === 'BOSS' ? 'linear-gradient(135deg, #450a0a, #7f1d1d)' : '#fff1f2',
-              color: gameType === 'BOSS' ? '#ffffff' : '#881337'
-            }}
             onClick={() => onSelectGameType('BOSS')}
+            title="Bấm để chọn Chế độ 4: Đánh Boss Kiến Thức 3D"
           >
-            <div className="gm-icon">🐉</div>
-            <div className="gm-info">
-              <h3>CHẾ ĐỘ 4: ĐÁNH BOSS KIẾN THỨC 3D (CO-OP RAID)</h3>
-              <p>
-                Cả lớp hợp sức trả lời câu hỏi để bắn năng lượng tấn công Quái vật Kiến thức khổng lồ ({matchSettings.bossMaxHP} HP). Trả lời sai hoặc hết 30s, Boss phản đòn hồi 50 HP!
-              </p>
+            <div className="gm-top-row">
+              <span className="gm-badge" style={{ background: gameType === 'BOSS' ? 'rgba(0,0,0,0.35)' : '#f3e8ff', color: gameType === 'BOSS' ? '#ffffff' : '#6b21a8' }}>
+                🐉 CHẾ ĐỘ 4
+              </span>
+              <span className="gm-check-indicator" style={{ background: gameType === 'BOSS' ? '#ffffff' : '#f3e8ff', color: gameType === 'BOSS' ? '#581c87' : '#3b0764' }}>
+                {gameType === 'BOSS' ? '✓ Đang chọn' : 'Chọn'}
+              </span>
+            </div>
+            <div className="gm-card-body">
+              <div className="gm-icon">🐉</div>
+              <div className="gm-info">
+                <h3>ĐÁNH BOSS KIẾN THỨC</h3>
+                <p>
+                  Cả lớp hợp sức bắn hạ Quái Vật ({matchSettings.bossMaxHP} HP) • Sai hoặc hết giờ Boss phản đòn!
+                </p>
+              </div>
             </div>
           </div>
         </section>
