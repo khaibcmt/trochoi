@@ -1,0 +1,6 @@
+{
+  "name": "Đấu Trường 3D: Kéo Co, Rung Chuông Vàng & Ai Nhanh Nhất",
+  "description": "Hệ Thống 12 Môn THPT (GDPT 2018) – Đấu Trường 3D Kéo Co, Rung Chuông Vàng và Ai Nhanh Nhất đa nền tảng thời gian thực",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
