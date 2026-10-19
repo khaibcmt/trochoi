@@ -88,10 +88,12 @@ export const StudentMobileView: React.FC<Props> = ({
   const [eliminated, setEliminated] = useState(false);
   const [matchStatText, setMatchStatText] = useState('Đang chờ trận đấu bắt đầu...');
 
-  // Questions deck & pointers - Đồng bộ câu hỏi trực tiếp từ Host màn hình chính
+  // Questions deck & pointers - Đồng bộ câu hỏi trực tiếp từ Host màn hình chính theo đúng chỉ số qIndex
   const [quizDeck, setQuizDeck] = useState<QuizItem[]>(() => getPresetQuizBySubject(initialSubjectKey || 'ALL_SUBJ'));
+  const [broadcastQuestionMap, setBroadcastQuestionMap] = useState<Record<number, QuizItem>>({});
   const [currentBroadcastQ, setCurrentBroadcastQ] = useState<QuizItem | null>(null);
   const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState(0);
+  const currentGlobalQIndexRef = useRef(0);
   const [lastCompletedQIndex, setLastCompletedQIndex] = useState(-1);
 
   // Freeze state (20 seconds freeze on wrong answer, auto-unfrozen on new question)
@@ -216,9 +218,9 @@ export const StudentMobileView: React.FC<Props> = ({
     });
   };
 
-  // 30s Local countdown timer per question
+  // 30s Local countdown timer per question (Không reset trạng thái khóa đáp án khi hết đóng băng)
   useEffect(() => {
-    if (screen !== 'QUIZ' || isFrozen || eliminated) {
+    if (screen !== 'QUIZ' || eliminated) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
@@ -253,24 +255,33 @@ export const StudentMobileView: React.FC<Props> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [screen, currentGlobalQIndex, isFrozen, eliminated]);
+  }, [screen, currentGlobalQIndex, eliminated]);
+
+  const resolvedCurrentQ: QuizItem = broadcastQuestionMap[currentGlobalQIndex] ||
+    (currentBroadcastQ && (currentBroadcastQ as any).qIndex === currentGlobalQIndex ? currentBroadcastQ : null) ||
+    (quizDeck && quizDeck.length > 0 ? quizDeck[currentGlobalQIndex % quizDeck.length] : null) || {
+      qid: 0,
+      q: 'Đang tải câu hỏi...',
+      opts: ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
+      correct: 0,
+      format: 'MULTIPLE_CHOICE'
+    };
 
   // Câu hỏi và các phương án của học sinh và trên màn hình bắt buộc phải giống nhau 100%
   useEffect(() => {
-    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-    if (!rawQ || !rawQ.opts || rawQ.opts.length === 0) {
+    if (!resolvedCurrentQ || !resolvedCurrentQ.opts || resolvedCurrentQ.opts.length === 0) {
       setShuffledOpts([]);
       return;
     }
     // Giữ nguyên thứ tự chính xác A, B, C, D như trên màn hình lớn của Giáo viên
-    const items: StudentShuffledOption[] = rawQ.opts.map((text, idx) => ({
+    const items: StudentShuffledOption[] = resolvedCurrentQ.opts.map((text, idx) => ({
       originalIndex: idx,
       letter: String.fromCharCode(65 + idx),
       text
     }));
     lastShuffledQIndexRef.current = currentGlobalQIndex;
     setShuffledOpts(items);
-  }, [currentGlobalQIndex, currentBroadcastQ, quizDeck]);
+  }, [currentGlobalQIndex, resolvedCurrentQ]);
 
   const handleTimeoutFail = () => {
     if (hasAnsweredCurrentQ || isAnswerLocked) return;
@@ -315,8 +326,17 @@ export const StudentMobileView: React.FC<Props> = ({
       setHasConfirmedEnter(true);
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
-      if (typeof d.globalQIndex === 'number') setCurrentGlobalQIndex(d.globalQIndex);
-      if (d.question) setCurrentBroadcastQ(d.question);
+      if (typeof d.globalQIndex === 'number') {
+        currentGlobalQIndexRef.current = d.globalQIndex;
+        setCurrentGlobalQIndex(d.globalQIndex);
+      }
+      if (d.question) {
+        const qIdx = typeof (d.question as any).qIndex === 'number'
+          ? (d.question as any).qIndex
+          : (typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current);
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) setQuizDeck(d.quiz);
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
@@ -381,14 +401,19 @@ export const StudentMobileView: React.FC<Props> = ({
         setMatchStatText(`Tỉ số kéo: Đỏ ${d.redRoundWins || 0} - Xanh ${d.blueRoundWins || 0}`);
       }
 
-      if (d.question) {
-        setCurrentBroadcastQ(d.question);
-      }
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
       }
+      if (d.question) {
+        const qIdx = typeof (d.question as any).qIndex === 'number'
+          ? (d.question as any).qIndex
+          : (typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current);
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
 
-      if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndex) {
+      if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndexRef.current) {
+        currentGlobalQIndexRef.current = d.globalQIndex;
         setCurrentGlobalQIndex(d.globalQIndex);
         setLastCompletedQIndex(-1);
         clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
@@ -407,11 +432,18 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'QUESTION_START') {
       if (typeof d.qIndex === 'number') {
+        currentGlobalQIndexRef.current = d.qIndex;
         setCurrentGlobalQIndex(d.qIndex);
         setLastCompletedQIndex(-1);
         clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
+        if (d.serverStartTime) {
+          startMsRef.current = d.serverStartTime;
+        } else {
+          startMsRef.current = Date.now();
+        }
         if (d.question) {
-          setCurrentBroadcastQ(d.question);
+          setBroadcastQuestionMap(prev => ({ ...prev, [d.qIndex!]: d.question! }));
+          setCurrentBroadcastQ({ ...d.question, qIndex: d.qIndex } as any);
         }
         if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
           setQuizDeck(d.quiz);
@@ -498,8 +530,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setIsAnswerLocked(true);
     setSelectedOptionOriginalIdx(origIdx);
 
-    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-    const isCorrect = origIdx === rawQ.correct;
+    const isCorrect = origIdx === resolvedCurrentQ.correct;
 
     setLastLockedResult({
       isCorrect,
@@ -517,8 +548,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-    const items = rawQ.tfItems || [];
+    const items = resolvedCurrentQ.tfItems || [];
 
     let correctCount = 0;
     items.forEach(item => {
@@ -548,8 +578,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const rawQ = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-    const correctVal = (rawQ.shortAnswer || rawQ.opts[0] || '').trim().toLowerCase();
+    const correctVal = (resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '').trim().toLowerCase();
     const userVal = shortAnswerInput.trim().toLowerCase();
 
     // Check numerical or string equivalence
@@ -629,13 +658,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setScreen('WAITING');
   };
 
-  const currentQItem = currentBroadcastQ || quizDeck[currentGlobalQIndex % (quizDeck.length || 1)] || {
-    qid: 0,
-    q: 'Đang tải câu hỏi...',
-    opts: ['A', 'B', 'C', 'D'],
-    correct: 0,
-    format: 'MULTIPLE_CHOICE'
-  };
+  const currentQItem = resolvedCurrentQ;
 
   return (
     <div id="student-view" style={{ position: 'absolute', inset: 0, overflowY: 'auto', background: '#070b14', color: '#ffffff' }}>
@@ -968,14 +991,109 @@ export const StudentMobileView: React.FC<Props> = ({
       {/* Screen 3: Quiz Gameplay */}
       {screen === 'QUIZ' && (
         <div style={{ maxWidth: '520px', margin: '0 auto', padding: '12px' }}>
-          {/* Header HUD */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '10px 14px', borderRadius: '14px', border: '1px solid #334155', marginBottom: '10px' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a' }}>
-                {studentName || 'Thí sinh'}
+          <style>{`
+            @keyframes chibiGentleSway {
+              0%, 100% { transform: rotate(-4deg) translateY(0px); }
+              50% { transform: rotate(4deg) translateY(-1px); }
+            }
+          `}</style>
+          {/* Header HUD with Cute Swaying Chibi Character */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '8px 12px', borderRadius: '14px', border: '1px solid #334155', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {/* Nhân vật hoạt hình Chibi đứng im lắc qua lắc lại nhẹ nhàng */}
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  background: isFrozen
+                    ? 'linear-gradient(135deg, #0284c7, #38bdf8)'
+                    : team === 'RED'
+                    ? 'linear-gradient(135deg, #dc2626, #991b1b)'
+                    : 'linear-gradient(135deg, #2563eb, #1e40af)',
+                  border: `2px solid ${avatar.accessoryColor || '#fef08a'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                }}
+              >
+                <svg
+                  width="36"
+                  height="36"
+                  viewBox="0 0 64 64"
+                  style={{
+                    animation: 'chibiGentleSway 2.4s ease-in-out infinite',
+                    transformOrigin: 'bottom center'
+                  }}
+                >
+                  {/* Chibi Body / Costume */}
+                  <rect
+                    x="18"
+                    y="40"
+                    width="28"
+                    height="18"
+                    rx="9"
+                    fill={
+                      avatar.costume === 'superhero'
+                        ? '#ef4444'
+                        : avatar.costume === 'aodai'
+                        ? '#ec4899'
+                        : avatar.costume === 'sport'
+                        ? '#10b981'
+                        : '#3b82f6'
+                    }
+                  />
+                  <path d="M26 40 L32 47 L38 40 Z" fill="#ffffff" />
+                  {/* Chibi Head */}
+                  <circle cx="32" cy="25" r="15" fill="#fde68a" />
+                  {/* Blush cheeks */}
+                  <ellipse cx="22" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
+                  <ellipse cx="42" cy="28" rx="3" ry="1.8" fill="#f87171" opacity="0.6" />
+                  {/* Eyes */}
+                  {isFrozen ? (
+                    <>
+                      <path d="M23 23 L27 27 M27 23 L23 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+                      <path d="M37 23 L41 27 M41 23 L37 27" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+                    </>
+                  ) : (
+                    <>
+                      <circle cx="25" cy="25" r="2.8" fill="#0f172a" />
+                      <circle cx="24" cy="24" r="1" fill="#ffffff" />
+                      <circle cx="39" cy="25" r="2.8" fill="#0f172a" />
+                      <circle cx="38" cy="24" r="1" fill="#ffffff" />
+                    </>
+                  )}
+                  {/* Mouth */}
+                  {isFrozen ? (
+                    <circle cx="32" cy="32" r="2.5" fill="#0284c7" />
+                  ) : (
+                    <path d="M27 30 Q32 35 37 30" stroke="#0f172a" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+                  )}
+                  {/* Hair / Hat */}
+                  {avatar.hairStyle === 'crown' ? (
+                    <polygon points="18,14 23,6 32,12 41,6 46,14" fill="#facc15" stroke="#ca8a04" strokeWidth="1.5" />
+                  ) : avatar.hairStyle === 'cap' ? (
+                    <>
+                      <path d="M16 18 Q32 6 48 18 Z" fill={avatar.accessoryColor || '#f59e0b'} />
+                      <rect x="16" y="16" width="35" height="4" rx="2" fill={avatar.accessoryColor || '#f59e0b'} />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M16 22 Q20 8 32 9 Q44 8 48 22 Q40 14 32 15 Q24 14 16 22 Z" fill="#1e293b" />
+                      <rect x="17" y="15" width="30" height="3.5" rx="1.5" fill={avatar.accessoryColor || '#f59e0b'} />
+                    </>
+                  )}
+                </svg>
               </div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                {matchStatText}
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a' }}>
+                  {studentName || 'Thí sinh'}
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                  {matchStatText}
+                </div>
               </div>
             </div>
 

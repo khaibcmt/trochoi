@@ -403,7 +403,7 @@ export const App: React.FC = () => {
             lives: 0,
             eliminated: true,
             quiz: currentList,
-            question: activeQ
+            question: activeQWithMeta
           });
           return { ...prev, spectators: prev.spectators + 1 };
         }
