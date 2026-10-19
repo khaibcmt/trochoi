@@ -152,9 +152,10 @@ export const HostArenaView: React.FC<Props> = ({
     }, 4200);
   };
 
-  // Helper to create customized 3D Chibi Cartoon Character
+  // Helper to create customized 3D Chibi Cartoon Character (Hiện rõ nét, to đẹp)
   const createCartoonCharacter = (team: 'RED' | 'BLUE', player?: Player) => {
     const g = new THREE.Group();
+    g.scale.set(1.25, 1.25, 1.25); // Nhân vật chibi to rõ, nổi bật 100% trên sàn trắng
     const isRed = team === 'RED';
     let clothColor = isRed ? 0xef4444 : 0x0284c7;
     let accentColor = isRed ? 0xfbbf24 : 0x38bdf8;
@@ -798,7 +799,7 @@ export const HostArenaView: React.FC<Props> = ({
               if (u.boardGroup) u.boardGroup.position.set(0, 0.22, 0.36);
             }
           } else if (curMode === 'BOSS') {
-            // Boss Raid: Hero combat battle stance
+            // Boss Raid: Nhân vật đứng im, lắc qua lắc lại nhẹ nhàng chống giật lag mạng
             if (u.weaponOrb) u.weaponOrb.visible = true;
             if (u.boardGroup) u.boardGroup.visible = false;
             if (u.matGroup) u.matGroup.visible = false;
@@ -806,20 +807,21 @@ export const HostArenaView: React.FC<Props> = ({
             if (u.body) u.body.position.y = 0.65;
             if (u.head) u.head.position.y = 1.36;
 
-            // Combat stance bobbing
-            g.position.y = Math.abs(Math.sin(elapsed * 3.5 + idx)) * 0.06;
+            // Đứng im tại chỗ, lắc lư nhẹ nhàng mượt mà
+            const combatSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.05;
+            g.rotation.z = combatSway;
+            g.position.y = Math.sin(elapsed * 2.2 + idx * 0.3) * 0.02;
 
-            // Spinning & pulsing magical elemental orb
+            // Quả cầu năng lượng ma thuật xoay nhẹ
             if (u.weaponOrb) {
-              u.weaponOrb.rotation.y += 0.08;
-              u.weaponOrb.position.y = 0.95 + Math.sin(elapsed * 5.0 + idx) * 0.08;
-              u.weaponOrb.scale.setScalar(hasDoneQ ? 1.5 + Math.sin(elapsed * 10) * 0.25 : 1.0 + Math.sin(elapsed * 6 + idx) * 0.15);
+              u.weaponOrb.rotation.y += 0.04;
+              u.weaponOrb.position.y = 0.95 + Math.sin(elapsed * 3.0 + idx) * 0.05;
+              u.weaponOrb.scale.setScalar(hasDoneQ ? 1.35 + Math.sin(elapsed * 6) * 0.15 : 1.0 + Math.sin(elapsed * 4 + idx) * 0.1);
             }
 
             if (hasDoneQ) {
-              // Attack thrust towards boss!
-              g.rotation.x = -0.22;
-              if (u.armR) u.armR.rotation.x = -Math.PI * 0.65;
+              g.rotation.x = -0.15;
+              if (u.armR) u.armR.rotation.x = -Math.PI * 0.55;
               if (u.armL) u.armL.rotation.x = -Math.PI / 4;
             } else {
               g.rotation.x = 0;
@@ -827,7 +829,7 @@ export const HostArenaView: React.FC<Props> = ({
               if (u.armL) u.armL.rotation.x = -Math.PI / 3;
             }
           } else if (curMode === 'TUG') {
-            // Tug-of-war
+            // Kéo co: Nhân vật chibi đứng im trên sàn trắng, lắc qua lắc lại nhẹ nhàng
             if (u.boardGroup) u.boardGroup.visible = false;
             if (u.matGroup) u.matGroup.visible = false;
             if (u.weaponOrb) u.weaponOrb.visible = false;
@@ -836,46 +838,48 @@ export const HostArenaView: React.FC<Props> = ({
             if (u.head) u.head.position.y = 1.36;
 
             if (curStatus === 'PLAYING' && !isElim && u.dropY <= 0) {
-              // High intensity heave-ho pulling rhythm!
-              const pullFreq = 6.8;
-              const leanFactor = isRedTeam ? 0.34 : -0.34;
-              g.rotation.z = leanFactor + Math.sin(elapsed * pullFreq) * 0.14;
-              g.position.y = Math.abs(Math.sin(elapsed * pullFreq)) * 0.09;
-              const armStrain = Math.sin(elapsed * pullFreq) * 0.3;
+              // Đứng im tại chỗ, lắc qua lắc lại nhẹ nhàng, nhịp nhàng êm ái chống giật lag
+              const gentleSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.06;
+              const leanFactor = isRedTeam ? 0.2 : -0.2;
+              g.rotation.z = leanFactor + gentleSway;
+              g.position.y = Math.sin(elapsed * 2.0 + idx * 0.3) * 0.02;
+              const armStrain = gentleSway * 0.6;
               if (u.armL) u.armL.rotation.x = -Math.PI / 3 + armStrain;
               if (u.armR) u.armR.rotation.x = -Math.PI / 3 + armStrain;
             } else if ((curStatus === 'ROUND_BREAK' || curStatus === 'ENDED') && !isElim) {
               const ropeVal = matchStateRef.current?.ropeScore || 0;
               const isWinTeam = (isRedTeam && ropeVal < 0) || (!isRedTeam && ropeVal > 0);
               if (isWinTeam) {
-                // Joyful celebration jump & waving arms
-                g.position.y = Math.abs(Math.sin(elapsed * 7.5 + idx)) * 0.35;
-                g.rotation.z = Math.sin(elapsed * 5) * 0.1;
-                if (u.armL) u.armL.rotation.x = -Math.PI * 0.8;
-                if (u.armR) u.armR.rotation.x = -Math.PI * 0.8;
+                // Nhảy mừng chiến thắng nhịp nhàng
+                g.position.y = Math.abs(Math.sin(elapsed * 3.6 + idx)) * 0.16;
+                g.rotation.z = Math.sin(elapsed * 2.0) * 0.06;
+                if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
+                if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
               } else {
-                g.rotation.x = 0.22;
+                g.rotation.x = 0.1;
                 g.position.y = 0;
               }
             } else {
-              // LOBBY / IDLE stance
-              g.position.y = (u.baseBellY || 0) + Math.abs(Math.sin(elapsed * 2.5 + idx)) * 0.04;
-              g.rotation.z = 0;
+              // LOBBY / IDLE: Đứng im tại chỗ, lắc qua lắc lại nhẹ nhàng đáng yêu
+              const idleSway = Math.sin(elapsed * 1.6 + idx * 0.5) * 0.045;
+              g.rotation.z = idleSway;
+              g.position.y = (u.baseBellY || 0) + Math.sin(elapsed * 2.0 + idx * 0.3) * 0.015;
               if (u.armL) u.armL.rotation.x = -Math.PI / 3;
               if (u.armR) u.armR.rotation.x = -Math.PI / 3;
             }
           } else {
-            // Speed race mode
-            g.rotation.x = -0.15;
-            g.position.y = Math.abs(Math.sin(elapsed * 8 + idx)) * 0.08;
-            if (u.armL) u.armL.rotation.x = Math.sin(elapsed * 8 + idx) * 0.5;
-            if (u.armR) u.armR.rotation.x = -Math.sin(elapsed * 8 + idx) * 0.5;
+            // Speed race mode: Đứng im tại ô xuất phát, lắc qua lắc lại nhẹ nhàng mượt mà
+            const fastSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.05;
+            g.rotation.z = fastSway;
+            g.position.y = Math.sin(elapsed * 2.2 + idx * 0.3) * 0.02;
+            if (u.armL) u.armL.rotation.x = -0.4 + Math.sin(elapsed * 1.8 + idx) * 0.1;
+            if (u.armR) u.armR.rotation.x = -0.4 - Math.sin(elapsed * 1.8 + idx) * 0.1;
           }
 
-          // Project head position to 2D screen
+          // Project head position to 2D screen (Đặt tên thí sinh ngay trên đỉnh mũ chibi)
           const headPos = new THREE.Vector3();
           g.getWorldPosition(headPos);
-          headPos.y += 2.0;
+          headPos.y += 2.45;
           headPos.project(camera);
 
           const x = (headPos.x * 0.5 + 0.5) * vpW;

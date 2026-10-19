@@ -120,6 +120,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const [selectedOptionOriginalIdx, setSelectedOptionOriginalIdx] = useState<number | null>(null);
   const [isAnswerLocked, setIsAnswerLocked] = useState<boolean>(false);
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
+  const lastShuffledQIndexRef = useRef<number>(-1);
 
   // FAST mode state - Persistent score in sessionStorage
   const [fastScore, setFastScore] = useState<number>(() => {
@@ -253,8 +254,11 @@ export const StudentMobileView: React.FC<Props> = ({
     };
   }, [screen, currentGlobalQIndex, isFrozen, eliminated]);
 
-  // Xáo trộn đáp án ngẫu nhiên đúng 1 lần duy nhất cho mỗi câu hỏi và giữ cố định
+  // Xáo trộn đáp án ngẫu nhiên đúng 1 lần duy nhất cho mỗi câu hỏi và giữ cố định tuyệt đối tránh nhảy vị trí
   useEffect(() => {
+    if (lastShuffledQIndexRef.current === currentGlobalQIndex && shuffledOpts.length > 0) {
+      return;
+    }
     const rawQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
     if (!rawQ || !rawQ.opts || rawQ.opts.length === 0) {
       setShuffledOpts([]);
@@ -265,7 +269,7 @@ export const StudentMobileView: React.FC<Props> = ({
       letter: String.fromCharCode(65 + idx),
       text
     }));
-    // Fisher-Yates shuffle ngẫu nhiên 1 lần
+    // Fisher-Yates shuffle ngẫu nhiên đúng 1 lần
     for (let i = items.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
@@ -275,8 +279,9 @@ export const StudentMobileView: React.FC<Props> = ({
       ...it,
       letter: String.fromCharCode(65 + pos)
     }));
+    lastShuffledQIndexRef.current = currentGlobalQIndex;
     setShuffledOpts(finalized);
-  }, [currentGlobalQIndex, quizDeck]);
+  }, [currentGlobalQIndex]);
 
   const handleTimeoutFail = () => {
     if (activeShield) {
