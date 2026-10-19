@@ -10,7 +10,8 @@ import {
   calculateFastestPoints,
   getConvertedGradeByRank,
   FASTEST_Q_DURATION_SEC,
-  getQuestionPartInfo
+  getQuestionPartInfo,
+  shuffleQuestionOrder
 } from '../data/defaultSubjects';
 import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
@@ -23,6 +24,7 @@ interface Props {
   quizList: QuizItem[];
   activeRoomId: string;
   onUpdateMatchState: (updater: (prev: MatchState) => MatchState) => void;
+  onUpdateQuizList?: (list: QuizItem[]) => void;
   onReturnToSetup: () => void;
   onToggleFullScreen: () => void;
   onExportHTMLSlide: () => void;
@@ -35,6 +37,7 @@ export const HostArenaView: React.FC<Props> = ({
   quizList,
   activeRoomId,
   onUpdateMatchState,
+  onUpdateQuizList,
   onReturnToSetup,
   onToggleFullScreen,
   onExportHTMLSlide,
@@ -55,8 +58,9 @@ export const HostArenaView: React.FC<Props> = ({
   const [zoomModalOpen, setZoomModalOpen] = useState(false);
   const [zoomedTeam, setZoomedTeam] = useState<'RED' | 'BLUE'>('RED');
 
-  // Top 10 Leaderboard Modal State
+  // Top 10 Leaderboard Modal & Live Display State
   const [showTop10Modal, setShowTop10Modal] = useState<boolean>(false);
+  const [showLiveTop10, setShowLiveTop10] = useState<boolean>(true);
 
   // Review Answers Mode & sky theme
   const [isReviewMode, setIsReviewMode] = useState(false);
@@ -550,30 +554,53 @@ export const HostArenaView: React.FC<Props> = ({
     stadiumLightsGroup.visible = false;
     scene.add(stadiumLightsGroup);
 
-    // Ground
-    const grassMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ color: 0x22c55e }));
-    grassMesh.rotation.x = -Math.PI / 2;
-    grassMesh.receiveShadow = true;
-    scene.add(grassMesh);
+    // Ground - Sân vận động nền xám xanh hiện đại
+    const stadiumGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ color: 0x1e293b }));
+    stadiumGroundMesh.rotation.x = -Math.PI / 2;
+    stadiumGroundMesh.receiveShadow = true;
+    scene.add(stadiumGroundMesh);
 
-    const sandMesh = new THREE.Mesh(new THREE.PlaneGeometry(28, 7.5), new THREE.MeshLambertMaterial({ color: 0xfde047 }));
-    sandMesh.rotation.x = -Math.PI / 2;
-    sandMesh.position.set(0, 0.02, 0);
-    sandMesh.receiveShadow = true;
-    scene.add(sandMesh);
+    // Khung học sinh đứng thi đấu - Nền màu trắng tinh khôi (#ffffff) làm sáng và nổi bật toàn bộ nhân vật học sinh
+    const whitePlatformMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.15,
+      metalness: 0.05
+    });
+    const whitePlatformMesh = new THREE.Mesh(new THREE.PlaneGeometry(32, 9), whitePlatformMat);
+    whitePlatformMesh.rotation.x = -Math.PI / 2;
+    whitePlatformMesh.position.set(0, 0.02, 0);
+    whitePlatformMesh.receiveShadow = true;
+    scene.add(whitePlatformMesh);
+
+    // Viền khung sàn đấu màu trắng (Red bên trái, Blue bên phải, Gold đường biên)
+    const borderLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 9.1), new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 }));
+    borderLeft.position.set(-16, 0.05, 0);
+    scene.add(borderLeft);
+
+    const borderRight = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 9.1), new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 }));
+    borderRight.position.set(16, 0.05, 0);
+    scene.add(borderRight);
+
+    const borderTop = new THREE.Mesh(new THREE.BoxGeometry(32.2, 0.1, 0.2), new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.3 }));
+    borderTop.position.set(0, 0.05, -4.5);
+    scene.add(borderTop);
+
+    const borderBottom = new THREE.Mesh(new THREE.BoxGeometry(32.2, 0.1, 0.2), new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.3 }));
+    borderBottom.position.set(0, 0.05, 4.5);
+    scene.add(borderBottom);
 
     // Tug lines
     const tugLinesGroup = new THREE.Group();
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const centerLine = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 6.8), lineMat);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xd97706 });
+    const centerLine = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 8.8), lineMat);
     centerLine.rotation.x = -Math.PI / 2; centerLine.position.y = 0.04;
     tugLinesGroup.add(centerLine);
 
-    const redWinLine = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 6.8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+    const redWinLine = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 8.8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
     redWinLine.rotation.x = -Math.PI / 2; redWinLine.position.set(-2.8, 0.04, 0);
     tugLinesGroup.add(redWinLine);
 
-    const blueWinLine = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 6.8), new THREE.MeshBasicMaterial({ color: 0x0284c7 }));
+    const blueWinLine = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 8.8), new THREE.MeshBasicMaterial({ color: 0x0284c7 }));
     blueWinLine.rotation.x = -Math.PI / 2; blueWinLine.position.set(2.8, 0.04, 0);
     tugLinesGroup.add(blueWinLine);
     scene.add(tugLinesGroup);
@@ -624,8 +651,8 @@ export const HostArenaView: React.FC<Props> = ({
       stadiumLightsGroup,
       ambientLight,
       sunLight,
-      grassMesh,
-      sandMesh,
+      grassMesh: stadiumGroundMesh,
+      sandMesh: whitePlatformMesh,
       redPullers3D: [],
       bluePullers3D: [],
       clock: new THREE.Clock(),
@@ -1242,9 +1269,15 @@ export const HostArenaView: React.FC<Props> = ({
   // Start contest
   const handleStartContest = () => {
     AudioFX.whistle();
+    // Xáo trộn câu hỏi theo chuẩn GDPT 2018: Phần I -> Phần II -> Phần III, đảo ngẫu nhiên mỗi hiệp
+    if (onUpdateQuizList && quizList.length > 0) {
+      const shuffled = shuffleQuestionOrder(quizList);
+      onUpdateQuizList(shuffled);
+    }
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
+      globalQIndex: 0,
       bossHP: prev.settings?.bossMaxHP || 1000,
       maxBossHP: prev.settings?.bossMaxHP || 1000
     }));
@@ -1330,6 +1363,10 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Restart match for a fresh new game round
   const handleRestartMatch = () => {
+    if (onUpdateQuizList && quizList.length > 0) {
+      const shuffled = shuffleQuestionOrder(quizList);
+      onUpdateQuizList(shuffled);
+    }
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -1355,6 +1392,15 @@ export const HostArenaView: React.FC<Props> = ({
       .sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
   }, [allPlayers]);
 
+  // Overall Top 10 Leaderboard across all modes
+  const top10Leaderboard = useMemo(() => {
+    return [...allPlayers].sort((a, b) => {
+      const scoreA = (a.fastScore || 0) * 100 + (a.correct || 0) * 50 + (a.streak || 0) * 10 + (a.lives || 0);
+      const scoreB = (b.fastScore || 0) * 100 + (b.correct || 0) * 50 + (b.streak || 0) * 10 + (b.lives || 0);
+      return scoreB - scoreA;
+    });
+  }, [allPlayers]);
+
   const top1Fast = sortedFastLeaderboard[0];
 
   const getRoundTitleText = () => {
@@ -1373,9 +1419,9 @@ export const HostArenaView: React.FC<Props> = ({
     return `⚔️ HIỆP ${matchState.currentRound || 1}/3: ${matchState.currentRound === 1 ? 'SÁNG' : matchState.currentRound === 2 ? 'HOÀNG HÔN' : 'ĐÊM'}`;
   };
 
-  // Dynamic responsive font size for question text based on length (Never cuts text)
+  // Dynamic responsive font size for question text based on length (Never cuts text, ensures 24pt+ readability for judges and back rows)
   const qTitleLength = (currentQItem.q || '').length;
-  const qTextFontSize = qTitleLength > 240 ? '16.5px' : qTitleLength > 140 ? '19.5px' : qTitleLength > 65 ? '23px' : '28px';
+  const qTextFontSize = qTitleLength > 200 ? '25px' : qTitleLength > 100 ? '29px' : '34px';
   const partInfo = getQuestionPartInfo(currentQItem.format);
 
   return (
@@ -1914,32 +1960,127 @@ export const HostArenaView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Live Top 10 Leaderboard (Fast Mode) */}
-        {matchState.gameType === 'FAST' && (
-          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex' }} aria-label="Bảng vinh danh Top 10 trực tiếp">
+        {/* 2 Khung Thi Đấu Rộng 2 Bên: Tên Đội Đỏ & Tên Đội Xanh */}
+        <div style={{
+          position: 'absolute',
+          top: '12px',
+          left: qrVisible && !qrMinimizedLeft ? '110px' : '14px',
+          zIndex: 22,
+          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(185, 28, 28, 0.95))',
+          border: '2px solid #fecaca',
+          borderBottom: '4.5px solid #7f1d1d',
+          borderRadius: '16px',
+          padding: '6px 14px',
+          color: '#ffffff',
+          fontWeight: 900,
+          boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          transition: 'all 0.2s ease'
+        }}>
+          <span style={{ fontSize: '18px' }}>🔴</span>
+          <div>
+            <div style={{ fontSize: '13.5px', letterSpacing: '0.5px' }}>ĐỘI ĐỎ</div>
+            <div style={{ fontSize: '11px', color: '#fef08a' }}>
+              {matchState.redPlayers.length} Thí sinh • {matchState.redTotalCorrect || 0} câu đúng
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          position: 'absolute',
+          top: '12px',
+          right: qrVisible && !qrMinimizedRight ? '110px' : (showLiveTop10 && allPlayers.length > 0 ? '340px' : '14px'),
+          zIndex: 22,
+          background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.95), rgba(3, 105, 161, 0.95))',
+          border: '2px solid #bae6fd',
+          borderBottom: '4.5px solid #082f49',
+          borderRadius: '16px',
+          padding: '6px 14px',
+          color: '#ffffff',
+          fontWeight: 900,
+          boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          transition: 'all 0.2s ease'
+        }}>
+          <div>
+            <div style={{ fontSize: '13.5px', letterSpacing: '0.5px', textAlign: 'right' }}>ĐỘI XANH</div>
+            <div style={{ fontSize: '11px', color: '#fef08a', textAlign: 'right' }}>
+              {matchState.bluePlayers.length} Thí sinh • {matchState.blueTotalCorrect || 0} câu đúng
+            </div>
+          </div>
+          <span style={{ fontSize: '18px' }}>🔵</span>
+        </div>
+
+        {/* Live Top 10 Leaderboard (Bảng Ghi Nhận Top 10) */}
+        {allPlayers.length > 0 && showLiveTop10 && (
+          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex' }} aria-label="Bảng ghi nhận Top 10 trực tiếp">
             <div className="flb-title">
-              <span>⚡ VINH DANH TOP 10 REALTIME</span>
-              <span style={{ fontSize: '11px', color: '#38bdf8' }}>{allPlayers.length} HS</span>
+              <span>🏆 BẢNG GHI NHẬN TOP 10</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '11px', color: '#38bdf8' }}>{allPlayers.length} HS</span>
+                <button
+                  onClick={() => setShowLiveTop10(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '13px', cursor: 'pointer', padding: '0 4px', fontWeight: 900 }}
+                  title="Thu nhỏ Bảng Top 10"
+                >
+                  ➖
+                </button>
+              </div>
             </div>
             <div className="flb-list">
-              {sortedFastLeaderboard.slice(0, 10).map((p, idx) => {
+              {top10Leaderboard.slice(0, 10).map((p, idx) => {
                 const rank = idx + 1;
                 const medal = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : `#${rank}`));
-                const gradeInfo = getConvertedGradeByRank(rank, p.fastScore || 0);
+                const isRedTeam = p.team === 'RED';
+                const scoreDisplay = matchState.gameType === 'FAST'
+                  ? `${p.fastScore || 0}đ`
+                  : matchState.gameType === 'BELL'
+                  ? `${p.correct || 0}đ [${p.lives || 0}❤️]`
+                  : `${p.correct || 0} câu đúng`;
                 return (
                   <div key={p.id} className={`flb-row rank-${rank}`}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-name" title={p.label}>
+                      <span style={{ fontSize: '10px', marginRight: '4px' }}>{isRedTeam ? '🔴' : '🔵'}</span>
                       {p.label} {p.lastDelta && p.lastDelta > 0 ? <span style={{ color: '#4ade80', fontSize: '10.5px' }}>(+{p.lastDelta})</span> : null}
                     </div>
                     <div className="flb-pts">
-                      {p.fastScore}đ <span style={{ color: '#fde047', fontSize: '10.5px' }}>[{gradeInfo.grade}đ]</span>
+                      {scoreDisplay}
                     </div>
                   </div>
                 );
               })}
             </div>
           </aside>
+        )}
+
+        {/* Restore Top 10 Button If Minimized */}
+        {allPlayers.length > 0 && !showLiveTop10 && (
+          <button
+            onClick={() => setShowLiveTop10(true)}
+            style={{
+              position: 'absolute',
+              bottom: '12px',
+              right: '12px',
+              background: 'linear-gradient(135deg, #d97706, #b45309)',
+              color: '#ffffff',
+              border: '2px solid #fde047',
+              borderRadius: '16px',
+              padding: '6px 12px',
+              fontSize: '11.5px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              zIndex: 30,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+            }}
+            title="Mở lại Bảng ghi nhận Top 10"
+          >
+            🏆 BẢNG TOP 10 ➕
+          </button>
         )}
 
         {/* Round Break Modal (Tug Mode) */}
@@ -1984,79 +2125,78 @@ export const HostArenaView: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Floor 3: Big Question Board (Never cuts question text, auto line-wrapping, large readable font for back row) */}
+      {/* Floor 3: Khung Câu Hỏi & Đáp Án Chiếm 50% Chiều Cao Màn Hình - Bố Trí Lưới Đối Xứng 2x2 (4 Ô) - Chữ To Từ 24pt Trở Lên */}
       <section
         id="host-question-board"
         className={isReviewMode ? 'review-active' : ''}
         style={{
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'flex-start',
-          maxHeight: '44vh',
+          justifyContent: 'space-between',
+          height: '50vh',
+          minHeight: '50vh',
+          maxHeight: '50vh',
           overflow: 'hidden',
-          padding: '8px 14px 6px 14px',
+          padding: '8px 18px 6px 18px',
           boxSizing: 'border-box'
         }}
-        aria-label="Khung câu hỏi và đáp án"
+        aria-label="Khung câu hỏi và đáp án chiếm 50% màn hình"
       >
         {/* Section Part Badge according to GDPT 2018 format */}
-        <div style={{ order: 0, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexShrink: 0 }}>
+        <div style={{ order: 0, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px', flexShrink: 0 }}>
           <span style={{
             background: partInfo.badgeColor,
             color: '#0f172a',
-            padding: '2px 10px',
+            padding: '3px 12px',
             borderRadius: '12px',
-            fontSize: '11px',
+            fontSize: '12px',
             fontWeight: 900,
             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
             textTransform: 'uppercase'
           }}>
             {partInfo.partBadge}
           </span>
-          <span style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 800 }}>
+          <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 800 }}>
             {partInfo.partTitle}
           </span>
         </div>
 
-        {/* Order 1: Question Title (Auto line-wrapping, prominent font size, never cuts off text) */}
+        {/* Order 1: Khung Câu Hỏi Chữ To Từ 24pt Trở Lên, Tự Động Xuống Dòng Vừa Khung, Không Bị Mất Chữ */}
         <div
           id="hq-q-text"
-          className={`hq-title ${qTitleLength > 180 ? 'q-very-long' : qTitleLength > 100 ? 'q-long' : ''}`}
+          className="hq-title"
           style={{
             fontSize: qTextFontSize,
-            lineHeight: 1.36,
+            lineHeight: 1.34,
+            fontWeight: 900,
             wordBreak: 'break-word',
             overflowWrap: 'break-word',
             whiteSpace: 'normal',
-            maxHeight: '16vh',
+            maxHeight: '17vh',
             overflowY: 'auto'
           }}
         >
           Câu {((currentQIndex % quizList.length) + 1)}: <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
         </div>
 
-        {/* Order 2: Options / Propositions based on GDPT 2018 format */}
+        {/* Order 2: Khung Đáp Án Bố Trí Lưới Đối Xứng 2x2 (4 Ô) */}
         <div
           id="hq-q-opts"
+          className="hq-opts"
           style={{
             order: 2,
-            flex: 1,
-            maxHeight: '18vh',
+            flex: '1 1 auto',
+            maxHeight: '23vh',
             overflowY: 'auto',
             display: 'grid',
-            gridTemplateColumns: currentQItem.format === 'TRUE_FALSE'
-              ? '1fr 1fr'
-              : currentQItem.format === 'SHORT_ANSWER'
-              ? '1fr'
-              : currentQItem.opts && currentQItem.opts.some(o => (o || '').length > 55)
-              ? '1fr'
-              : '1fr 1fr',
-            gap: '8px',
-            marginBottom: '6px'
+            gridTemplateColumns: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
+            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? 'auto' : 'repeat(2, 1fr)',
+            gap: '10px',
+            marginBottom: '4px'
           }}
         >
           {currentQItem.format === 'TRUE_FALSE' ? (
-            // Dạng Phần II: Đúng/Sai 4 ý (a, b, c, d)
+            // Dạng Phần II: Đúng/Sai 4 ý (a, b, c, d) bố trí lưới 2x2
             (currentQItem.tfItems || []).map((tf, idx) => {
               const reveal = isReviewMode;
               return (
@@ -2067,22 +2207,23 @@ export const HostArenaView: React.FC<Props> = ({
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '8px 14px',
-                    borderRadius: '12px',
+                    padding: '8px 16px',
+                    borderRadius: '14px',
                     wordBreak: 'break-word',
                     overflowWrap: 'break-word',
                     whiteSpace: 'normal',
-                    fontSize: '15px',
-                    lineHeight: 1.35,
+                    fontSize: '20px',
+                    fontWeight: 800,
+                    lineHeight: 1.32,
                     background: reveal ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)') : undefined,
                     border: reveal ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171') : undefined
                   }}
                 >
-                  <span style={{ fontSize: '14px', flex: 1 }}>
-                    <b style={{ color: '#fef08a' }}>{tf.label})</b> <MathRenderer text={tf.text} />
+                  <span style={{ fontSize: '20px', flex: 1 }}>
+                    <b style={{ color: '#fef08a', fontSize: '24px' }}>{tf.label})</b> <MathRenderer text={tf.text} />
                   </span>
                   {reveal && (
-                    <span style={{ fontWeight: 900, color: tf.isCorrect ? '#4ade80' : '#fca5a5', fontSize: '13px', flexShrink: 0, marginLeft: '8px' }}>
+                    <span style={{ fontWeight: 900, color: tf.isCorrect ? '#4ade80' : '#fca5a5', fontSize: '15px', flexShrink: 0, marginLeft: '10px' }}>
                       {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
                     </span>
                   )}
@@ -2094,13 +2235,14 @@ export const HostArenaView: React.FC<Props> = ({
             <div
               style={{
                 gridColumn: '1 / -1',
-                padding: '12px 18px',
-                borderRadius: '14px',
+                padding: '16px 20px',
+                borderRadius: '16px',
                 background: 'linear-gradient(135deg, #1e1b4b, #312e81)',
-                border: '2px dashed #818cf8',
+                border: '2.5px dashed #818cf8',
                 textAlign: 'center',
                 color: '#ffffff',
-                fontSize: '16px',
+                fontSize: '22px',
+                fontWeight: 800,
                 wordBreak: 'break-word',
                 overflowWrap: 'break-word',
                 whiteSpace: 'normal'
@@ -2108,8 +2250,8 @@ export const HostArenaView: React.FC<Props> = ({
             >
               {isReviewMode ? (
                 <div>
-                  <span style={{ color: '#fef08a', fontWeight: 900, fontSize: '17px' }}>🎯 ĐÁP ÁN ĐÚNG: </span>
-                  <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '20px' }}>
+                  <span style={{ color: '#fef08a', fontWeight: 900, fontSize: '24px' }}>🎯 ĐÁP ÁN ĐÚNG: </span>
+                  <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '28px' }}>
                     <MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} />
                   </span>
                 </div>
@@ -2120,7 +2262,7 @@ export const HostArenaView: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            // Dạng Phần I: 4 lựa chọn truyền thống (A, B, C, D)
+            // Dạng Phần I: 4 lựa chọn truyền thống (A, B, C, D) bố trí lưới 2x2 đối xứng, chữ to 24pt+
             currentQItem.opts.map((opt, idx) => {
               const isCorrect = idx === currentQItem.correct;
               const letter = String.fromCharCode(65 + idx);
@@ -2130,21 +2272,22 @@ export const HostArenaView: React.FC<Props> = ({
                   key={idx}
                   className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`}
                   style={{
-                    padding: '9px 14px',
-                    borderRadius: '12px',
+                    padding: '8px 16px',
+                    borderRadius: '14px',
                     wordBreak: 'break-word',
                     overflowWrap: 'break-word',
                     whiteSpace: 'normal',
-                    fontSize: opt.length > 60 ? '14.5px' : '16.5px',
-                    lineHeight: 1.35
+                    fontSize: opt.length > 70 ? '22px' : '26px',
+                    fontWeight: 900,
+                    lineHeight: 1.3
                   }}
                 >
-                  <span style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', flex: 1 }}>
-                    <b style={{ color: '#fef08a', flexShrink: 0 }}>{letter}.</b>
-                    <span><MathRenderer text={opt} /></span>
+                  <span style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1 }}>
+                    <b style={{ color: '#fef08a', flexShrink: 0, fontSize: '28px' }}>{letter}.</b>
+                    <span style={{ flex: 1 }}><MathRenderer text={opt} /></span>
                   </span>
                   {isReviewMode && isCorrect && (
-                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '13px', flexShrink: 0, marginLeft: '8px' }}>
+                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '15px', flexShrink: 0, marginLeft: '8px' }}>
                       ✓ ĐÚNG
                     </span>
                   )}

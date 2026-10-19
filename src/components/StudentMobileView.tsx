@@ -222,6 +222,7 @@ export const StudentMobileView: React.FC<Props> = ({
     }
 
     setRemSec(30);
+    clearFreeze(); // Mở đóng băng khi hiện lên câu hỏi mới
     setHasAnsweredCurrentQ(false);
     setIsAnswerLocked(false);
     setSelectedOptionOriginalIdx(null);
@@ -382,7 +383,7 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndex) {
         setCurrentGlobalQIndex(d.globalQIndex);
         setLastCompletedQIndex(-1);
-        setIsFrozen(false);
+        clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
         if (d.status === 'PLAYING' && !eliminated) {
           setScreen('QUIZ');
         }
@@ -400,7 +401,7 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.qIndex === 'number') {
         setCurrentGlobalQIndex(d.qIndex);
         setLastCompletedQIndex(-1);
-        setIsFrozen(false);
+        clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
         if (!eliminated) setScreen('QUIZ');
       }
     }
@@ -586,21 +587,25 @@ export const StudentMobileView: React.FC<Props> = ({
           team,
           globalQIndex: currentGlobalQIndex
         });
-        triggerFreeze(3);
+        triggerFreeze(20);
       }
     }
 
     setLastCompletedQIndex(currentGlobalQIndex);
   };
 
-  // Ready in Tug Rope
+  // Ready in Tug Rope - Bắt buộc học sinh phải ghi tên, nếu không ghi hiện bảng thông báo
   const handleReadyInRope = () => {
+    if (!studentName || !studentName.trim()) {
+      setShowNameAlert(true);
+      return;
+    }
     AudioFX.stepInRope();
     CloudNetwork.sendMessage({
       type: 'PLAYER_READY_ROPE',
       playerId: myPlayerId,
       preferredTeam: team,
-      playerName: studentName || 'Học sinh',
+      playerName: studentName.trim(),
       avatar
     });
     setScreen('WAITING');
@@ -689,16 +694,35 @@ export const StudentMobileView: React.FC<Props> = ({
               style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #475569', background: '#1e293b', color: '#fef08a', fontSize: '16px', fontWeight: 900, textAlign: 'center', boxSizing: 'border-box' }}
             />
 
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 800, margin: '12px 0 6px 0', color: '#cbd5e1' }}>
-              Họ và tên học sinh / Số báo danh:
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 800, margin: '12px 0 6px 0', color: showNameAlert ? '#fca5a5' : '#cbd5e1' }}>
+              Họ và tên học sinh / Số báo danh: {showNameAlert && <span style={{ color: '#ef4444', fontWeight: 900 }}>* (BẮT BUỘC)</span>}
             </label>
             <input
+              id="student-name-input"
               type="text"
               placeholder="VD: Nguyễn Văn An - 12A1"
               value={studentName}
-              onChange={e => handleSaveProfile(e.target.value, avatar)}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #475569', background: '#1e293b', color: '#ffffff', fontSize: '14.5px', fontWeight: 800, boxSizing: 'border-box' }}
+              onChange={e => {
+                setShowNameAlert(false);
+                handleSaveProfile(e.target.value, avatar);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: showNameAlert ? '2px solid #ef4444' : '1.5px solid #475569',
+                background: showNameAlert ? '#450a0a' : '#1e293b',
+                color: '#ffffff',
+                fontSize: '14.5px',
+                fontWeight: 800,
+                boxSizing: 'border-box'
+              }}
             />
+            {showNameAlert && (
+              <div style={{ color: '#f87171', fontSize: '12px', marginTop: '5px', fontWeight: 800 }}>
+                ⚠️ Bạn bắt buộc phải ghi tên trước khi vào phòng thi đấu!
+              </div>
+            )}
           </div>
 
           {/* 3D Chibi Avatar Customization */}
@@ -841,6 +865,66 @@ export const StudentMobileView: React.FC<Props> = ({
           >
             🚀 BẮT ĐẦU VÀO SÂN ĐẤU 3D
           </button>
+
+          {/* Bảng thông báo bắt buộc học sinh phải ghi tên */}
+          {showNameAlert && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.85)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 999999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px'
+            }}>
+              <div style={{
+                background: 'linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%)',
+                border: '3px solid #ef4444',
+                borderRadius: '22px',
+                padding: '24px 20px',
+                maxWidth: '420px',
+                width: '100%',
+                textAlign: 'center',
+                boxShadow: '0 20px 50px rgba(239, 68, 68, 0.45)',
+                color: '#ffffff',
+                animation: 'bounceIn 0.35s ease-out'
+              }}>
+                <div style={{ fontSize: '50px', marginBottom: '8px' }}>⚠️</div>
+                <h3 style={{ fontSize: '19px', fontWeight: 900, color: '#fca5a5', margin: '0 0 10px 0' }}>
+                  BẮT BUỘC PHẢI GHI TÊN!
+                </h3>
+                <p style={{ fontSize: '14px', color: '#e2e8f0', lineHeight: 1.55, margin: '0 0 18px 0' }}>
+                  Học sinh vào phòng thi đấu <b>bắt buộc phải ghi Họ và tên</b> hoặc <b>Số báo danh</b> để hệ thống và giáo viên ghi nhận kết quả, vinh danh thành tích!<br />
+                  <span style={{ color: '#fef08a', fontSize: '13px' }}>Vui lòng nhập tên của bạn trước khi vào phòng.</span>
+                </p>
+                <button
+                  onClick={() => {
+                    setShowNameAlert(false);
+                    setTimeout(() => {
+                      const inputEl = document.getElementById('student-name-input');
+                      if (inputEl) inputEl.focus();
+                    }, 100);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px 18px',
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    border: 'none',
+                    borderRadius: '12px',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: '15px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
+                  }}
+                >
+                  ✏️ ĐÃ HIỂU - NHẬP TÊN NGAY
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -969,13 +1053,26 @@ export const StudentMobileView: React.FC<Props> = ({
 
           {/* Freeze overlay */}
           {isFrozen ? (
-            <div style={{ padding: '30px 16px', background: 'rgba(14, 165, 233, 0.2)', border: '2px solid #38bdf8', borderRadius: '16px', textAlign: 'center' }}>
-              <div style={{ fontSize: '38px', marginBottom: '6px' }}>❄️</div>
-              <div style={{ fontSize: '16px', fontWeight: 900, color: '#bae6fd' }}>
-                BẠN ĐANG BỊ ĐÓNG BĂNG!
+            <div style={{
+              padding: '28px 16px',
+              background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(2, 132, 199, 0.35))',
+              border: '2.5px solid #38bdf8',
+              borderRadius: '18px',
+              textAlign: 'center',
+              boxShadow: '0 8px 30px rgba(14, 165, 233, 0.35)'
+            }}>
+              <div style={{ fontSize: '46px', marginBottom: '8px' }}>❄️</div>
+              <div style={{ fontSize: '18px', fontWeight: 900, color: '#bae6fd' }}>
+                BẠN ĐÃ BỊ ĐÓNG BĂNG 20 GIÂY VÌ TRẢ LỜI SAI!
               </div>
-              <div style={{ fontSize: '13px', color: '#e0f2fe', marginTop: '4px' }}>
-                Mở khóa sau {freezeSeconds} giây...
+              <div style={{ fontSize: '14px', color: '#fef08a', marginTop: '8px', fontWeight: 800 }}>
+                ❌ Bạn đã mất lượt và không thể thao tác trong câu hỏi này.
+              </div>
+              <div style={{ fontSize: '15px', color: '#ffffff', marginTop: '8px', fontWeight: 900 }}>
+                ⏳ Thời gian đóng băng còn lại: <span style={{ color: '#38bdf8', fontSize: '22px' }}>{freezeSeconds}s</span>
+              </div>
+              <div style={{ fontSize: '12.5px', color: '#a5f3fc', marginTop: '10px', background: 'rgba(15, 23, 42, 0.7)', padding: '6px 12px', borderRadius: '10px', display: 'inline-block' }}>
+                🔓 Hệ thống sẽ tự động rã đông ngay khi xuất hiện câu hỏi mới!
               </div>
             </div>
           ) : (

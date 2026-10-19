@@ -697,6 +697,7 @@ export const App: React.FC = () => {
           quizList={quizList}
           activeRoomId={activeRoomId}
           onUpdateMatchState={setMatchState}
+          onUpdateQuizList={setQuizList}
           onReturnToSetup={() => setView('TEACHER_SETUP')}
           onToggleFullScreen={handleToggleFullScreen}
           onExportHTMLSlide={handleExportHTMLSlide}
