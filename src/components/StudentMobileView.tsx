@@ -1175,14 +1175,80 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Persistent Student Top Header: Logo & Tác giả Hồ Tấn Khải - Trường THPT Mang Thít */}
+      <header
+        style={{
+          background: 'linear-gradient(90deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
+          borderBottom: '2.5px solid #f59e0b',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+          flexWrap: 'wrap',
+          position: 'sticky',
+          top: 0,
+          zIndex: 900,
+          boxShadow: '0 4px 14px rgba(0,0,0,0.55)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <svg
+            style={{ width: '34px', height: '34px', flexShrink: 0, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}
+            viewBox="0 0 64 64"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M32 4L8 14V30C8 46.5 18.2 57.6 32 62C45.8 57.6 56 46.5 56 30V14L32 4Z" fill="url(#studentShieldGrad)" stroke="#FEF08A" strokeWidth="3.5" />
+            <path d="M14 32H50" stroke="#F59E0B" strokeWidth="5" strokeLinecap="round" />
+            <circle cx="32" cy="32" r="7" fill="#EF4444" stroke="#FFFFFF" strokeWidth="2.5" />
+            <path d="M32 11L35 18H42L36.5 22.5L38.5 29.5L32 25L25.5 29.5L27.5 22.5L22 18H29L32 11Z" fill="#FEF08A" />
+            <defs>
+              <linearGradient id="studentShieldGrad" x1="8" y1="4" x2="56" y2="62" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#0284C7" />
+                <stop offset="0.5" stopColor="#1E1B4B" />
+                <stop offset="1" stopColor="#E11D48" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div>
+            <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#fef08a', letterSpacing: '0.3px', lineHeight: 1.2 }}>
+              ĐẤU TRƯỜNG 3D THPT
+            </div>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#38bdf8', lineHeight: 1.25 }}>
+              👨‍🏫 Tác giả: <b style={{ color: '#ffffff' }}>Hồ Tấn Khải</b>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #b45309, #d97706)',
+            border: '1.5px solid #fef08a',
+            color: '#ffffff',
+            padding: '4px 10px',
+            borderRadius: '999px',
+            fontSize: '11px',
+            fontWeight: 900,
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.35)'
+          }}
+        >
+          🏫 Trường THPT Mang Thít
+        </div>
+      </header>
+
       {/* Screen 1: Lobby & Avatar Customizer */}
       {screen === 'LOBBY' && (
-        <div style={{ maxWidth: '480px', margin: '0 auto', padding: '18px 14px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '23px', fontWeight: 900, color: 'var(--gold)', margin: '0 0 6px 0' }}>
-              🌾 ĐẤU TRƯỜNG 3D THPT
+        <div style={{ maxWidth: '480px', margin: '0 auto', padding: '14px 14px 18px 14px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+            <h1 style={{ fontSize: '21px', fontWeight: 900, color: 'var(--gold)', margin: '0 0 4px 0' }}>
+              🌾 ĐẤU TRƯỜNG 3D THPT MANG THÍT
             </h1>
-            <span style={{ fontSize: '13px', color: '#38bdf8' }}>{connStatus}</span>
+            <div style={{ fontSize: '12px', fontWeight: 800, color: '#fde047', marginBottom: '4px' }}>
+              👨‍🏫 Tác giả: Thầy Hồ Tấn Khải • Trường THPT Mang Thít
+            </div>
+            <span style={{ fontSize: '12.5px', color: '#38bdf8', fontWeight: 800 }}>{connStatus}</span>
           </div>
 
           <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '16px', padding: '16px', marginBottom: '14px' }}>

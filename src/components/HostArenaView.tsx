@@ -1935,7 +1935,7 @@ export const HostArenaView: React.FC<Props> = ({
           </button>
         )}
 
-        {/* Banner Sảnh Chuẩn Bị Tập Hợp Học Sinh (LOBBY) */}
+        {/* Banner Sảnh Chuẩn Bị Tập Hợp Học Sinh (LOBBY) — Hiển thị ngay lập tức tên từng học sinh khi vào phòng */}
         {matchState.status === 'LOBBY' && (
           <div
             style={{
@@ -1946,33 +1946,63 @@ export const HostArenaView: React.FC<Props> = ({
               background: 'rgba(15, 23, 42, 0.95)',
               border: '2px solid #10b981',
               borderRadius: '16px',
-              padding: '8px 18px',
+              padding: '10px 18px',
               zIndex: 40,
               display: 'flex',
-              alignItems: 'center',
-              gap: '14px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.6)'
+              flexDirection: 'column',
+              gap: '8px',
+              maxWidth: '86%',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.65)'
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 800, color: '#e2e8f0' }}>
-              📣 Sảnh tập hợp học sinh • Phòng <b style={{ color: '#fde047' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b> đã sẵn sàng)
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#e2e8f0' }}>
+                📣 Sảnh tập hợp học sinh • Phòng <b style={{ color: '#fde047' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b> đã vào sân)
+              </div>
+              <button
+                onClick={handleStartContest}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  border: '1.5px solid #a7f3d0',
+                  borderRadius: '10px',
+                  padding: '6px 14px',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                🚀 BẮT ĐẦU THI NGAY
+              </button>
             </div>
-            <button
-              onClick={handleStartContest}
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                color: '#ffffff',
-                border: '1.5px solid #a7f3d0',
-                borderRadius: '10px',
-                padding: '6px 14px',
-                fontSize: '13px',
-                fontWeight: 900,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              🚀 BẮT ĐẦU THI NGAY
-            </button>
+
+            {allPlayers.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '62px', overflowY: 'auto' }}>
+                {allPlayers.map(p => (
+                  <span
+                    key={p.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 9px',
+                      borderRadius: '999px',
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      background: matchState.gameType === 'TUG'
+                        ? (p.team === 'RED' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.3)')
+                        : 'rgba(16, 185, 129, 0.25)',
+                      border: `1.5px solid ${matchState.gameType === 'TUG' ? (p.team === 'RED' ? '#f87171' : '#38bdf8') : '#34d399'}`,
+                      color: '#ffffff'
+                    }}
+                  >
+                    <span>{p.ready ? '✅' : '🟢'}</span>
+                    <span>{p.label}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -393,30 +393,32 @@ export const App: React.FC = () => {
     if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE') {
       const isReady = d.type === 'PLAYER_READY_ROPE';
       setMatchState(prev => {
-        let existing = prev.redPlayers.find(x => x.id === d.playerId) || prev.bluePlayers.find(x => x.id === d.playerId);
+        const existingRedIdx = prev.redPlayers.findIndex(x => x.id === d.playerId);
+        const existingBlueIdx = prev.bluePlayers.findIndex(x => x.id === d.playerId);
+        const existing = existingRedIdx !== -1 ? prev.redPlayers[existingRedIdx] : (existingBlueIdx !== -1 ? prev.bluePlayers[existingBlueIdx] : null);
+
         if (existing) {
-          let updated = false;
-          if (d.playerName && d.playerName.trim() && existing.label !== d.playerName.trim()) {
-            existing.label = d.playerName.trim();
-            updated = true;
-          }
-          if (d.avatar) {
-            existing.avatar = d.avatar;
-            updated = true;
-          }
+          const incomingName = (d.playerName || '').trim();
+          const isIncomingGeneric = !incomingName || incomingName === 'Học sinh' || /^HS\s+\d+$/i.test(incomingName);
+          const hasRealExistingName = existing.label && existing.label !== 'Học sinh' && !/^HS\s+\d+$/i.test(existing.label);
+
+          const nextLabel = (!isIncomingGeneric && incomingName)
+            ? incomingName
+            : (hasRealExistingName ? existing.label : (incomingName || existing.label));
+
+          const nextReady = existing.ready || isReady;
           if (isReady && !existing.ready) {
-            existing.ready = true;
             AudioFX.stepInRope();
-            updated = true;
           }
-          if (typeof d.savedScore === 'number' && d.savedScore > (existing.fastScore || 0)) {
-            existing.fastScore = d.savedScore;
-            updated = true;
-          }
-          if (typeof d.savedCorrect === 'number' && d.savedCorrect > (existing.correct || 0)) {
-            existing.correct = d.savedCorrect;
-            updated = true;
-          }
+
+          const updatedPlayer: Player = {
+            ...existing,
+            label: nextLabel,
+            avatar: d.avatar || existing.avatar,
+            ready: nextReady,
+            fastScore: typeof d.savedScore === 'number' ? Math.max(existing.fastScore || 0, d.savedScore) : existing.fastScore,
+            correct: typeof d.savedCorrect === 'number' ? Math.max(existing.correct || 0, d.savedCorrect) : existing.correct
+          };
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
           const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
@@ -429,32 +431,36 @@ export const App: React.FC = () => {
           // Crucial: Send confirmation back to student so their phone restores full session & score
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
-            playerId: existing.id,
-            team: existing.team,
-            role: existing.role,
-            label: existing.label,
+            playerId: updatedPlayer.id,
+            team: updatedPlayer.team,
+            role: updatedPlayer.role,
+            label: updatedPlayer.label,
             gameType: prev.gameType,
             matchStatus: prev.status,
             globalQIndex: prev.globalQIndex,
-            lives: prev.gameType === 'BELL' ? existing.lives : 3,
-            streak: existing.streak,
-            eliminated: prev.gameType === 'BELL' ? existing.eliminated : false,
-            fastScore: existing.fastScore || 0,
-            savedCorrect: existing.correct || 0,
+            lives: prev.gameType === 'BELL' ? updatedPlayer.lives : 3,
+            streak: updatedPlayer.streak,
+            eliminated: prev.gameType === 'BELL' ? updatedPlayer.eliminated : false,
+            fastScore: updatedPlayer.fastScore || 0,
+            savedCorrect: updatedPlayer.correct || 0,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
             quiz: currentList,
             question: activeQWithMeta
           });
 
-          if (updated) {
-            return {
-              ...prev,
-              redPlayers: [...prev.redPlayers],
-              bluePlayers: [...prev.bluePlayers]
-            };
-          }
-          return prev;
+          const nextRed = existingRedIdx !== -1
+            ? prev.redPlayers.map((p, idx) => idx === existingRedIdx ? updatedPlayer : p)
+            : prev.redPlayers;
+          const nextBlue = existingBlueIdx !== -1
+            ? prev.bluePlayers.map((p, idx) => idx === existingBlueIdx ? updatedPlayer : p)
+            : prev.bluePlayers;
+
+          return {
+            ...prev,
+            redPlayers: nextRed,
+            bluePlayers: nextBlue
+          };
         }
 
         // Check room capacity limit
@@ -887,6 +893,7 @@ export const App: React.FC = () => {
           onOpenKeyModal={() => setShowKeyModal(true)}
           activeRoomId={activeRoomId}
           connectedStudentCount={matchState.redPlayers.length + matchState.bluePlayers.length}
+          connectedPlayers={[...matchState.redPlayers, ...matchState.bluePlayers]}
         />
       )}
 
