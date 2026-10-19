@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings } from '../types';
 import {
   parseHTMLToQuiz,
@@ -9,6 +10,7 @@ import {
   SAMPLE_PHAN_2_TF,
   SAMPLE_PHAN_3_SA
 } from '../data/defaultSubjects';
+import { generateQuestionsClientSide, parseDocClientSide, getStoredGeminiKey } from '../services/geminiClient';
 
 interface Props {
   subjectsDB: Record<string, SubjectData>;
@@ -31,6 +33,8 @@ interface Props {
   onPrintPDFEvidence: () => void;
   onExportJSON: () => void;
   onImportJSON: (items: QuizItem[]) => void;
+  onOpenKeyModal?: () => void;
+  activeRoomId?: string;
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -53,11 +57,19 @@ export const TeacherSetupView: React.FC<Props> = ({
   onExportHTMLSlide,
   onPrintPDFEvidence,
   onExportJSON,
-  onImportJSON
+  onImportJSON,
+  onOpenKeyModal,
+  activeRoomId
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
+
+  // QR Modal States (Ẩn / Hiện Mã QR)
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [roomQRImg, setRoomQRImg] = useState<string | null>(null);
+  const [roomQRUrl, setRoomQRUrl] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // AI Modal States
   const [showAIGenModal, setShowAIGenModal] = useState(false);
@@ -70,6 +82,26 @@ export const TeacherSetupView: React.FC<Props> = ({
   const [showOCRModal, setShowOCRModal] = useState(false);
   const [ocrText, setOcrText] = useState('');
   const [ocrLoading, setOcrLoading] = useState(false);
+
+  // Generate Room QR Code
+  useEffect(() => {
+    if (!activeRoomId) return;
+    let base = window.location.href.split('?')[0].split('#')[0];
+    if (base.startsWith('file:')) {
+      base = 'https://khaibcmt.github.io/edu/';
+    }
+    const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
+    const url = `${base}?r=${activeRoomId}&t=R${gmFlag}`;
+    setRoomQRUrl(url);
+    QRCode.toDataURL(url, { width: 220, margin: 1, errorCorrectionLevel: 'H' }).then(setRoomQRImg).catch(() => {});
+  }, [activeRoomId, gameType]);
+
+  const handleCopyRoomLink = () => {
+    if (!roomQRUrl) return;
+    navigator.clipboard.writeText(roomQRUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   // Sync editor innerHTML when subject changes
   useEffect(() => {
@@ -109,7 +141,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     alert(`🤖 Trình AI đã tự động phân tích và gạch chân đáp án đúng cho toàn bộ ${parsed.length} câu hỏi chuẩn GDPT 2018!`);
   };
 
-  // AI Question Generation API
+  // AI Question Generation (Client-Side Gemini & Intelligent Offline Fallback)
   const handleAIGenerateQuestions = async () => {
     if (!aiTopic.trim()) {
       alert('Vui lòng nhập chủ đề bài học!');
@@ -117,42 +149,25 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
     setAiLoading(true);
     try {
-      const res = await fetch('/api/ai/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: aiTopic,
-          subject: subjectsDB[currentSubjectKey]?.name || 'Tổng hợp',
-          level: aiLevel,
-          count: aiCount
-        })
+      const newItems = await generateQuestionsClientSide({
+        topic: aiTopic,
+        subject: subjectsDB[currentSubjectKey]?.name || 'Sinh học',
+        level: aiLevel,
+        count: aiCount
       });
-      const data = await res.json();
-      if (!data.success || !Array.isArray(data.questions)) {
-        throw new Error(data.error || 'Lỗi tạo đề từ AI');
-      }
 
-      // Convert generated questions into QuizItem[]
-      const newItems: QuizItem[] = data.questions.map((qObj: any, idx: number) => ({
-        qid: idx,
-        q: cleanQuestionTitleText(qObj.q || ''),
-        format: qObj.format || 'MULTIPLE_CHOICE',
-        opts: qObj.opts || [],
-        correct: typeof qObj.correct === 'number' ? qObj.correct : 0,
-        tfItems: qObj.tfItems || [],
-        shortAnswer: qObj.shortAnswer || '',
-        explanation: qObj.explanation || '',
-        rightCount: 0,
-        wrongCount: 0
-      }));
-
-      const newHTML = formatQuizToHTML(newItems);
-      if (editorRef.current) {
-        editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
-        editorRef.current.scrollTop = editorRef.current.scrollHeight;
+      if (newItems && newItems.length > 0) {
+        const newHTML = formatQuizToHTML(newItems);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
+          editorRef.current.scrollTop = editorRef.current.scrollHeight;
+        }
+        setShowAIGenModal(false);
+        const hasKey = !!getStoredGeminiKey();
+        alert(`🎉 ${hasKey ? 'Google Gemini AI' : 'Hệ thống (Ngân hàng chuẩn GDPT 2018)'} đã nạp thành công ${newItems.length} câu hỏi theo chủ đề "${aiTopic}"!`);
+      } else {
+        alert('Không tìm thấy câu hỏi phù hợp. Vui lòng thử lại!');
       }
-      setShowAIGenModal(false);
-      alert(`🎉 AI đã tạo thành công ${newItems.length} câu hỏi theo chủ đề "${aiTopic}"!`);
     } catch (err: any) {
       alert('Lỗi tạo câu hỏi AI: ' + err.message);
     } finally {
@@ -160,7 +175,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   };
 
-  // AI OCR / Document Parsing API
+  // AI OCR / Document Parsing (Client-Side)
   const handleAIParsingDocument = async (base64Image?: string) => {
     if (!base64Image && !ocrText.trim()) {
       alert('Vui lòng dán văn bản bài học hoặc tải ảnh chụp đề!');
@@ -168,42 +183,28 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
     setOcrLoading(true);
     try {
-      const res = await fetch('/api/ai/parse-doc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          textContent: ocrText,
-          imageBase64: base64Image
-        })
+      const newItems = await parseDocClientSide({
+        textContent: ocrText,
+        imageBase64: base64Image
       });
-      const data = await res.json();
-      if (!data.success || !Array.isArray(data.questions)) {
-        throw new Error(data.error || 'Lỗi phân tích tài liệu');
-      }
 
-      const newItems: QuizItem[] = data.questions.map((qObj: any, idx: number) => ({
-        qid: idx,
-        q: cleanQuestionTitleText(qObj.q || ''),
-        format: qObj.format || 'MULTIPLE_CHOICE',
-        opts: qObj.opts || [],
-        correct: typeof qObj.correct === 'number' ? qObj.correct : 0,
-        tfItems: qObj.tfItems || [],
-        shortAnswer: qObj.shortAnswer || '',
-        explanation: qObj.explanation || '',
-        rightCount: 0,
-        wrongCount: 0
-      }));
-
-      const newHTML = formatQuizToHTML(newItems);
-      if (editorRef.current) {
-        editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
-        editorRef.current.scrollTop = editorRef.current.scrollHeight;
+      if (newItems && newItems.length > 0) {
+        const newHTML = formatQuizToHTML(newItems);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + newHTML;
+          editorRef.current.scrollTop = editorRef.current.scrollHeight;
+        }
+        setShowOCRModal(false);
+        setOcrText('');
+        alert(`🎉 Đã bóc tách thành công ${newItems.length} câu hỏi chuẩn GDPT 2018 vào khung soạn thảo!`);
+      } else {
+        alert('Không tìm thấy câu hỏi trắc nghiệm nào trong tài liệu.');
       }
-      setShowOCRModal(false);
-      setOcrText('');
-      alert(`🎉 AI đã bóc tách thành công ${newItems.length} câu hỏi từ tài liệu!`);
     } catch (err: any) {
-      alert('Lỗi OCR / Phân tích tài liệu: ' + err.message);
+      if (err.message && err.message.includes('API Key') && onOpenKeyModal) {
+        onOpenKeyModal();
+      }
+      alert(err.message || 'Lỗi bóc tách tài liệu.');
     } finally {
       setOcrLoading(false);
     }
@@ -647,25 +648,223 @@ export const TeacherSetupView: React.FC<Props> = ({
           </section>
         )}
 
-        <div className="flex-between" style={{ marginTop: '12px' }}>
+        <div className="flex-between" style={{ marginTop: '12px', marginBottom: '8px' }}>
           <span style={{ fontSize: '12.5px', color: '#059669', fontWeight: 800 }}>
             🌾 Đầy đủ 3 Dạng Thức GDPT 2018 (Phần I, II, III) • Tự động qua câu 30s • Đánh Boss ({matchSettings.bossMaxHP} HP) & Kéo Co 3D!
           </span>
-          <button className="btn-launch" onClick={handleStartArena}>
-            MỞ SÂN ĐẤU 3D & HIỆN MÃ QR
-          </button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{
+                background: showQRModal ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
+                color: '#ffffff',
+                borderColor: '#38bdf8',
+                padding: '9px 14px',
+                fontSize: '13px',
+                fontWeight: 900
+              }}
+              onClick={() => setShowQRModal(!showQRModal)}
+              title="Bấm để ẩn / hiện mã QR phòng cho học sinh quét trước"
+            >
+              {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
+            </button>
+            <button className="btn-launch" onClick={handleStartArena}>
+              MỞ SÂN ĐẤU 3D & HIỆN MÃ QR
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* LUÔN HIỆN THANH MỞ SÂN ĐẤU & HIỆN MÃ QR (Always-Visible Pinned Launch Bar) */}
+      <aside className="sticky-launch-bar" style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(3, 7, 18, 0.98) 100%)',
+        backdropFilter: 'blur(10px)',
+        borderTop: '3px solid #38bdf8',
+        boxShadow: '0 -10px 30px rgba(0,0,0,0.7)',
+        padding: '10px 24px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        zIndex: 500,
+        flexWrap: 'wrap',
+        gap: '10px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{
+            background: gameType === 'BELL' ? '#f59e0b' : gameType === 'FAST' ? '#9333ea' : gameType === 'BOSS' ? '#ef4444' : '#0284c7',
+            color: '#fff',
+            padding: '5px 12px',
+            borderRadius: '12px',
+            fontSize: '12.5px',
+            fontWeight: 900,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            {gameType === 'BELL' ? '🔔 Rung Chuông Vàng 3D' : gameType === 'FAST' ? '⚡ Ai Nhanh Nhất 3D' : gameType === 'BOSS' ? '🐉 Đánh Boss 3D' : '⚔️ Kéo Co 3D'}
+          </div>
+
+          <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 800 }}>
+            🌾 GDPT 2018 (3 Dạng Thức) • Sĩ số: <b style={{ color: '#38bdf8' }}>{matchSettings.roomCapacity} HS</b> • 3D trên sàn: <b style={{ color: '#a7f3d0' }}>{matchSettings.max3DRenderCount}</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {onSwitchToStudentMode && (
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{ background: '#334155', color: '#f8fafc', borderColor: '#475569', padding: '9px 14px', fontSize: '13px' }}
+              onClick={onSwitchToStudentMode}
+              title="Mở giao diện điện thoại học sinh để thi đấu thử"
+            >
+              📱 Thử Vai Học Sinh
+            </button>
+          )}
+
+          {/* NÚT ẨN / HIỆN MÃ QR PHÒNG */}
+          <button
+            type="button"
+            className="btn-action-sm"
+            style={{
+              background: showQRModal ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
+              color: '#ffffff',
+              borderColor: '#38bdf8',
+              padding: '9px 15px',
+              fontSize: '13px',
+              fontWeight: 900,
+              boxShadow: showQRModal ? '0 0 15px rgba(56, 189, 248, 0.5)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            onClick={() => setShowQRModal(!showQRModal)}
+            title="Bấm để ẩn hoặc hiện mã QR phòng cho học sinh quét trước"
+          >
+            {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
+          </button>
+
+          <button
+            type="button"
+            className="btn-launch"
+            style={{
+              padding: '11px 26px',
+              fontSize: '15.5px',
+              boxShadow: '0 0 25px rgba(56, 189, 248, 0.6), inset 0 2px 3px rgba(255,255,255,0.7)'
+            }}
+            onClick={handleStartArena}
+          >
+            🚀 MỞ SÂN ĐẤU 3D & HIỆN MÃ QR
+          </button>
+        </div>
+      </aside>
+
+      {/* Teacher Setup QR Modal (Ẩn / Hiện Mã QR) */}
+      {showQRModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(5px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#0f172a', border: '2.5px solid #38bdf8', borderRadius: '24px', padding: '24px', maxWidth: '440px', width: '100%', textAlign: 'center', color: '#ffffff', boxShadow: '0 25px 60px rgba(0,0,0,0.8)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', color: '#38bdf8', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📱 MÃ QR THAM GIA PHÒNG
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowQRModal(false)}
+                style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', color: '#94a3b8', width: '28px', height: '28px', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Đóng / Ẩn mã QR"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ background: '#ffffff', padding: '12px', borderRadius: '16px', display: 'inline-block', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', marginBottom: '14px' }}>
+              {roomQRImg ? (
+                <img src={roomQRImg} alt="Mã QR Phòng" style={{ width: '220px', height: '220px', display: 'block', margin: '0 auto' }} />
+              ) : (
+                <div style={{ width: '220px', height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                  Đang tạo mã QR...
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: '15px', fontWeight: 900, color: '#fef08a', marginBottom: '8px' }}>
+              MÃ PHÒNG: <span style={{ color: '#38bdf8', letterSpacing: '1px' }}>{activeRoomId}</span>
+            </div>
+
+            <p style={{ fontSize: '12.5px', color: '#94a3b8', margin: '0 0 16px 0' }}>
+              Học sinh dùng điện thoại mở Zalo / Camera quét mã để tham gia ngay!
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn-action-sm"
+                  style={{ flex: 1, padding: '10px', fontSize: '13px', background: copiedLink ? '#059669' : '#334155', color: '#ffffff', borderColor: copiedLink ? '#34d399' : '#475569' }}
+                  onClick={handleCopyRoomLink}
+                >
+                  {copiedLink ? '✅ Đã Copy Link!' : '🔗 Copy Link Tham Gia'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-action-sm"
+                  style={{ padding: '10px 14px', fontSize: '13px', background: '#e11d48', color: '#ffffff', borderColor: '#f43f5e' }}
+                  onClick={() => setShowQRModal(false)}
+                >
+                  🙈 Ẩn QR
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="btn-launch"
+                style={{ padding: '12px 20px', fontSize: '15px', background: 'linear-gradient(135deg, #0284c7, #0369a1)', boxShadow: '0 4px 15px rgba(2, 132, 199, 0.4)' }}
+                onClick={() => {
+                  setShowQRModal(false);
+                  handleStartArena();
+                }}
+              >
+                🚀 Mở Sân Đấu 3D Trực Tiếp
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Generate Questions Modal */}
       {showAIGenModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div style={{ background: '#ffffff', borderRadius: '18px', padding: '24px', maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.25)', color: '#0f172a' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '19px', color: '#3730a3' }}>
-              🤖 AI Soạn Đề Chuẩn GDPT 2018 (Gemini 3.8 Flash)
-            </h3>
-            <p style={{ fontSize: '13px', color: '#475569', margin: '0 0 14px 0' }}>
-              Nhập chủ đề bài dạy, môn học và mức độ nhận thức. AI sẽ tạo bộ câu hỏi đa dạng (Trắc nghiệm, Đúng/Sai 4 ý, Trả lời ngắn).
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', color: '#3730a3' }}>
+                🤖 AI Soạn Đề Chuẩn GDPT 2018 (Gemini Flash)
+              </h3>
+              <button
+                type="button"
+                onClick={() => onOpenKeyModal && onOpenKeyModal()}
+                style={{
+                  background: getStoredGeminiKey() ? '#ecfdf5' : '#fef3c7',
+                  border: `1px solid ${getStoredGeminiKey() ? '#10b981' : '#f59e0b'}`,
+                  color: getStoredGeminiKey() ? '#047857' : '#b45309',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+                title="Cài đặt Google Gemini API Key"
+              >
+                {getStoredGeminiKey() ? '🟢 Đã có API Key' : '⚙️ Cài đặt Key (hoặc dùng Offline)'}
+              </button>
+            </div>
+            <p style={{ fontSize: '12.5px', color: '#475569', margin: '0 0 14px 0' }}>
+              Nhập chủ đề bài dạy, môn học và mức độ nhận thức. AI sẽ tạo bộ câu hỏi đa dạng (Trắc nghiệm, Đúng/Sai 4 ý, Trả lời ngắn). Nếu chưa có Key, hệ thống tự động nạp ngân hàng câu hỏi chuẩn SGK Kết nối tri thức.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

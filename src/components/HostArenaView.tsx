@@ -13,6 +13,8 @@ import {
 } from '../data/defaultSubjects';
 import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
+import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
+import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 
 interface Props {
   matchState: MatchState;
@@ -23,6 +25,7 @@ interface Props {
   onToggleFullScreen: () => void;
   onExportHTMLSlide: () => void;
   onPrintPDFEvidence: () => void;
+  onOpenKeyModal?: () => void;
 }
 
 export const HostArenaView: React.FC<Props> = ({
@@ -33,7 +36,8 @@ export const HostArenaView: React.FC<Props> = ({
   onReturnToSetup,
   onToggleFullScreen,
   onExportHTMLSlide,
-  onPrintPDFEvidence
+  onPrintPDFEvidence,
+  onOpenKeyModal
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -44,8 +48,13 @@ export const HostArenaView: React.FC<Props> = ({
   const [qrRedImg, setQrRedImg] = useState('');
   const [qrBlueImg, setQrBlueImg] = useState('');
   const [qrVisible, setQrVisible] = useState(true);
+  const [qrMinimizedLeft, setQrMinimizedLeft] = useState(false);
+  const [qrMinimizedRight, setQrMinimizedRight] = useState(false);
   const [zoomModalOpen, setZoomModalOpen] = useState(false);
   const [zoomedTeam, setZoomedTeam] = useState<'RED' | 'BLUE'>('RED');
+
+  // Top 10 Leaderboard Modal State
+  const [showTop10Modal, setShowTop10Modal] = useState<boolean>(false);
 
   // Review Answers Mode & sky theme
   const [isReviewMode, setIsReviewMode] = useState(false);
@@ -983,29 +992,24 @@ export const HostArenaView: React.FC<Props> = ({
     }, 2500);
   };
 
-  // AI Tutor Explanation API
+  // AI Tutor Explanation (Direct Client-Side Gemini & Offline Intelligent Fallback)
   const handleRequestAIExplanation = async () => {
     setShowAIExplainModal(true);
     setAiExplainLoading(true);
     try {
-      const res = await fetch('/api/ai/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: currentQItem.q,
-          format: currentQItem.format,
-          opts: currentQItem.opts,
-          correct: currentQItem.correct,
-          tfItems: currentQItem.tfItems,
-          shortAnswer: currentQItem.shortAnswer,
-          rightCount: currentQItem.rightCount || 0,
-          wrongCount: currentQItem.wrongCount || 0
-        })
+      const explanation = await explainQuestionClientSide({
+        question: currentQItem.q,
+        format: currentQItem.format,
+        opts: currentQItem.opts,
+        correct: currentQItem.correct,
+        tfItems: currentQItem.tfItems,
+        shortAnswer: currentQItem.shortAnswer,
+        rightCount: currentQItem.rightCount || 0,
+        wrongCount: currentQItem.wrongCount || 0
       });
-      const data = await res.json();
-      setAiExplainText(data.explanation || 'Không thể tải giải thích lúc này.');
+      setAiExplainText(explanation || 'Đang cập nhật phân tích kiến thức chi tiết.');
     } catch (err: any) {
-      setAiExplainText('Lỗi kết nối AI Tutor: ' + err.message);
+      setAiExplainText('Lỗi kết nối AI Tutor: ' + (err.message || 'Không thể tải giải thích'));
     } finally {
       setAiExplainLoading(false);
     }
@@ -1130,19 +1134,38 @@ export const HostArenaView: React.FC<Props> = ({
   const qTextFontSize = qTitleLength > 240 ? '15px' : qTitleLength > 150 ? '18px' : qTitleLength > 80 ? '22px' : '26px';
 
   return (
-    <section id="host-view" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+    <section id="host-view" style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
       {/* Floor 1: Host Control & HUD Header */}
-      <header id="arena-header">
+      <header id="arena-header" style={{
+        background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+        borderBottom: '2.5px solid #38bdf8',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+        zIndex: 50,
+        flexShrink: 0,
+        padding: '4px 8px'
+      }}>
         <div className="host-controls-row">
-          {matchState.status === 'LOBBY' ? (
+          {matchState.status === 'LOBBY' && (
             <button className="c-btn c-start" onClick={handleStartContest}>
               ▶ BẮT ĐẦU THI ĐẤU
             </button>
-          ) : (
-            <button className="c-btn" style={{ background: '#3b82f6', color: '#fff' }} onClick={() => setQrVisible(!qrVisible)}>
-              {qrVisible ? '🙈 ẨN QR' : '📱 HIỆN QR'}
-            </button>
           )}
+
+          {/* NÚT ẨN / HIỆN MÃ QR (Luôn hiển thị trên thanh công cụ ở mọi chế độ) */}
+          <button
+            className="c-btn"
+            style={{
+              background: qrVisible ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #475569, #334155)',
+              color: '#ffffff',
+              border: qrVisible ? '1.5px solid #38bdf8' : '1.5px solid #94a3b8',
+              boxShadow: qrVisible ? '0 2px 8px rgba(2, 132, 199, 0.45)' : 'none',
+              fontWeight: 800
+            }}
+            onClick={() => setQrVisible(!qrVisible)}
+            title={qrVisible ? "Bấm để ẩn 2 mã QR trên màn hình" : "Bấm để hiện lại 2 mã QR trên màn hình"}
+          >
+            {qrVisible ? '🙈 ẨN MÃ QR' : '📱 HIỆN MÃ QR'}
+          </button>
 
           {matchState.status !== 'LOBBY' && matchState.status !== 'ENDED' && (
             <button className="c-btn c-pause" onClick={handlePauseMatch}>
@@ -1161,12 +1184,26 @@ export const HostArenaView: React.FC<Props> = ({
               onClick={() => setShowRescueModal(true)}
               title="Mở bảng tung phao cứu trợ hồi sinh học sinh"
             >
-              🛟 TUNG PHAO CỨU TRỢ {bellOutCount > 0 ? `(${bellOutCount} HS bị loại)` : ''}
+              🛟 CỨU TRỢ {bellOutCount > 0 ? `(${bellOutCount} HS)` : ''}
             </button>
           )}
 
+          <button
+            className="c-btn"
+            style={{
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#ffffff',
+              border: '1.5px solid #fde047',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)'
+            }}
+            onClick={() => setShowTop10Modal(true)}
+            title="Mở Bảng vinh danh Top 10 cá nhân xuất sắc nhất"
+          >
+            🏆 BẢNG TOP 10
+          </button>
+
           <button className="c-btn" style={{ background: '#d97706', color: '#fff' }} onClick={handleCycleSky}>
-            🌤️ ĐỔI BẦU TRỜI
+            🌤️ ĐỔI TRỜI
           </button>
 
           <button className="c-btn" style={{ background: '#059669', color: '#fff' }} onClick={handleToggleReviewMode}>
@@ -1174,11 +1211,31 @@ export const HostArenaView: React.FC<Props> = ({
           </button>
 
           <button className="c-btn" style={{ background: '#6366f1', color: '#fff' }} onClick={onExportHTMLSlide}>
-            📥 TẢI SLIDE
+            📥 SLIDE
           </button>
 
+          <button
+            className="c-btn"
+            style={{ background: '#0d9488', color: '#fff', border: '1.5px solid #5eead4' }}
+            onClick={handleDownloadCSV}
+            title="Tải bảng điểm học sinh dạng file Excel (.csv)"
+          >
+            📊 XUẤT CSV
+          </button>
+
+          {onOpenKeyModal && (
+            <button
+              className="c-btn"
+              style={{ background: '#4f46e5', color: '#fff', border: '1.5px solid #a5b4fc' }}
+              onClick={onOpenKeyModal}
+              title="Cài đặt Google Gemini API Key"
+            >
+              ⚙️ AI KEY
+            </button>
+          )}
+
           <button className="c-btn" style={{ background: '#0f766e', color: '#fff' }} onClick={onToggleFullScreen}>
-            🔲 TOÀN MÀN HÌNH
+            🔲 TOÀN MÀN
           </button>
 
           <button className="c-btn c-end" onClick={handleEndMatch}>
@@ -1331,39 +1388,183 @@ export const HostArenaView: React.FC<Props> = ({
           })}
         </div>
 
-        {/* Floating QR Badges */}
+        {/* Floating QR Badges (Compact, Responsive, and Minimizable) */}
         {qrVisible && (
           <>
-            <div
-              className="qr-panel left"
-              id="qr-panel-left"
-              onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
-              title="Bấm để phóng to QR"
-            >
-              <div className="qr-box-inner">
-                {qrRedImg && <img src={qrRedImg} alt="QR Đỏ" width={112} height={112} />}
+            {/* Left QR Panel */}
+            {qrMinimizedLeft ? (
+              <button
+                className="qr-minimized-pill left"
+                onClick={() => setQrMinimizedLeft(false)}
+                title="Mở lại mã QR Đỏ / Phòng thi"
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  background: 'rgba(15, 23, 42, 0.92)',
+                  border: '1.5px solid #ef4444',
+                  color: '#fef08a',
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  zIndex: 30,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                }}
+              >
+                📱 QR {matchState.gameType === 'TUG' ? 'ĐỎ' : 'PHÒNG'} ➕
+              </button>
+            ) : (
+              <div
+                className="qr-panel left"
+                id="qr-panel-left"
+                style={{ position: 'absolute', top: '8px', left: '10px', zIndex: 25 }}
+                title="Bấm để phóng to QR"
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>QUÉT MÃ</span>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setQrMinimizedLeft(true); }}
+                      style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer', padding: '0 2px' }}
+                      title="Thu nhỏ QR"
+                    >
+                      ➖
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setQrVisible(false); }}
+                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '0 2px', fontWeight: 900 }}
+                      title="Ẩn mã QR"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div
+                  className="qr-box-inner"
+                  onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
+                >
+                  {qrRedImg && <img src={qrRedImg} alt="QR Đỏ" width={80} height={80} />}
+                </div>
+                <div
+                  className="qr-caption"
+                  style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--red)', fontSize: '10px', marginTop: '2px' }}
+                  onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
+                >
+                  {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS' : matchState.gameType === 'FAST' ? '⚡ AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG' : 'ĐỘI ĐỎ 🔴'}
+                </div>
+                <div
+                  className="qr-zoom-hint"
+                  style={{ fontSize: '9px' }}
+                  onClick={() => { setZoomedTeam('RED'); setZoomModalOpen(true); }}
+                >
+                  🔍 Bấm phóng to
+                </div>
               </div>
-              <div className="qr-caption" style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--red)' }}>
-                {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS 🔴' : matchState.gameType === 'FAST' ? '⚡ VÀO AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 VÀO RUNG CHUÔNG VÀNG' : 'QUÉT VÀO ĐỘI ĐỎ 🔴'}
-              </div>
-              <div className="qr-zoom-hint">🔍 Bấm phóng to</div>
-            </div>
+            )}
 
-            <div
-              className="qr-panel right"
-              id="qr-panel-right"
-              onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
-              title="Bấm để phóng to QR"
-            >
-              <div className="qr-box-inner">
-                {qrBlueImg && <img src={qrBlueImg} alt="QR Xanh" width={112} height={112} />}
+            {/* Right QR Panel */}
+            {qrMinimizedRight ? (
+              <button
+                className="qr-minimized-pill right"
+                onClick={() => setQrMinimizedRight(false)}
+                title="Mở lại mã QR Xanh / Phòng thi"
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  background: 'rgba(15, 23, 42, 0.92)',
+                  border: '1.5px solid #0284c7',
+                  color: '#fef08a',
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  zIndex: 30,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                }}
+              >
+                📱 QR {matchState.gameType === 'TUG' ? 'XANH' : 'PHÒNG'} ➕
+              </button>
+            ) : (
+              <div
+                className="qr-panel right"
+                id="qr-panel-right"
+                style={{ position: 'absolute', top: '8px', right: '10px', zIndex: 25 }}
+                title="Bấm để phóng to QR"
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 900, color: '#64748b' }}>QUÉT MÃ</span>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setQrMinimizedRight(true); }}
+                      style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer', padding: '0 2px' }}
+                      title="Thu nhỏ QR"
+                    >
+                      ➖
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setQrVisible(false); }}
+                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '0 2px', fontWeight: 900 }}
+                      title="Ẩn mã QR"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div
+                  className="qr-box-inner"
+                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
+                >
+                  {qrBlueImg && <img src={qrBlueImg} alt="QR Xanh" width={80} height={80} />}
+                </div>
+                <div
+                  className="qr-caption"
+                  style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--blue)', fontSize: '10px', marginTop: '2px' }}
+                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
+                >
+                  {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS' : matchState.gameType === 'FAST' ? '⚡ AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG' : 'ĐỘI XANH 🔵'}
+                </div>
+                <div
+                  className="qr-zoom-hint"
+                  style={{ fontSize: '9px' }}
+                  onClick={() => { setZoomedTeam('BLUE'); setZoomModalOpen(true); }}
+                >
+                  🔍 Bấm phóng to
+                </div>
               </div>
-              <div className="qr-caption" style={{ color: matchState.gameType === 'FAST' ? '#9333ea' : 'var(--blue)' }}>
-                {matchState.gameType === 'BOSS' ? '🐉 VÀO DIỆT BOSS 🔵' : matchState.gameType === 'FAST' ? '⚡ VÀO AI NHANH NHẤT' : matchState.gameType === 'BELL' ? '🔔 VÀO RUNG CHUÔNG VÀNG' : 'QUÉT VÀO ĐỘI XANH 🔵'}
-              </div>
-              <div className="qr-zoom-hint">🔍 Bấm phóng to</div>
-            </div>
+            )}
           </>
+        )}
+
+        {/* Floating Quick Restore Button When QR Is Hidden */}
+        {!qrVisible && (
+          <button
+            onClick={() => setQrVisible(true)}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              left: '12px',
+              background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+              color: '#ffffff',
+              border: '2px solid #38bdf8',
+              borderRadius: '20px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 900,
+              boxShadow: '0 4px 15px rgba(2, 132, 199, 0.55)',
+              cursor: 'pointer',
+              zIndex: 35,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Bấm để hiện lại mã QR quét tham gia sàn đấu"
+          >
+            📱 HIỆN MÃ QR
+          </button>
         )}
 
         {/* Rescue Banner Notification */}
@@ -1461,6 +1662,21 @@ export const HostArenaView: React.FC<Props> = ({
             </p>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginTop: '12px' }}>
+              <button
+                className="c-btn"
+                style={{
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#fff',
+                  border: '1.5px solid #fde047',
+                  padding: '9px 18px',
+                  fontSize: '13.5px',
+                  fontWeight: 900,
+                  boxShadow: '0 4px 15px rgba(245, 158, 11, 0.5)'
+                }}
+                onClick={() => setShowTop10Modal(true)}
+              >
+                🏆 XEM BẢNG TOP 10 CHUNG CUỘC
+              </button>
               <button
                 className="c-btn"
                 style={{ background: '#0284c7', color: '#fff', padding: '9px 14px', fontSize: '13px' }}
@@ -1743,7 +1959,29 @@ export const HostArenaView: React.FC<Props> = ({
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid #1e293b', paddingTop: '12px' }}>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => onOpenKeyModal && onOpenKeyModal()}
+                  style={{
+                    background: getStoredGeminiKey() ? '#064e3b' : '#334155',
+                    border: `1px solid ${getStoredGeminiKey() ? '#10b981' : '#64748b'}`,
+                    color: getStoredGeminiKey() ? '#a7f3d0' : '#e2e8f0',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Cài đặt Google Gemini API Key"
+                >
+                  ⚙️ {getStoredGeminiKey() ? 'Key AI Đã Kích Hoạt' : 'Cài Đặt Gemini Key'}
+                </button>
+              </div>
               <button
                 className="btn-launch"
                 style={{ padding: '7px 18px', fontSize: '13.5px', background: 'linear-gradient(135deg, #4f46e5, #4338ca)' }}
@@ -1802,6 +2040,17 @@ export const HostArenaView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Top 10 Leaderboard Modal */}
+      <Top10LeaderboardModal
+        isOpen={showTop10Modal}
+        onClose={() => setShowTop10Modal(false)}
+        gameType={matchState.gameType}
+        allPlayers={allPlayers}
+        activeRoomId={activeRoomId}
+        onDownloadCSV={handleDownloadCSV}
+        onPrintPDFEvidence={onPrintPDFEvidence}
+      />
 
       {/* QR Zoom Modal */}
       <QRZoomModal

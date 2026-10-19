@@ -25,6 +25,7 @@ import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
 import { StudentMobileView } from './components/StudentMobileView';
+import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 export const App: React.FC = () => {
@@ -64,6 +65,9 @@ export const App: React.FC = () => {
     questionDurationSec: 30,
     bossMaxHP: 1000
   });
+
+  // Google Gemini API Key Modal
+  const [showKeyModal, setShowKeyModal] = useState(false);
 
   const [matchState, setMatchState] = useState<MatchState>({
     gameType: 'TUG',
@@ -635,7 +639,10 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <TopAuthorBanner onToggleFullScreen={handleToggleFullScreen} />
+      <TopAuthorBanner
+        onToggleFullScreen={handleToggleFullScreen}
+        onOpenKeyModal={() => setShowKeyModal(true)}
+      />
 
       {view === 'TEACHER_SETUP' && (
         <TeacherSetupView
@@ -659,6 +666,8 @@ export const App: React.FC = () => {
           onPrintPDFEvidence={handlePrintPDFEvidence}
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
+          onOpenKeyModal={() => setShowKeyModal(true)}
+          activeRoomId={activeRoomId}
         />
       )}
 
@@ -672,6 +681,7 @@ export const App: React.FC = () => {
           onToggleFullScreen={handleToggleFullScreen}
           onExportHTMLSlide={handleExportHTMLSlide}
           onPrintPDFEvidence={handlePrintPDFEvidence}
+          onOpenKeyModal={() => setShowKeyModal(true)}
         />
       )}
 
@@ -684,6 +694,12 @@ export const App: React.FC = () => {
           onExitToSetup={() => setView('TEACHER_SETUP')}
         />
       )}
+
+      {/* Google Gemini API Key Configuration Modal */}
+      <GeminiKeyModal
+        isOpen={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+      />
     </div>
   );
 };

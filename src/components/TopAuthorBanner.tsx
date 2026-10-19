@@ -2,9 +2,10 @@ import React from 'react';
 
 interface Props {
   onToggleFullScreen: () => void;
+  onOpenKeyModal?: () => void;
 }
 
-export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen }) => {
+export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal }) => {
   return (
     <header id="top-author-banner">
       <div className="brand-left">
@@ -24,6 +25,14 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen }) => {
         <h1 className="brand-title">ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • AI NHANH NHẤT</h1>
       </div>
       <div className="author-right">
+        <button
+          className="btn-fullscreen-top"
+          onClick={onOpenKeyModal}
+          title="Cài đặt Google Gemini API Key"
+          style={{ background: 'linear-gradient(135deg, #4f46e5, #4338ca)', color: '#ffffff', borderColor: '#818cf8', display: 'flex', alignItems: 'center', gap: '4px' }}
+        >
+          ⚙️ Cài đặt AI Key
+        </button>
         <span className="author-badge">👨‍🏫 Tác giả: Hồ Tấn Khải</span>
         <span className="school-badge">🏫 Trường THPT Mang Thít</span>
         <button className="btn-fullscreen-top" onClick={onToggleFullScreen} title="Phóng toàn màn hình">
