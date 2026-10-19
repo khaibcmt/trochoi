@@ -25,6 +25,7 @@ interface Props {
   activeRoomId: string;
   onUpdateMatchState: (updater: (prev: MatchState) => MatchState) => void;
   onUpdateQuizList?: (list: QuizItem[]) => void;
+  onSwitchGameType?: (type: GamePlayType) => void;
   onReturnToSetup: () => void;
   onToggleFullScreen: () => void;
   onExportHTMLSlide: () => void;
@@ -38,6 +39,7 @@ export const HostArenaView: React.FC<Props> = ({
   activeRoomId,
   onUpdateMatchState,
   onUpdateQuizList,
+  onSwitchGameType,
   onReturnToSetup,
   onToggleFullScreen,
   onExportHTMLSlide,
@@ -329,9 +331,9 @@ export const HostArenaView: React.FC<Props> = ({
       boardGroup,
       weaponOrb,
       matGroup,
-      dropY: 8.0,
-      isReadyInRope: false,
-      currentZ: -1.8,
+      dropY: 0,
+      isReadyInRope: true,
+      currentZ: 0.42,
       baseBellX: 0,
       baseBellZ: 0,
       isRedTeam: isRed
@@ -409,35 +411,33 @@ export const HostArenaView: React.FC<Props> = ({
     return { bossGroup, bodyMesh, haloMesh, wingsGroup };
   };
 
-  // Atmosphere Applier
+  // Atmosphere Applier (Không dùng sương mù để nhân vật 3D luôn rõ nét 100%, không bị nhòe màu)
   const applyRoundAtmosphere = (roundNum: number) => {
     if (!threeRef.current) return;
     const { scene, ambientLight, sunLight, grassMesh, sandMesh, starsGroup, stadiumLightsGroup } = threeRef.current;
+    scene.fog = null;
     if (roundNum === 1) {
-      scene.background = new THREE.Color(0x38bdf8);
-      scene.fog = new THREE.FogExp2(0x38bdf8, 0.011);
-      ambientLight.color.setHex(0xffffff); ambientLight.intensity = 0.82;
-      sunLight.color.setHex(0xfffbeb); sunLight.intensity = 0.92; sunLight.position.set(12, 25, 16);
-      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x22c55e);
-      (sandMesh.material as THREE.MeshLambertMaterial).color.setHex(0xfde047);
+      scene.background = new THREE.Color(0x0f172a);
+      ambientLight.color.setHex(0xffffff); ambientLight.intensity = 1.15;
+      sunLight.color.setHex(0xffffff); sunLight.intensity = 1.35; sunLight.position.set(12, 25, 16);
+      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x0f172a);
+      (sandMesh.material as THREE.MeshStandardMaterial).color.setHex(0x1e293b);
       if (starsGroup) starsGroup.visible = false;
-      if (stadiumLightsGroup) stadiumLightsGroup.visible = false;
+      if (stadiumLightsGroup) stadiumLightsGroup.visible = true;
     } else if (roundNum === 2) {
-      scene.background = new THREE.Color(0xf97316);
-      scene.fog = new THREE.FogExp2(0xfb923c, 0.015);
-      ambientLight.color.setHex(0xfed7aa); ambientLight.intensity = 0.72;
-      sunLight.color.setHex(0xffedd5); sunLight.intensity = 1.15; sunLight.position.set(-20, 9, 10);
-      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x16a34a);
-      (sandMesh.material as THREE.MeshLambertMaterial).color.setHex(0xfdba74);
-      if (starsGroup) starsGroup.visible = false;
-      if (stadiumLightsGroup) stadiumLightsGroup.visible = false;
+      scene.background = new THREE.Color(0x1e1b4b);
+      ambientLight.color.setHex(0xffffff); ambientLight.intensity = 1.1;
+      sunLight.color.setHex(0xfef08a); sunLight.intensity = 1.35; sunLight.position.set(-20, 15, 12);
+      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x1e1b4b);
+      (sandMesh.material as THREE.MeshStandardMaterial).color.setHex(0x312e81);
+      if (starsGroup) starsGroup.visible = true;
+      if (stadiumLightsGroup) stadiumLightsGroup.visible = true;
     } else {
       scene.background = new THREE.Color(0x090d16);
-      scene.fog = new THREE.FogExp2(0x090d16, 0.014);
-      ambientLight.color.setHex(0x93c5fd); ambientLight.intensity = 0.55;
-      sunLight.color.setHex(0xe0f2fe); sunLight.intensity = 0.85; sunLight.position.set(0, 22, 12);
-      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x15803d);
-      (sandMesh.material as THREE.MeshLambertMaterial).color.setHex(0xeab308);
+      ambientLight.color.setHex(0xffffff); ambientLight.intensity = 1.05;
+      sunLight.color.setHex(0xe0f2fe); sunLight.intensity = 1.3; sunLight.position.set(0, 22, 12);
+      (grassMesh.material as THREE.MeshLambertMaterial).color.setHex(0x090d16);
+      (sandMesh.material as THREE.MeshStandardMaterial).color.setHex(0x1e293b);
       if (starsGroup) starsGroup.visible = true;
       if (stadiumLightsGroup) stadiumLightsGroup.visible = true;
     }
@@ -512,23 +512,23 @@ export const HostArenaView: React.FC<Props> = ({
     const vp = viewportRef.current;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x38bdf8);
-    scene.fog = new THREE.FogExp2(0x38bdf8, 0.011);
+    scene.background = new THREE.Color(0x0f172a);
+    scene.fog = null;
 
     const camera = new THREE.PerspectiveCamera(48, vp.clientWidth / vp.clientHeight, 0.1, 100);
     camera.position.set(0, 5.2, 11.2);
     camera.lookAt(0, 1.6, 0);
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setSize(vp.clientWidth, vp.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.15);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfffbeb, 0.95);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.35);
     sunLight.position.set(12, 25, 16);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 1024;
@@ -552,20 +552,20 @@ export const HostArenaView: React.FC<Props> = ({
     scene.add(starsGroup);
 
     const stadiumLightsGroup = new THREE.Group();
-    stadiumLightsGroup.visible = false;
+    stadiumLightsGroup.visible = true;
     scene.add(stadiumLightsGroup);
 
-    // Ground - Sân vận động nền xám xanh hiện đại
-    const stadiumGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ color: 0x1e293b }));
+    // Ground - Sân vận động nền tối tương phản cao giúp nhân vật nổi bật rõ nét
+    const stadiumGroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ color: 0x0f172a }));
     stadiumGroundMesh.rotation.x = -Math.PI / 2;
     stadiumGroundMesh.receiveShadow = true;
     scene.add(stadiumGroundMesh);
 
-    // Khung học sinh đứng thi đấu - Nền màu trắng tinh khôi (#ffffff) làm sáng và nổi bật toàn bộ nhân vật học sinh
+    // Khung học sinh đứng thi đấu - Nền xanh đen đậm tương phản cao giúp nhân vật Chibi không bị chói hay nhòe màu
     const whitePlatformMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.15,
-      metalness: 0.05
+      color: 0x1e293b,
+      roughness: 0.35,
+      metalness: 0.1
     });
     const whitePlatformMesh = new THREE.Mesh(new THREE.PlaneGeometry(32, 9), whitePlatformMat);
     whitePlatformMesh.rotation.x = -Math.PI / 2;
@@ -743,17 +743,16 @@ export const HostArenaView: React.FC<Props> = ({
           const isElim = pData.eliminated || (pData.lives !== undefined && pData.lives <= 0);
           const hasDoneQ = answeredIds.includes(pData.id);
 
-          // Drop-in spawn animation
-          if (u.dropY > 0) {
-            u.dropY = Math.max(0, u.dropY - 0.32);
-            g.position.y = (u.baseBellY || 0) + u.dropY;
-          }
-
-          // Step in/ready animation for tug
-          if (pData.ready && !u.isReadyInRope) {
-            u.currentZ += (0.42 - u.currentZ) * 0.14;
-            if (curMode === 'TUG') g.position.z = u.currentZ;
-            if (Math.abs(u.currentZ - 0.42) < 0.05) u.isReadyInRope = true;
+          // Khóa cố định vị trí đứng trên mặt sàn (Tuyệt đối không nhảy nhót lên xuống theo trục Y)
+          u.dropY = 0;
+          g.position.y = curMode === 'BELL' ? (u.baseBellY || 0.22) : 0;
+          if (curMode === 'TUG') {
+            g.position.z = 0.42;
+            const spacing = 1.25;
+            const baseX = isRedTeam
+              ? -1.6 - idx * spacing
+              : 1.6 + idx * spacing;
+            g.position.x = baseX + ropeMesh.position.x;
           }
 
           // Ice block toggle
@@ -761,9 +760,11 @@ export const HostArenaView: React.FC<Props> = ({
             u.ice.visible = (pData.freeze || 0) > 0 || isElim;
           }
 
-          // Mode-specific character animations
+          // Chuyển động duy nhất: đứng im tại chỗ, chỉ lắc qua lắc lại nhẹ nhàng (trục Z)
+          const swaySideToSide = isElim ? 0 : Math.sin(elapsed * 2.2 + idx * 0.5) * 0.08;
+
+          // Mode-specific character posture (không bao giờ thay đổi g.position.y)
           if (curMode === 'BELL') {
-            // Golden Bell: Contestants SIT on arena mats
             if (u.matGroup) u.matGroup.visible = true;
             if (u.boardGroup) u.boardGroup.visible = true;
             if (u.weaponOrb) u.weaponOrb.visible = false;
@@ -773,33 +774,31 @@ export const HostArenaView: React.FC<Props> = ({
             if (u.shoeL) { u.shoeL.position.set(0.2, 0.08, 0.18); u.shoeL.rotation.z = 0.5; }
             if (u.shoeR) { u.shoeR.position.set(-0.2, 0.08, 0.18); u.shoeR.rotation.z = -0.5; }
 
+            g.rotation.z = swaySideToSide;
+
             if (!isElim) {
               if (hasDoneQ) {
-                // Raise answer board high in the air
                 if (u.boardGroup) {
-                  u.boardGroup.position.set(0, 1.25 + Math.sin(elapsed * 4.5 + idx) * 0.06, 0.2);
+                  u.boardGroup.position.set(0, 1.25, 0.2);
                   u.boardGroup.rotation.x = -0.15;
                 }
-                if (u.head) u.head.rotation.x = -0.15;
+                if (u.head) u.head.rotation.x = -0.1;
                 if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
                 if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
               } else {
-                // Seated thinking posture with board resting on lap
                 if (u.boardGroup) {
                   u.boardGroup.position.set(0, 0.55, 0.36);
                   u.boardGroup.rotation.x = 0.1;
                 }
-                if (u.head) u.head.rotation.x = Math.sin(elapsed * 2.5 + idx) * 0.04;
+                if (u.head) u.head.rotation.x = 0;
                 if (u.armL) u.armL.rotation.x = -0.65;
                 if (u.armR) u.armR.rotation.x = -0.65;
               }
             } else {
-              // Eliminated: bowed head
               if (u.head) u.head.rotation.x = 0.45;
               if (u.boardGroup) u.boardGroup.position.set(0, 0.22, 0.36);
             }
           } else if (curMode === 'BOSS') {
-            // Boss Raid: Nhân vật đứng im, lắc qua lắc lại nhẹ nhàng chống giật lag mạng
             if (u.weaponOrb) u.weaponOrb.visible = true;
             if (u.boardGroup) u.boardGroup.visible = false;
             if (u.matGroup) u.matGroup.visible = false;
@@ -807,29 +806,23 @@ export const HostArenaView: React.FC<Props> = ({
             if (u.body) u.body.position.y = 0.65;
             if (u.head) u.head.position.y = 1.36;
 
-            // Đứng im tại chỗ, lắc lư nhẹ nhàng mượt mà
-            const combatSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.05;
-            g.rotation.z = combatSway;
-            g.position.y = Math.sin(elapsed * 2.2 + idx * 0.3) * 0.02;
+            g.rotation.z = swaySideToSide;
+            g.rotation.x = 0;
 
-            // Quả cầu năng lượng ma thuật xoay nhẹ
             if (u.weaponOrb) {
               u.weaponOrb.rotation.y += 0.04;
-              u.weaponOrb.position.y = 0.95 + Math.sin(elapsed * 3.0 + idx) * 0.05;
-              u.weaponOrb.scale.setScalar(hasDoneQ ? 1.35 + Math.sin(elapsed * 6) * 0.15 : 1.0 + Math.sin(elapsed * 4 + idx) * 0.1);
+              u.weaponOrb.position.y = 0.95;
+              u.weaponOrb.scale.setScalar(hasDoneQ ? 1.3 : 1.0);
             }
 
             if (hasDoneQ) {
-              g.rotation.x = -0.15;
               if (u.armR) u.armR.rotation.x = -Math.PI * 0.55;
               if (u.armL) u.armL.rotation.x = -Math.PI / 4;
             } else {
-              g.rotation.x = 0;
               if (u.armR) u.armR.rotation.x = -Math.PI / 3;
               if (u.armL) u.armL.rotation.x = -Math.PI / 3;
             }
           } else if (curMode === 'TUG') {
-            // Kéo co: Nhân vật chibi đứng im trên sàn trắng, lắc qua lắc lại nhẹ nhàng
             if (u.boardGroup) u.boardGroup.visible = false;
             if (u.matGroup) u.matGroup.visible = false;
             if (u.weaponOrb) u.weaponOrb.visible = false;
@@ -837,43 +830,24 @@ export const HostArenaView: React.FC<Props> = ({
             if (u.body) u.body.position.y = 0.65;
             if (u.head) u.head.position.y = 1.36;
 
-            if (curStatus === 'PLAYING' && !isElim && u.dropY <= 0) {
-              // Đứng im tại chỗ, lắc qua lắc lại nhẹ nhàng, nhịp nhàng êm ái chống giật lag
-              const gentleSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.06;
-              const leanFactor = isRedTeam ? 0.2 : -0.2;
-              g.rotation.z = leanFactor + gentleSway;
-              g.position.y = Math.sin(elapsed * 2.0 + idx * 0.3) * 0.02;
-              const armStrain = gentleSway * 0.6;
-              if (u.armL) u.armL.rotation.x = -Math.PI / 3 + armStrain;
-              if (u.armR) u.armR.rotation.x = -Math.PI / 3 + armStrain;
-            } else if ((curStatus === 'ROUND_BREAK' || curStatus === 'ENDED') && !isElim) {
-              const ropeVal = matchStateRef.current?.ropeScore || 0;
-              const isWinTeam = (isRedTeam && ropeVal < 0) || (!isRedTeam && ropeVal > 0);
-              if (isWinTeam) {
-                // Nhảy mừng chiến thắng nhịp nhàng
-                g.position.y = Math.abs(Math.sin(elapsed * 3.6 + idx)) * 0.16;
-                g.rotation.z = Math.sin(elapsed * 2.0) * 0.06;
-                if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
-                if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
-              } else {
-                g.rotation.x = 0.1;
-                g.position.y = 0;
-              }
-            } else {
-              // LOBBY / IDLE: Đứng im tại chỗ, lắc qua lắc lại nhẹ nhàng đáng yêu
-              const idleSway = Math.sin(elapsed * 1.6 + idx * 0.5) * 0.045;
-              g.rotation.z = idleSway;
-              g.position.y = (u.baseBellY || 0) + Math.sin(elapsed * 2.0 + idx * 0.3) * 0.015;
-              if (u.armL) u.armL.rotation.x = -Math.PI / 3;
-              if (u.armR) u.armR.rotation.x = -Math.PI / 3;
-            }
+            const baseLean = isRedTeam ? 0.14 : -0.14;
+            g.rotation.z = baseLean + swaySideToSide;
+            g.rotation.x = 0;
+            if (u.armL) u.armL.rotation.x = -Math.PI / 3;
+            if (u.armR) u.armR.rotation.x = -Math.PI / 3;
           } else {
-            // Speed race mode: Đứng im tại ô xuất phát, lắc qua lắc lại nhẹ nhàng mượt mà
-            const fastSway = Math.sin(elapsed * 1.8 + idx * 0.4) * 0.05;
-            g.rotation.z = fastSway;
-            g.position.y = Math.sin(elapsed * 2.2 + idx * 0.3) * 0.02;
-            if (u.armL) u.armL.rotation.x = -0.4 + Math.sin(elapsed * 1.8 + idx) * 0.1;
-            if (u.armR) u.armR.rotation.x = -0.4 - Math.sin(elapsed * 1.8 + idx) * 0.1;
+            // FAST mode: Đứng im tại chỗ, chỉ lắc qua lắc lại
+            if (u.boardGroup) u.boardGroup.visible = false;
+            if (u.matGroup) u.matGroup.visible = false;
+            if (u.weaponOrb) u.weaponOrb.visible = false;
+
+            if (u.body) u.body.position.y = 0.65;
+            if (u.head) u.head.position.y = 1.36;
+
+            g.rotation.z = swaySideToSide;
+            g.rotation.x = 0;
+            if (u.armL) u.armL.rotation.x = -0.4;
+            if (u.armR) u.armR.rotation.x = -0.4;
           }
 
           // Project head position to 2D screen (Đặt tên thí sinh ngay trên đỉnh mũ chibi)
@@ -1149,9 +1123,9 @@ export const HostArenaView: React.FC<Props> = ({
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [matchState.status, matchState.globalQIndex, durationSec]);
+  }, [matchState.status, matchState.globalQIndex, durationSec, quizList]);
 
-  // Handle Timeout (Không chọn = Coi như SAI)
+  // Handle Timeout (Không chọn = Coi như SAI, 0 điểm, trừ 1 mạng trong Rung Chuông Vàng)
   const handleQuestionTimeout = () => {
     AudioFX.freezeCrack();
 
@@ -1167,21 +1141,35 @@ export const HostArenaView: React.FC<Props> = ({
       });
     }
 
-    // In Bell mode: Unanswered students lose 1 heart
+    // In Bell mode: Unanswered students lose 1 heart and get 0 points (wrongTotal + 1)
     if (matchState.gameType === 'BELL') {
       onUpdateMatchState(prev => {
         const answeredIds = [...prev.redAnsweredIds, ...prev.blueAnsweredIds];
         const updatedRed = prev.redPlayers.map(p => {
           if (!p.eliminated && !answeredIds.includes(p.id)) {
-            const nextL = Math.max(0, p.lives - 1);
-            return { ...p, lives: nextL, eliminated: nextL <= 0, streak: 0 };
+            const nextL = Math.max(0, (p.lives ?? 3) - 1);
+            const nextElim = nextL <= 0;
+            CloudNetwork.sendMessage({
+              type: 'PLAYER_LIVES_SYNC',
+              playerId: p.id,
+              lives: nextL,
+              eliminated: nextElim
+            });
+            return { ...p, lives: nextL, eliminated: nextElim, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
           }
           return p;
         });
         const updatedBlue = prev.bluePlayers.map(p => {
           if (!p.eliminated && !answeredIds.includes(p.id)) {
-            const nextL = Math.max(0, p.lives - 1);
-            return { ...p, lives: nextL, eliminated: nextL <= 0, streak: 0 };
+            const nextL = Math.max(0, (p.lives ?? 3) - 1);
+            const nextElim = nextL <= 0;
+            CloudNetwork.sendMessage({
+              type: 'PLAYER_LIVES_SYNC',
+              playerId: p.id,
+              lives: nextL,
+              eliminated: nextElim
+            });
+            return { ...p, lives: nextL, eliminated: nextElim, streak: 0, wrongTotal: (p.wrongTotal || 0) + 1 };
           }
           return p;
         });
@@ -1278,9 +1266,45 @@ export const HostArenaView: React.FC<Props> = ({
     }
   };
 
+  // Chuẩn bị sàn đấu để tập hợp đủ học sinh (Giữ nguyên toàn bộ học sinh đã kết nối)
+  const handlePrepareArenaGather = () => {
+    AudioFX.whistle();
+    onUpdateMatchState(prev => ({
+      ...prev,
+      status: 'LOBBY',
+      globalQIndex: 0,
+      ropeScore: 0,
+      redAnsweredIds: [],
+      blueAnsweredIds: [],
+      bossHP: prev.settings?.bossMaxHP || 1000,
+      maxBossHP: prev.settings?.bossMaxHP || 1000,
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 }))
+    }));
+    setQrVisible(true);
+    setQrMinimizedLeft(false);
+    setQrMinimizedRight(false);
+    CloudNetwork.sendMessage({
+      type: 'GAME_SWITCH',
+      gameType: matchState.gameType,
+      status: 'LOBBY',
+      qIndex: 0,
+      quiz: quizList
+    });
+  };
+
   // Start contest - Giữ nguyên bộ đề đã chuẩn hóa, đồng bộ tức thì xuống máy học sinh
   const handleStartContest = () => {
     AudioFX.whistle();
+    const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
+    CloudNetwork.sendMessage({
+      type: 'QUESTION_START',
+      qIndex: 0,
+      durationSec: durationSec,
+      serverStartTime: Date.now(),
+      question: firstQ,
+      quiz: quizList
+    });
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -1449,14 +1473,23 @@ export const HostArenaView: React.FC<Props> = ({
               </span>
             </div>
             <div className="block-3d-btns">
-              {matchState.status === 'LOBBY' && (
+              {matchState.status === 'LOBBY' ? (
                 <button
                   className="b3d-btn"
-                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1.5px solid #a7f3d0' }}
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1.5px solid #a7f3d0', fontWeight: 900 }}
                   onClick={handleStartContest}
-                  title="Bắt đầu trận đấu"
+                  title="Bắt đầu phát câu hỏi thi đấu khi đã tập hợp đủ học sinh"
                 >
-                  ▶ BẮT ĐẦU
+                  ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
+                </button>
+              ) : (
+                <button
+                  className="b3d-btn"
+                  style={{ background: 'linear-gradient(135deg, #0284c7, #0369a1)', border: '1.5px solid #7dd3fc' }}
+                  onClick={handlePrepareArenaGather}
+                  title="Đưa về sảnh chuẩn bị để tập hợp đủ học sinh (Giữ nguyên các HS đã vào)"
+                >
+                  📣 CHUẨN BỊ SÀN ({allPlayers.length} HS)
                 </button>
               )}
 
@@ -1502,10 +1535,10 @@ export const HostArenaView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Khối 2: 📱 PHÒNG & KẾT NỐI QR (Sapphire 3D) */}
+          {/* Khối 2: 📱 PHÒNG & CHUYỂN TRÒ CHƠI (Sapphire 3D - Không cần quét lại QR) */}
           <div className="block-3d b3d-sapphire">
             <div className="block-3d-label">
-              <span>📱 PHÒNG & MÃ QR</span>
+              <span>📱 PHÒNG & ĐỔI GAME (GIỮ HS)</span>
               <span style={{ fontSize: '9.5px', color: '#bae6fd' }}>
                 🟢 P.{activeRoomId} ({allPlayers.length} HS)
               </span>
@@ -1518,10 +1551,34 @@ export const HostArenaView: React.FC<Props> = ({
                   border: qrVisible ? '1.5px solid #7dd3fc' : '1px solid #94a3b8'
                 }}
                 onClick={() => setQrVisible(!qrVisible)}
-                title={qrVisible ? "Ẩn 2 mã QR trên màn hình" : "Hiện lại 2 mã QR trên màn hình"}
+                title={qrVisible ? "Ẩn 2 mã QR trên màn hình" : "Hiện lại 2 mã QR để học sinh mới vào tiếp"}
               >
                 {qrVisible ? '🙈 ẨN QR' : '📱 HIỆN QR'}
               </button>
+
+              {onSwitchGameType && (
+                <select
+                  aria-label="Chuyển trò chơi nhanh không cần quét lại QR"
+                  value={matchState.gameType}
+                  onChange={(e) => onSwitchGameType(e.target.value as GamePlayType)}
+                  style={{
+                    background: 'linear-gradient(135deg, #0f172a, #1e293b)',
+                    color: '#fde047',
+                    border: '1.5px solid #38bdf8',
+                    borderRadius: '8px',
+                    padding: '3px 6px',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer'
+                  }}
+                  title="Đổi trò chơi ngay lập tức - Học sinh đang chơi tự động chuyển theo không cần quét lại QR"
+                >
+                  <option value="TUG">🪢 Kéo Co 3D</option>
+                  <option value="BELL">🔔 Rung Chuông Vàng</option>
+                  <option value="FAST">⚡ Đua Tốc Độ</option>
+                  <option value="BOSS">🐉 Diệt Boss</option>
+                </select>
+              )}
 
               <button
                 className="b3d-btn"
@@ -2084,6 +2141,53 @@ export const HostArenaView: React.FC<Props> = ({
           >
             🏆 BẢNG TOP 10 ➕
           </button>
+        )}
+
+        {/* Banner Sảnh Chuẩn Bị Tập Hợp Học Sinh (LOBBY) */}
+        {matchState.status === 'LOBBY' && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '10px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96))',
+              border: '2.5px solid #10b981',
+              borderRadius: '20px',
+              padding: '10px 22px',
+              zIndex: 40,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.65)'
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 900, color: '#fde047' }}>
+                📣 ĐANG TẬP HỢP HỌC SINH VÀO SÀN ĐẤU • MÃ PHÒNG: {activeRoomId} ({allPlayers.length} HS ĐÃ SẴN SÀNG)
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#bae6fd', fontWeight: 700 }}>
+                Học sinh cũ tự động giữ kết nối khi đổi trò chơi • Học sinh mới quét mã QR 2 bên để tiếp tục vào!
+              </div>
+            </div>
+            <button
+              onClick={handleStartContest}
+              style={{
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#ffffff',
+                border: '2px solid #a7f3d0',
+                borderRadius: '14px',
+                padding: '8px 18px',
+                fontSize: '14px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.5)',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              🚀 PHÁT CÂU HỎI BẮT ĐẦU THI ({allPlayers.length} HS)
+            </button>
+          </div>
         )}
 
         {/* Round Break Modal (Tug Mode) */}

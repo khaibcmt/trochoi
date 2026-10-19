@@ -25,7 +25,8 @@ interface Props {
   onSetJoinMode: (mode: JoinMode) => void;
   onSetMaxPerTeam: (qty: number) => void;
   onAddSubject: () => void;
-  onSaveCurrentQuizToSubject: (parsedQuiz: QuizItem[], html: string) => void;
+  onSaveCurrentQuizToSubject: (parsedQuiz: QuizItem[], html: string, silent?: boolean) => void;
+  onSyncQuizLive?: (parsedQuiz: QuizItem[]) => void;
   onDeleteCurrentSubject: () => void;
   onLaunchArena: (quizList: QuizItem[]) => void;
   onSwitchToStudentMode: () => void;
@@ -35,6 +36,7 @@ interface Props {
   onImportJSON: (items: QuizItem[]) => void;
   onOpenKeyModal?: () => void;
   activeRoomId?: string;
+  connectedStudentCount?: number;
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -51,6 +53,7 @@ export const TeacherSetupView: React.FC<Props> = ({
   onSetMaxPerTeam,
   onAddSubject,
   onSaveCurrentQuizToSubject,
+  onSyncQuizLive,
   onDeleteCurrentSubject,
   onLaunchArena,
   onSwitchToStudentMode,
@@ -59,7 +62,8 @@ export const TeacherSetupView: React.FC<Props> = ({
   onExportJSON,
   onImportJSON,
   onOpenKeyModal,
-  activeRoomId
+  activeRoomId,
+  connectedStudentCount = 0
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,15 +107,30 @@ export const TeacherSetupView: React.FC<Props> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  const syncEditorQuestionsLive = () => {
+    if (!editorRef.current || !onSyncQuizLive) return;
+    const raw = editorRef.current.innerHTML.trim();
+    if (!raw) return;
+    const parsed = parseHTMLToQuiz(raw);
+    if (parsed.length > 0) {
+      onSyncQuizLive(parsed);
+    }
+  };
+
   // Sync editor innerHTML when subject changes
   useEffect(() => {
     if (editorRef.current && subjectsDB[currentSubjectKey]) {
       editorRef.current.innerHTML = subjectsDB[currentSubjectKey].html;
+      const parsed = parseHTMLToQuiz(subjectsDB[currentSubjectKey].html);
+      if (parsed.length > 0 && onSyncQuizLive) {
+        onSyncQuizLive(parsed);
+      }
     }
   }, [currentSubjectKey, subjectsDB]);
 
   const handleUnderline = () => {
     document.execCommand('underline', false);
+    syncEditorQuestionsLive();
   };
 
   const handleClearEditor = () => {
@@ -124,6 +143,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     if (editorRef.current) {
       editorRef.current.innerHTML = (editorRef.current.innerHTML.trim() ? editorRef.current.innerHTML + '<br>' : '') + sampleHTML;
       editorRef.current.scrollTop = editorRef.current.scrollHeight;
+      syncEditorQuestionsLive();
     }
   };
 
@@ -138,6 +158,7 @@ export const TeacherSetupView: React.FC<Props> = ({
 
     const updatedHTML = formatQuizToHTML(parsed);
     editorRef.current.innerHTML = updatedHTML;
+    if (onSyncQuizLive) onSyncQuizLive(parsed);
     alert(`🤖 Trình AI đã tự động phân tích và gạch chân đáp án đúng cho toàn bộ ${parsed.length} câu hỏi chuẩn GDPT 2018!`);
   };
 
@@ -232,7 +253,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
     const updatedHTML = formatQuizToHTML(parsed);
     editorRef.current.innerHTML = updatedHTML;
-    onSaveCurrentQuizToSubject(parsed, updatedHTML);
+    onSaveCurrentQuizToSubject(parsed, updatedHTML, false);
   };
 
   const handleStartArena = () => {
@@ -245,8 +266,21 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
     const updatedHTML = formatQuizToHTML(parsed);
     editorRef.current.innerHTML = updatedHTML;
-    onSaveCurrentQuizToSubject(parsed, updatedHTML);
+    onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
     onLaunchArena(parsed);
+  };
+
+  const handleSwitchToStudentWithSync = () => {
+    if (editorRef.current) {
+      const raw = editorRef.current.innerHTML.trim();
+      const parsed = parseHTMLToQuiz(raw);
+      if (parsed.length > 0) {
+        const updatedHTML = formatQuizToHTML(parsed);
+        editorRef.current.innerHTML = updatedHTML;
+        onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
+      }
+    }
+    onSwitchToStudentMode();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -294,7 +328,7 @@ export const TeacherSetupView: React.FC<Props> = ({
             <button
               className="btn-action-sm"
               style={{ background: '#dcfce7', borderColor: '#10b981', color: '#065f46' }}
-              onClick={onSwitchToStudentMode}
+              onClick={handleSwitchToStudentWithSync}
             >
               📱 Chế Độ HS (Nhập Mã Phòng)
             </button>
@@ -636,6 +670,8 @@ export const TeacherSetupView: React.FC<Props> = ({
           ref={editorRef}
           contentEditable={true}
           suppressContentEditableWarning={true}
+          onInput={syncEditorQuestionsLive}
+          onBlur={syncEditorQuestionsLive}
           style={{ minHeight: '180px', maxHeight: '340px', overflowY: 'auto' }}
         />
 
@@ -693,9 +729,9 @@ export const TeacherSetupView: React.FC<Props> = ({
 
         <div className="flex-between" style={{ marginTop: '12px', marginBottom: '8px' }}>
           <span style={{ fontSize: '12.5px', color: '#059669', fontWeight: 800 }}>
-            🌾 Đầy đủ 3 Dạng Thức GDPT 2018 (Phần I, II, III) • Tự động qua câu 30s • Đánh Boss ({matchSettings.bossMaxHP} HP) & Kéo Co 3D!
+            🟢 Mã phòng cố định: <b style={{ color: '#0284c7' }}>{activeRoomId}</b> ({connectedStudentCount} HS đang trong phòng) • Đổi trò chơi không cần quét lại QR!
           </span>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn-action-sm"
@@ -712,8 +748,12 @@ export const TeacherSetupView: React.FC<Props> = ({
             >
               {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
             </button>
-            <button className="btn-launch" onClick={handleStartArena}>
-              MỞ SÂN ĐẤU 3D & HIỆN MÃ QR
+            <button
+              className="btn-launch"
+              onClick={handleStartArena}
+              title="Vào sảnh chuẩn bị sàn đấu 3D để tập hợp đủ học sinh trước khi bấm Bắt đầu"
+            >
+              📣 CHUẨN BỊ VÀO SÀN ĐẤU (TẬP HỢP HS)
             </button>
           </div>
         </div>
@@ -754,17 +794,17 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
 
           <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 800 }}>
-            🌾 GDPT 2018 (3 Dạng Thức) • Sĩ số: <b style={{ color: '#38bdf8' }}>{matchSettings.roomCapacity} HS</b> • 3D trên sàn: <b style={{ color: '#a7f3d0' }}>{matchSettings.max3DRenderCount}</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
+            🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> • Đã vào: <b style={{ color: '#4ade80' }}>{connectedStudentCount}/{matchSettings.roomCapacity} HS</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {onSwitchToStudentMode && (
             <button
               type="button"
               className="btn-action-sm"
               style={{ background: '#334155', color: '#f8fafc', borderColor: '#475569', padding: '9px 14px', fontSize: '13px' }}
-              onClick={onSwitchToStudentMode}
+              onClick={handleSwitchToStudentWithSync}
               title="Mở giao diện điện thoại học sinh để thi đấu thử"
             >
               📱 Thử Vai Học Sinh
@@ -797,13 +837,14 @@ export const TeacherSetupView: React.FC<Props> = ({
             type="button"
             className="btn-launch"
             style={{
-              padding: '11px 26px',
-              fontSize: '15.5px',
+              padding: '11px 22px',
+              fontSize: '15px',
               boxShadow: '0 0 25px rgba(56, 189, 248, 0.6), inset 0 2px 3px rgba(255,255,255,0.7)'
             }}
             onClick={handleStartArena}
+            title="Chuẩn bị vào sàn đấu 3D để tập hợp đủ học sinh trước khi bấm Bắt đầu"
           >
-            🚀 MỞ SÂN ĐẤU 3D & HIỆN MÃ QR
+            📣 CHUẨN BỊ VÀO SÀN ĐẤU (TẬP HỢP HS)
           </button>
         </div>
       </aside>

@@ -15,6 +15,7 @@ interface Props {
   initialTeam: PlayerTeam;
   initialGameType: GamePlayType;
   initialSubjectKey: string;
+  initialQuizList?: QuizItem[];
   onExitToSetup?: () => void;
 }
 
@@ -23,6 +24,7 @@ export const StudentMobileView: React.FC<Props> = ({
   initialTeam,
   initialGameType,
   initialSubjectKey,
+  initialQuizList,
   onExitToSetup
 }) => {
   const [roomId, setRoomId] = useState(initialRoomId || '12345');
@@ -87,14 +89,32 @@ export const StudentMobileView: React.FC<Props> = ({
   const [streak, setStreak] = useState(0);
   const [eliminated, setEliminated] = useState(false);
   const [matchStatText, setMatchStatText] = useState('Đang chờ trận đấu bắt đầu...');
+  const hasJoinedArenaRef = useRef<boolean>(false);
 
   // Questions deck & pointers - Đồng bộ câu hỏi trực tiếp từ Host màn hình chính theo đúng chỉ số qIndex
-  const [quizDeck, setQuizDeck] = useState<QuizItem[]>(() => getPresetQuizBySubject(initialSubjectKey || 'ALL_SUBJ'));
+  const [quizDeck, setQuizDeck] = useState<QuizItem[]>(() => {
+    if (initialQuizList && initialQuizList.length > 0) return initialQuizList;
+    try {
+      const savedCustom = localStorage.getItem('custom_Active_Quiz_V31');
+      if (savedCustom) {
+        const parsed = JSON.parse(savedCustom);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return getPresetQuizBySubject(initialSubjectKey || 'ALL_SUBJ');
+  });
   const [broadcastQuestionMap, setBroadcastQuestionMap] = useState<Record<number, QuizItem>>({});
   const [currentBroadcastQ, setCurrentBroadcastQ] = useState<QuizItem | null>(null);
   const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState(0);
   const currentGlobalQIndexRef = useRef(0);
   const [lastCompletedQIndex, setLastCompletedQIndex] = useState(-1);
+
+  // Sync initialQuizList whenever parent updates it
+  useEffect(() => {
+    if (initialQuizList && initialQuizList.length > 0) {
+      setQuizDeck(initialQuizList);
+    }
+  }, [initialQuizList]);
 
   // Freeze state (20 seconds freeze on wrong answer, auto-unfrozen on new question)
   const [isFrozen, setIsFrozen] = useState(false);
@@ -123,7 +143,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const [selectedOptionOriginalIdx, setSelectedOptionOriginalIdx] = useState<number | null>(null);
   const [isAnswerLocked, setIsAnswerLocked] = useState<boolean>(false);
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
-  const lastShuffledQIndexRef = useRef<number>(-1);
+  const lastShuffledKeyRef = useRef<string>('');
 
   // FAST mode state - Persistent score in sessionStorage
   const [fastScore, setFastScore] = useState<number>(() => {
@@ -267,21 +287,52 @@ export const StudentMobileView: React.FC<Props> = ({
       format: 'MULTIPLE_CHOICE'
     };
 
-  // Câu hỏi và các phương án của học sinh và trên màn hình bắt buộc phải giống nhau 100%
+  // Xáo trộn thứ tự đáp án của học sinh ĐÚNG 1 LẦN DUY NHẤT khi câu hỏi xuất hiện rồi ĐỨNG IM hoàn toàn (không bao giờ nhảy lại)
+  const resolvedQSignature = `${currentGlobalQIndex}::${resolvedCurrentQ?.q || ''}::${(resolvedCurrentQ?.opts || []).join('|')}`;
   useEffect(() => {
     if (!resolvedCurrentQ || !resolvedCurrentQ.opts || resolvedCurrentQ.opts.length === 0) {
       setShuffledOpts([]);
       return;
     }
-    // Giữ nguyên thứ tự chính xác A, B, C, D như trên màn hình lớn của Giáo viên
-    const items: StudentShuffledOption[] = resolvedCurrentQ.opts.map((text, idx) => ({
+    if (lastShuffledKeyRef.current === resolvedQSignature && shuffledOpts.length > 0) {
+      return;
+    }
+    lastShuffledKeyRef.current = resolvedQSignature;
+
+    const baseItems = resolvedCurrentQ.opts.map((rawText, idx) => ({
       originalIndex: idx,
-      letter: String.fromCharCode(65 + idx),
-      text
+      cleanText: String(rawText || '').replace(/^[A-D][\.\:\)]\s*/i, '').trim() || String(rawText || '')
     }));
-    lastShuffledQIndexRef.current = currentGlobalQIndex;
-    setShuffledOpts(items);
-  }, [currentGlobalQIndex, resolvedCurrentQ]);
+
+    // Deterministic seed per student + question index so it shuffles once and stays 100% locked
+    const seedStr = `${myPlayerId}_q_${currentGlobalQIndex}_${resolvedCurrentQ.q}`;
+    let hash = 2166136261;
+    for (let i = 0; i < seedStr.length; i++) {
+      hash ^= seedStr.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    let seed = Math.abs(hash) || 1234567;
+    const nextRand = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+
+    const copy = [...baseItems];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(nextRand() * (i + 1));
+      const temp = copy[i];
+      copy[i] = copy[j];
+      copy[j] = temp;
+    }
+
+    const finalItems: StudentShuffledOption[] = copy.map((item, pos) => ({
+      originalIndex: item.originalIndex,
+      letter: String.fromCharCode(65 + pos),
+      text: item.cleanText
+    }));
+
+    setShuffledOpts(finalItems);
+  }, [resolvedQSignature, myPlayerId, currentGlobalQIndex]);
 
   const handleTimeoutFail = () => {
     if (hasAnsweredCurrentQ || isAnswerLocked) return;
@@ -290,10 +341,18 @@ export const StudentMobileView: React.FC<Props> = ({
 
     AudioFX.freezeCrack();
     setStreak(0);
-    // Hết 30 giây không trả lời: tính sai 0 điểm và mất 1 mạng
+    setLastLockedResult({
+      isCorrect: false,
+      text: '⏰ HẾT GIỜ! Tính câu SAI (0 điểm • Trừ 1 ❤️ Mạng)'
+    });
+
+    // Hết giờ không trả lời: tính sai 0 điểm và trừ 1 mạng
     setLives(prev => {
       const nextL = Math.max(0, prev - 1);
-      if (nextL <= 0) setEliminated(true);
+      if (nextL <= 0 && gameType === 'BELL') {
+        setEliminated(true);
+        setScreen('ELIMINATED');
+      }
       return nextL;
     });
 
@@ -348,8 +407,57 @@ export const StudentMobileView: React.FC<Props> = ({
         } catch {}
       }
 
-      if (d.matchStatus === 'PLAYING') {
+      if (d.matchStatus === 'PLAYING' && hasJoinedArenaRef.current) {
         setScreen('QUIZ');
+      } else if (d.matchStatus === 'LOBBY' && hasJoinedArenaRef.current) {
+        setScreen('WAITING');
+      }
+    }
+    else if (d.type === 'QUIZ_SYNC') {
+      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+        setQuizDeck(d.quiz);
+        setBroadcastQuestionMap({});
+      }
+      if (d.question) {
+        const qIdx = typeof d.qIndex === 'number' ? d.qIndex : currentGlobalQIndexRef.current;
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
+    }
+    else if (d.type === 'GAME_SWITCH') {
+      // Giáo viên đổi trò chơi hoặc bấm Chuẩn bị sàn đấu: Học sinh đang chơi KHÔNG cần quét lại mã QR!
+      if (d.gameType) setGameType(d.gameType);
+      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
+        setQuizDeck(d.quiz);
+        setBroadcastQuestionMap({});
+      }
+      if (d.question) {
+        setBroadcastQuestionMap({ 0: d.question });
+        setCurrentBroadcastQ({ ...d.question, qIndex: 0 } as any);
+      }
+      currentGlobalQIndexRef.current = d.qIndex ?? 0;
+      setCurrentGlobalQIndex(d.qIndex ?? 0);
+      setLastCompletedQIndex(-1);
+      lastShuffledKeyRef.current = '';
+      clearFreeze();
+      setEliminated(false);
+      setLives(3);
+      setStreak(0);
+      setFastScore(0);
+      setHasAnsweredCurrentQ(false);
+      setIsAnswerLocked(false);
+      setSelectedOptionOriginalIdx(null);
+      setLastLockedResult(null);
+
+      if (hasJoinedArenaRef.current || screen !== 'LOBBY') {
+        hasJoinedArenaRef.current = true;
+        if (d.status === 'PLAYING') {
+          setScreen('QUIZ');
+          triggerBonusToast('🎮 Đã chuyển sang trò chơi mới — Bắt đầu thi đấu ngay!');
+        } else {
+          setScreen('WAITING');
+          triggerBonusToast('📣 Giáo viên đang chuẩn bị sàn đấu / đổi trò chơi — Không cần quét lại QR!');
+        }
       }
     }
     else if (d.type === 'PLAYER_LIVES_SYNC' && d.playerId === myPlayerId) {
@@ -366,7 +474,7 @@ export const StudentMobileView: React.FC<Props> = ({
         setIsFrozen(false);
         setScreen('QUIZ');
         triggerBonusToast("🛟 THẦY ĐÃ CỨU TRỢ HỒI SINH EM TRỞ LẠI SÀN ĐẤU! (❤️)");
-      } else if (d.eliminated) {
+      } else if (d.eliminated && gameType === 'BELL') {
         setScreen('ELIMINATED');
       }
     }
@@ -408,8 +516,17 @@ export const StudentMobileView: React.FC<Props> = ({
         const qIdx = typeof (d.question as any).qIndex === 'number'
           ? (d.question as any).qIndex
           : (typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current);
-        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
-        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+        setBroadcastQuestionMap(prev => {
+          const existing = prev[qIdx];
+          if (existing && existing.q === d.question!.q && JSON.stringify(existing.opts) === JSON.stringify(d.question!.opts)) {
+            return prev;
+          }
+          return { ...prev, [qIdx]: d.question! };
+        });
+        setCurrentBroadcastQ(prev => {
+          if (prev && (prev as any).qIndex === qIdx && prev.q === d.question!.q) return prev;
+          return { ...d.question!, qIndex: qIdx } as any;
+        });
       }
 
       if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndexRef.current) {
@@ -417,16 +534,17 @@ export const StudentMobileView: React.FC<Props> = ({
         setCurrentGlobalQIndex(d.globalQIndex);
         setLastCompletedQIndex(-1);
         clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
-        if (d.status === 'PLAYING' && !eliminated) {
+        if (d.status === 'PLAYING' && !eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
           setScreen('QUIZ');
         }
       }
 
       if (d.status === 'LOBBY' && screen !== 'LOBBY') {
+        setEliminated(false);
         setScreen('WAITING');
-      } else if (d.status === 'PLAYING' && !eliminated && screen !== 'QUIZ') {
+      } else if (d.status === 'PLAYING' && !eliminated && screen === 'WAITING') {
         setScreen('QUIZ');
-      } else if (d.status === 'ENDED' || d.status === 'ROUND_BREAK') {
+      } else if ((d.status === 'ENDED' || d.status === 'ROUND_BREAK') && screen !== 'LOBBY') {
         setScreen('WAITING');
       }
     }
@@ -448,7 +566,9 @@ export const StudentMobileView: React.FC<Props> = ({
         if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
           setQuizDeck(d.quiz);
         }
-        if (!eliminated) setScreen('QUIZ');
+        if (!eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+          setScreen('QUIZ');
+        }
       }
     }
   };
@@ -530,16 +650,16 @@ export const StudentMobileView: React.FC<Props> = ({
     setIsAnswerLocked(true);
     setSelectedOptionOriginalIdx(origIdx);
 
-    const isCorrect = origIdx === resolvedCurrentQ.correct;
+    const isCorrect = Number(origIdx) === Number(resolvedCurrentQ.correct);
 
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? '✨ CHÍNH XÁC!'
-        : '❌ CHƯA CHÍNH XÁC! (Mất 1 mạng, không được chọn lại)'
+        ? '✨ CHÍNH XÁC! (+100 điểm)'
+        : '❌ SAI RỒI! Câu này tính SAI • 0 điểm • Trừ 1 ❤️ Mạng'
     });
 
-    processAnswerOutcome(isCorrect, 1);
+    processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
   // Submit Answer for True/False (4 items)
@@ -558,18 +678,16 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     });
 
-    const isFullyCorrect = correctCount === items.length;
-    const isMostlyCorrect = correctCount >= Math.ceil(items.length * 0.75);
-    const won = isFullyCorrect || isMostlyCorrect;
+    const won = items.length > 0 && correctCount === items.length;
 
     setLastLockedResult({
       isCorrect: won,
       text: won
-        ? `✨ XUẤT SẮC! Đúng ${correctCount}/${items.length} ý!`
-        : `❌ Đúng ${correctCount}/${items.length} ý (Mất 1 mạng, không được chọn lại)`
+        ? `✨ XUẤT SẮC! Đúng cả ${correctCount}/${items.length} ý!`
+        : `❌ SAI RỒI! Chỉ đúng ${correctCount}/${items.length} ý • 0 điểm • Trừ 1 ❤️ Mạng`
     });
 
-    processAnswerOutcome(won, correctCount);
+    processAnswerOutcome(won, won ? correctCount : 0);
   };
 
   // Submit Answer for Short Answer / Fill-in
@@ -586,7 +704,14 @@ export const StudentMobileView: React.FC<Props> = ({
     const isStrEqual = correctVal === userVal;
     const isCorrect = isNumEqual || isStrEqual;
 
-    processAnswerOutcome(isCorrect, 1);
+    setLastLockedResult({
+      isCorrect,
+      text: isCorrect
+        ? '✨ CHÍNH XÁC! (+100 điểm)'
+        : '❌ SAI RỒI! Câu này tính SAI • 0 điểm • Trừ 1 ❤️ Mạng'
+    });
+
+    processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
   // Common answer processor
@@ -620,11 +745,12 @@ export const StudentMobileView: React.FC<Props> = ({
     } else {
       AudioFX.freezeCrack();
       setStreak(0);
-      // HS làm sai: câu đó tính sai và 0 điểm, mất 1 mạng
+      // Khi HS chọn sai đáp án: tính câu đó sai, 0 điểm, trừ 1 mạng (trong Rung Chuông Vàng hết mạng sẽ bị loại)
       setLives(prev => {
         const nextL = Math.max(0, prev - 1);
-        if (nextL <= 0) {
+        if (nextL <= 0 && gameType === 'BELL') {
           setEliminated(true);
+          setScreen('ELIMINATED');
         }
         return nextL;
       });
@@ -635,6 +761,7 @@ export const StudentMobileView: React.FC<Props> = ({
         team,
         globalQIndex: currentGlobalQIndex
       });
+      triggerBonusToast('❌ SAI RỒI! 0 điểm • Trừ 1 ❤️ Mạng!');
       triggerFreeze(20);
     }
 
@@ -647,6 +774,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setShowNameAlert(true);
       return;
     }
+    hasJoinedArenaRef.current = true;
     AudioFX.stepInRope();
     CloudNetwork.sendMessage({
       type: 'PLAYER_READY_ROPE',
@@ -976,13 +1104,19 @@ export const StudentMobileView: React.FC<Props> = ({
           <h2 style={{ fontSize: '20px', color: '#fef08a', margin: '0 0 10px 0' }}>
             ĐÃ SẴN SÀNG TRÊN SÀN ĐẤU!
           </h2>
+          <div style={{ display: 'inline-block', background: 'linear-gradient(135deg, #0284c7, #0369a1)', padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 900, color: '#ffffff', marginBottom: '12px', border: '1.5px solid #7dd3fc' }}>
+            {gameType === 'TUG' ? '🪢 KÉO CO 3D' : gameType === 'BELL' ? '🔔 RUNG CHUÔNG VÀNG 3D' : gameType === 'FAST' ? '⚡ ĐUA TỐC ĐỘ 3D' : '🐉 DIỆT BOSS KIẾN THỨC'}
+          </div>
           <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.5 }}>
             Thí sinh: <b>{studentName || 'Học sinh'}</b> • Phòng <b>{roomId}</b><br />
             {matchStatText}
           </p>
-          <div style={{ marginTop: '24px', padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1px solid #334155' }}>
-            <span style={{ fontSize: '13px', color: '#94a3b8' }}>
-              Chờ giáo viên bấm Bắt đầu thi đấu trên màn hình chính...
+          <div style={{ marginTop: '20px', padding: '14px', background: '#0f172a', borderRadius: '12px', border: '1.5px solid #10b981' }}>
+            <div style={{ fontSize: '13.5px', color: '#6ee7b7', fontWeight: 800, marginBottom: '4px' }}>
+              ✅ Đã giữ kết nối cố định trong phòng {roomId} (Không cần quét lại mã QR khi đổi trò chơi)
+            </div>
+            <span style={{ fontSize: '12.5px', color: '#94a3b8' }}>
+              Đang chờ giáo viên tập hợp đủ học sinh và bấm Bắt đầu thi đấu trên màn hình chính...
             </span>
           </div>
         </div>

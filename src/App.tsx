@@ -55,8 +55,27 @@ export const App: React.FC = () => {
   const [gameType, setGameType] = useState<GamePlayType>(studentGmParam);
   const [joinMode, setJoinMode] = useState<JoinMode>('AUTO_ALL');
   const [maxPerTeam, setMaxPerTeam] = useState<number>(5);
-  const [activeRoomId, setActiveRoomId] = useState<string>(() => String(Math.floor(10000 + Math.random() * 90000)));
-  const [quizList, setQuizList] = useState<QuizItem[]>(() => getPresetQuizBySubject('BIO'));
+  const [activeRoomId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('kc3d_host_room_id') || sessionStorage.getItem('kc3d_host_room_id');
+      if (saved && /^\d{5}$/.test(saved)) {
+        localStorage.setItem('kc3d_host_room_id', saved);
+        sessionStorage.setItem('kc3d_host_room_id', saved);
+        return saved;
+      }
+      const generated = String(Math.floor(10000 + Math.random() * 90000));
+      localStorage.setItem('kc3d_host_room_id', generated);
+      sessionStorage.setItem('kc3d_host_room_id', generated);
+      return generated;
+    } catch {
+      return String(Math.floor(10000 + Math.random() * 90000));
+    }
+  });
+  const [quizList, setQuizList] = useState<QuizItem[]>(() => {
+    const initDB = getInitialSubjects();
+    const parsed = initDB['BIO'] ? parseHTMLToQuiz(initDB['BIO'].html) : [];
+    return parsed.length > 0 ? parsed : getPresetQuizBySubject('BIO');
+  });
 
   // 4 Core Match Settings
   const [matchSettings, setMatchSettings] = useState<MatchSettings>({
@@ -107,7 +126,81 @@ export const App: React.FC = () => {
   const handleSelectSubject = (key: string) => {
     if (subjectsDB[key]) {
       setCurrentSubjectKey(key);
+      currentSubjectKeyRef.current = key;
+      const parsed = parseHTMLToQuiz(subjectsDB[key].html);
+      if (parsed.length > 0) {
+        const normalized = parsed.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
+        setQuizList(normalized);
+        quizListRef.current = normalized;
+        setTimeout(() => {
+          broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
+        }, 20);
+      }
     }
+  };
+
+  const handleSyncQuizLive = (parsedQuiz: QuizItem[]) => {
+    if (!parsedQuiz || parsedQuiz.length === 0) return;
+    const normalized = parsedQuiz.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
+    setQuizList(normalized);
+    quizListRef.current = normalized;
+  };
+
+  const handleSelectGameType = (newGameType: GamePlayType) => {
+    setGameType(newGameType);
+    setMatchState(prev => {
+      const resetPlayer = (p: Player): Player => ({
+        ...p,
+        ready: true,
+        correct: 0,
+        freeze: 0,
+        lives: 3,
+        wrongTotal: 0,
+        streak: 0,
+        eliminated: false,
+        fastScore: 0,
+        lastDelta: 0,
+        lastTimeSec: null
+      });
+      const nextMS: MatchState = {
+        ...prev,
+        gameType: newGameType,
+        status: 'LOBBY',
+        currentRound: 1,
+        redRoundWins: 0,
+        blueRoundWins: 0,
+        ropeScore: 0,
+        redTotalCorrect: 0,
+        blueTotalCorrect: 0,
+        globalQIndex: 0,
+        redAnsweredIds: [],
+        blueAnsweredIds: [],
+        redPlayers: prev.redPlayers.map(resetPlayer),
+        bluePlayers: prev.bluePlayers.map(resetPlayer),
+        bossHP: matchSettings.bossMaxHP || 1000,
+        maxBossHP: matchSettings.bossMaxHP || 1000
+      };
+      matchStateRef.current = nextMS;
+      setTimeout(() => {
+        const activeDeck = quizListRef.current;
+        const firstQ = activeDeck[0] ? { ...activeDeck[0], qIndex: 0, totalQuestions: activeDeck.length } : undefined;
+        CloudNetwork.sendMessage({
+          type: 'GAME_SWITCHED',
+          gameType: newGameType,
+          status: 'LOBBY',
+          globalQIndex: 0,
+          lives: 3,
+          eliminated: false,
+          bossHP: nextMS.bossHP,
+          maxBossHP: nextMS.maxBossHP,
+          subj: currentSubjectKeyRef.current,
+          quiz: activeDeck,
+          question: firstQ
+        });
+        broadcastHeartbeatRef.current(nextMS, activeDeck, activeRoomId);
+      }, 20);
+      return nextMS;
+    });
   };
 
   const handleAddSubject = () => {
@@ -125,11 +218,20 @@ export const App: React.FC = () => {
     const nextDB = { ...subjectsDB, [newKey]: newSubj };
     saveSubjects(nextDB);
     setCurrentSubjectKey(newKey);
+    currentSubjectKeyRef.current = newKey;
+    const parsed = parseHTMLToQuiz(newSubj.html);
+    if (parsed.length > 0) {
+      setQuizList(parsed);
+      quizListRef.current = parsed;
+    }
   };
 
-  const handleSaveCurrentQuizToSubject = (parsedQuiz: QuizItem[], html: string) => {
+  const handleSaveCurrentQuizToSubject = (parsedQuiz: QuizItem[], html: string, silent?: boolean) => {
     const current = subjectsDB[currentSubjectKey];
     if (!current) return;
+    const normalized = parsedQuiz.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
+    setQuizList(normalized);
+    quizListRef.current = normalized;
     const baseName = current.name.replace(/\s*\(\d+\s*câu\)/i, '');
     const updatedSubj: SubjectData = {
       ...current,
@@ -138,7 +240,9 @@ export const App: React.FC = () => {
     };
     const nextDB = { ...subjectsDB, [currentSubjectKey]: updatedSubj };
     saveSubjects(nextDB);
-    alert(`✅ Đã lưu thành công ${parsedQuiz.length} câu hỏi vào môn "${updatedSubj.name}"!`);
+    if (!silent) {
+      alert(`✅ Đã lưu và đồng bộ thành công ${parsedQuiz.length} câu hỏi vào môn "${updatedSubj.name}"!`);
+    }
   };
 
   const handleDeleteCurrentSubject = () => {
@@ -148,43 +252,85 @@ export const App: React.FC = () => {
     delete nextDB[currentSubjectKey];
     saveSubjects(nextDB);
     setCurrentSubjectKey('BIO');
+    currentSubjectKeyRef.current = 'BIO';
   };
 
-  // Launch Arena
+  // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
-    const shuffled = shuffleQuestionOrder(parsedQuiz);
-    setQuizList(shuffled);
-    quizListRef.current = shuffled;
-    const newRoom = String(Math.floor(10000 + Math.random() * 90000));
-    setActiveRoomId(newRoom);
+    const normalizedDeck: QuizItem[] = parsedQuiz.map((item, idx) => ({
+      ...item,
+      qid: idx,
+      rightCount: 0,
+      wrongCount: 0
+    }));
+    setQuizList(normalizedDeck);
+    quizListRef.current = normalizedDeck;
 
-    setMatchState({
-      gameType,
-      status: 'LOBBY',
-      currentRound: 1,
-      redRoundWins: 0,
-      blueRoundWins: 0,
-      ropeScore: 0,
-      redTotalCorrect: 0,
-      blueTotalCorrect: 0,
-      globalQIndex: 0,
-      redAnsweredIds: [],
-      blueAnsweredIds: [],
-      redPlayers: [],
-      bluePlayers: [],
-      spectators: 0,
-      bossHP: matchSettings.bossMaxHP || 1000,
-      maxBossHP: matchSettings.bossMaxHP || 1000,
-      settings: matchSettings
+    setMatchState(prev => {
+      const resetPlayerForNewGame = (p: Player): Player => ({
+        ...p,
+        ready: true,
+        correct: 0,
+        freeze: 0,
+        lives: 3,
+        wrongTotal: 0,
+        streak: 0,
+        eliminated: false,
+        fastScore: 0,
+        lastDelta: 0,
+        lastTimeSec: null
+      });
+      const nextMS: MatchState = {
+        ...prev,
+        gameType,
+        status: 'LOBBY',
+        currentRound: 1,
+        redRoundWins: 0,
+        blueRoundWins: 0,
+        ropeScore: 0,
+        redTotalCorrect: 0,
+        blueTotalCorrect: 0,
+        globalQIndex: 0,
+        redAnsweredIds: [],
+        blueAnsweredIds: [],
+        redPlayers: prev.redPlayers.map(resetPlayerForNewGame),
+        bluePlayers: prev.bluePlayers.map(resetPlayerForNewGame),
+        bossHP: matchSettings.bossMaxHP || 1000,
+        maxBossHP: matchSettings.bossMaxHP || 1000,
+        settings: matchSettings
+      };
+      matchStateRef.current = nextMS;
+      setTimeout(() => {
+        const firstQ = normalizedDeck[0] ? { ...normalizedDeck[0], qIndex: 0, totalQuestions: normalizedDeck.length } : undefined;
+        CloudNetwork.sendMessage({
+          type: 'GAME_SWITCHED',
+          gameType,
+          status: 'LOBBY',
+          globalQIndex: 0,
+          lives: 3,
+          eliminated: false,
+          bossHP: nextMS.bossHP,
+          maxBossHP: nextMS.maxBossHP,
+          subj: currentSubjectKeyRef.current,
+          quiz: normalizedDeck,
+          question: firstQ
+        });
+        broadcastHeartbeatRef.current(nextMS, normalizedDeck, activeRoomId);
+      }, 20);
+      return nextMS;
     });
 
     setView('HOST_ARENA');
   };
 
   const quizListRef = useRef<QuizItem[]>(quizList);
-  useEffect(() => {
-    quizListRef.current = quizList;
-  }, [quizList]);
+  quizListRef.current = quizList;
+
+  const matchStateRef = useRef<MatchState>(matchState);
+  matchStateRef.current = matchState;
+
+  const currentSubjectKeyRef = useRef<string>(currentSubjectKey);
+  currentSubjectKeyRef.current = currentSubjectKey;
 
   // Broadcast host heartbeat
   const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string) => {
@@ -196,7 +342,23 @@ export const App: React.FC = () => {
       ...rawActiveQ,
       qIndex: currentMS.globalQIndex,
       totalQuestions: activeDeck.length
-    } : null;
+    } : undefined;
+
+    try {
+      localStorage.setItem(
+        `kc3d_live_sync_${roomId}`,
+        JSON.stringify({
+          roomId,
+          gameType: currentMS.gameType,
+          status: currentMS.status,
+          globalQIndex: currentMS.globalQIndex,
+          question: activeQWithMeta,
+          quiz: activeDeck,
+          subj: currentSubjectKeyRef.current,
+          updatedAt: Date.now()
+        })
+      );
+    } catch {}
 
     CloudNetwork.sendMessage({
       type: 'HOST_HEARTBEAT',
@@ -215,45 +377,14 @@ export const App: React.FC = () => {
       bellTotalCount: allP.length,
       bossHP: currentMS.bossHP,
       maxBossHP: currentMS.maxBossHP,
-      subj: currentSubjectKey,
-      quiz: activeDeck,
-      question: activeQWithMeta
+      subj: currentSubjectKeyRef.current,
+      question: activeQWithMeta,
+      quiz: activeDeck
     });
   };
 
-  // Connect cloud when entering HOST_ARENA
-  useEffect(() => {
-    if (view !== 'HOST_ARENA') {
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current);
-        heartbeatRef.current = null;
-      }
-      return;
-    }
-
-    CloudNetwork.connect(
-      activeRoomId,
-      handleHostIncomingMessage,
-      () => {
-        broadcastHeartbeat(matchState, quizListRef.current, activeRoomId);
-      }
-    );
-
-    heartbeatRef.current = setInterval(() => {
-      setMatchState(latestMS => {
-        broadcastHeartbeat(latestMS, quizListRef.current, activeRoomId);
-        return latestMS;
-      });
-    }, 1800);
-
-    return () => {
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current);
-        heartbeatRef.current = null;
-      }
-      CloudNetwork.disconnect();
-    };
-  }, [view, activeRoomId]);
+  const broadcastHeartbeatRef = useRef(broadcastHeartbeat);
+  broadcastHeartbeatRef.current = broadcastHeartbeat;
 
   // Host incoming message handler
   const handleHostIncomingMessage = (d: CloudMessage) => {
@@ -431,14 +562,20 @@ export const App: React.FC = () => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
         if (!pObj || pObj.eliminated) return prev;
+        // Không cho phép nộp lại nếu đã trả lời câu hỏi này rồi
+        if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
 
         AudioFX.pullHeave();
         pObj.correct++;
         pObj.streak = (pObj.streak || 0) + 1;
 
         // Record question rightCount
-        const curQ = quizList[prev.globalQIndex % (quizList.length || 1)];
-        if (curQ) curQ.rightCount = (curQ.rightCount || 0) + 1;
+        const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
+        const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
+        if (curQ) {
+          curQ.rightCount = (curQ.rightCount || 0) + 1;
+          setQuizList([...activeDeck]);
+        }
 
         // BOSS Mode: Deal damage to Boss
         if (prev.gameType === 'BOSS') {
@@ -592,20 +729,27 @@ export const App: React.FC = () => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
         if (!pObj || pObj.eliminated) return prev;
+        // Không cho phép chọn lại hoặc trừ mạng 2 lần trên cùng 1 câu hỏi
+        if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
 
         AudioFX.freezeCrack();
         pObj.freeze++;
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
+        pObj.lastDelta = 0; // Câu trả lời sai được 0 điểm
 
         // HS làm sai không được chọn lại đáp án khác, câu đó tính sai 0 điểm và mất 1 mạng
-        pObj.lives = Math.max(0, (pObj.lives || 3) - 1);
+        pObj.lives = Math.max(0, (pObj.lives ?? 3) - 1);
         if (pObj.lives <= 0) {
           pObj.eliminated = true;
         }
 
-        const curQ = quizList[prev.globalQIndex % (quizList.length || 1)];
-        if (curQ) curQ.wrongCount = (curQ.wrongCount || 0) + 1;
+        const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
+        const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
+        if (curQ) {
+          curQ.wrongCount = (curQ.wrongCount || 0) + 1;
+          setQuizList([...activeDeck]);
+        }
 
         const nextRedAns = pObj.team === 'RED' && !prev.redAnsweredIds.includes(pObj.id)
           ? [...prev.redAnsweredIds, pObj.id]
@@ -614,7 +758,7 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        // Đồng bộ mạng và trạng thái loại về máy học sinh
+        // Đồng bộ mạng, 0 điểm và trạng thái loại về máy học sinh
         CloudNetwork.sendMessage({
           type: 'PLAYER_LIVES_SYNC',
           playerId: pObj.id,
@@ -623,6 +767,17 @@ export const App: React.FC = () => {
           eliminated: pObj.eliminated,
           bonusAwarded: false
         });
+
+        if (prev.gameType === 'FAST') {
+          CloudNetwork.sendMessage({
+            type: 'FAST_SCORE_SYNC',
+            playerId: pObj.id,
+            qIndex: prev.globalQIndex,
+            isCorrect: false,
+            gainedPts: 0,
+            totalScore: pObj.fastScore || 0
+          });
+        }
 
         if (prev.gameType === 'BOSS') {
           // Boss retaliates
@@ -648,6 +803,39 @@ export const App: React.FC = () => {
       });
     }
   };
+
+  const handleHostIncomingMessageRef = useRef(handleHostIncomingMessage);
+  handleHostIncomingMessageRef.current = handleHostIncomingMessage;
+
+  // Connect cloud continuously when Teacher is in Setup or Host Arena so students never disconnect across game switches
+  useEffect(() => {
+    if (view === 'STUDENT_MOBILE') {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+      return;
+    }
+
+    CloudNetwork.connect(
+      activeRoomId,
+      (msg) => handleHostIncomingMessageRef.current(msg),
+      () => {
+        broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
+      }
+    );
+
+    heartbeatRef.current = setInterval(() => {
+      broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
+    }, 1200);
+
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
+  }, [view === 'STUDENT_MOBILE', activeRoomId]);
 
   // Toggle fullscreen helper
   const handleToggleFullScreen = () => {
@@ -681,7 +869,9 @@ export const App: React.FC = () => {
 
   // Import JSON
   const handleImportJSON = (imported: QuizItem[]) => {
-    setQuizList(imported);
+    const normalized = imported.map((it, idx) => ({ ...it, qid: idx, rightCount: 0, wrongCount: 0 }));
+    setQuizList(normalized);
+    quizListRef.current = normalized;
     const cur = subjectsDB[currentSubjectKey];
     if (cur) {
       const nextDB = {
@@ -694,6 +884,8 @@ export const App: React.FC = () => {
       saveSubjects(nextDB);
     }
   };
+
+  const effectiveStudentRoom = urlParams.get('r') || urlParams.get('room') || activeRoomId;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -712,11 +904,12 @@ export const App: React.FC = () => {
           matchSettings={matchSettings}
           onUpdateSettings={setMatchSettings}
           onSelectSubject={handleSelectSubject}
-          onSelectGameType={setGameType}
+          onSelectGameType={handleSelectGameType}
           onSetJoinMode={setJoinMode}
           onSetMaxPerTeam={setMaxPerTeam}
           onAddSubject={handleAddSubject}
           onSaveCurrentQuizToSubject={handleSaveCurrentQuizToSubject}
+          onSyncQuizLive={handleSyncQuizLive}
           onDeleteCurrentSubject={handleDeleteCurrentSubject}
           onLaunchArena={handleLaunchArena}
           onSwitchToStudentMode={() => setView('STUDENT_MOBILE')}
@@ -726,6 +919,7 @@ export const App: React.FC = () => {
           onImportJSON={handleImportJSON}
           onOpenKeyModal={() => setShowKeyModal(true)}
           activeRoomId={activeRoomId}
+          connectedStudentCount={matchState.redPlayers.length + matchState.bluePlayers.length}
         />
       )}
 
@@ -736,6 +930,7 @@ export const App: React.FC = () => {
           activeRoomId={activeRoomId}
           onUpdateMatchState={setMatchState}
           onUpdateQuizList={setQuizList}
+          onSwitchGameType={handleSelectGameType}
           onReturnToSetup={() => setView('TEACHER_SETUP')}
           onToggleFullScreen={handleToggleFullScreen}
           onExportHTMLSlide={handleExportHTMLSlide}
@@ -746,10 +941,11 @@ export const App: React.FC = () => {
 
       {view === 'STUDENT_MOBILE' && (
         <StudentMobileView
-          initialRoomId={studentRoomParam}
+          initialRoomId={effectiveStudentRoom}
           initialTeam={studentTeamParam}
-          initialGameType={studentGmParam}
-          initialSubjectKey={studentSubjParam}
+          initialGameType={gameType}
+          initialSubjectKey={currentSubjectKey}
+          initialQuizList={quizList}
           onExitToSetup={() => setView('TEACHER_SETUP')}
         />
       )}
