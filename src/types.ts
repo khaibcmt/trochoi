@@ -38,6 +38,7 @@ export interface SubjectData {
 export type PowerUpType = 'SHIELD' | 'FREEZE_OPPONENT' | 'FIFTY_FIFTY' | 'DOUBLE_POWER';
 
 export interface AvatarConfig {
+  gender?: 'male' | 'female';
   hairStyle: 'cap' | 'headband' | 'crown' | 'beret' | 'cyber';
   costume: 'uniform' | 'aodai' | 'superhero' | 'sport';
   accessoryColor: string;

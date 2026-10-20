@@ -260,6 +260,29 @@ export const HostArenaView: React.FC<Props> = ({
       g.add(headband);
     }
 
+    // Female Chibi 3D Pigtails & Bow if student selected Female ('female')
+    if (avatar?.gender === 'female') {
+      const hairDarkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
+      const bowMat = new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.3 });
+      const pigtailL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), hairDarkMat);
+      pigtailL.position.set(0.48, 1.32, -0.05);
+      pigtailL.scale.set(0.85, 1.35, 0.85);
+      g.add(pigtailL);
+
+      const pigtailR = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), hairDarkMat);
+      pigtailR.position.set(-0.48, 1.32, -0.05);
+      pigtailR.scale.set(0.85, 1.35, 0.85);
+      g.add(pigtailR);
+
+      const bowL = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), bowMat);
+      bowL.position.set(0.42, 1.48, 0.08);
+      g.add(bowL);
+
+      const bowR = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), bowMat);
+      bowR.position.set(-0.42, 1.48, 0.08);
+      g.add(bowR);
+    }
+
     // Arms
     const armGeo = new THREE.CylinderGeometry(0.095, 0.095, 0.46, 16);
     const armL = new THREE.Mesh(armGeo, clothMat); armL.position.set(0.34, 0.98, 0.25); armL.rotation.x = -Math.PI / 3; g.add(armL);
@@ -1901,9 +1924,9 @@ export const HostArenaView: React.FC<Props> = ({
               className="b3d-btn"
               style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', border: '1px solid #fef08a', padding: '5px 10px', fontSize: '11.5px', fontWeight: 900 }}
               onClick={onOpenNationalDossier}
-              title="Mở Hồ Sơ Thuyết Minh & Phân Tích Ma Trận Cấp Quốc Gia"
+              title="Mở Hướng Dẫn Sử Dụng Chi Tiết Dành Cho Giáo Viên & Học Sinh"
             >
-              🏅 Hồ Sơ
+              📖 Hướng Dẫn Sử Dụng
             </button>
           )}
 

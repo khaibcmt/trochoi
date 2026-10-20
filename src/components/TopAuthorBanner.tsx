@@ -30,7 +30,7 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
           <button
             className="btn-fullscreen-top"
             onClick={onOpenNationalDossier}
-            title="Mở Hồ Sơ Thuyết Minh & Ma Trận Đặc Tả Dự Thi Cấp Quốc Gia"
+            title="Mở Hướng Dẫn Sử Dụng Chi Tiết Dành Cho Giáo Viên & Học Sinh"
             style={{
               background: 'linear-gradient(135deg, #f59e0b, #d97706)',
               color: '#0f172a',
@@ -41,7 +41,7 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
               gap: '4px'
             }}
           >
-            🏅 Hồ Sơ Quốc Gia
+            📖 Hướng Dẫn Sử Dụng
           </button>
         )}
         <button

@@ -33,13 +33,23 @@ export const StudentMobileView: React.FC<Props> = ({
   const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'TUG');
   const [role, setRole] = useState<PlayerRole>('PULLER');
 
-  // Avatar Customization State
+  // Avatar Customization State (Hỗ trợ chọn Nhân vật Nam / Nhân vật Nữ)
   const [avatar, setAvatar] = useState<AvatarConfig>(() => {
     try {
       const saved = localStorage.getItem('student_saved_avatar');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          gender: parsed.gender === 'female' ? 'female' : 'male',
+          hairStyle: parsed.hairStyle || 'cap',
+          costume: parsed.costume || 'uniform',
+          accessoryColor: parsed.accessoryColor || '#f59e0b',
+          expression: parsed.expression || 'happy'
+        };
+      }
     } catch {}
     return {
+      gender: 'male',
       hairStyle: 'cap',
       costume: 'uniform',
       accessoryColor: '#f59e0b',
@@ -1054,11 +1064,12 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const currentQItem = resolvedCurrentQ;
 
-  // Render Nhân Vật Chibi Dễ Thương (Full-body Kawaii Chibi) cho màn hình điện thoại học sinh
+  // Render Nhân Vật Chibi Dễ Thương (Full-body Kawaii Chibi Nam / Nữ) cho màn hình điện thoại học sinh
   const renderCuteChibiCharacter = (
     size: number = 84,
     mood: 'happy' | 'thinking' | 'cheering' | 'sad' | 'frozen' = 'happy'
   ) => {
+    const isFemale = avatar.gender === 'female';
     const outfitColor =
       avatar.costume === 'superhero'
         ? '#ef4444'
@@ -1066,8 +1077,10 @@ export const StudentMobileView: React.FC<Props> = ({
         ? '#ec4899'
         : avatar.costume === 'sport'
         ? '#10b981'
+        : isFemale
+        ? '#ec4899'
         : '#3b82f6';
-    const accentColor = avatar.accessoryColor || '#f59e0b';
+    const accentColor = avatar.accessoryColor || (isFemale ? '#ec4899' : '#f59e0b');
 
     return (
       <div
@@ -1086,6 +1099,8 @@ export const StudentMobileView: React.FC<Props> = ({
               ? team === 'RED'
                 ? 'linear-gradient(145deg, #dc2626, #7f1d1d)'
                 : 'linear-gradient(145deg, #2563eb, #1e3a8a)'
+              : isFemale
+              ? 'linear-gradient(145deg, #831843, #312e81)'
               : 'linear-gradient(145deg, #312e81, #1e1b4b)',
           border: `2.5px solid ${accentColor}`,
           display: 'inline-flex',
@@ -1098,8 +1113,8 @@ export const StudentMobileView: React.FC<Props> = ({
         }}
       >
         <svg
-          width={Math.round(size * 0.9)}
-          height={Math.round(size * 0.9)}
+          width={Math.round(size * 0.92)}
+          height={Math.round(size * 0.92)}
           viewBox="0 0 80 80"
           style={{
             animation: 'chibiGentleSway 2.4s ease-in-out infinite',
@@ -1109,25 +1124,67 @@ export const StudentMobileView: React.FC<Props> = ({
           {/* Hào quang nền dưới chân Chibi */}
           <ellipse cx="40" cy="73" rx="18" ry="4" fill="rgba(255,255,255,0.22)" />
 
+          {/* Hai bím tóc dài hai bên nếu là Nhân vật Nữ (👧 Nữ) */}
+          {isFemale && (
+            <>
+              <path
+                d="M21 25 C11 28, 9 43, 15 52 C19 49, 20 38, 22 30 Z"
+                fill="#1e293b"
+                stroke="#334155"
+                strokeWidth="1"
+              />
+              <path
+                d="M59 25 C69 28, 71 43, 65 52 C61 49, 60 38, 58 30 Z"
+                fill="#1e293b"
+                stroke="#334155"
+                strokeWidth="1"
+              />
+            </>
+          )}
+
           {/* Áo choàng nếu là Siêu nhân */}
           {avatar.costume === 'superhero' && (
             <path d="M22 44 L14 68 L66 68 L58 44 Z" fill="#b91c1c" />
           )}
 
           {/* Chân & Giày Chibi dễ thương */}
-          <rect x="29" y="61" width="8" height="10" rx="4" fill="#1e293b" />
-          <rect x="43" y="61" width="8" height="10" rx="4" fill="#1e293b" />
-          <ellipse cx="33" cy="71" rx="5.5" ry="3" fill="#f8fafc" />
-          <ellipse cx="47" cy="71" rx="5.5" ry="3" fill="#f8fafc" />
+          <rect x="29" y="61" width="8" height="10" rx="4" fill={isFemale ? '#fde68a' : '#1e293b'} />
+          <rect x="43" y="61" width="8" height="10" rx="4" fill={isFemale ? '#fde68a' : '#1e293b'} />
+          {isFemale && (
+            <>
+              <rect x="29" y="65" width="8" height="5" rx="2" fill="#ffffff" />
+              <rect x="43" y="65" width="8" height="5" rx="2" fill="#ffffff" />
+            </>
+          )}
+          <ellipse cx="33" cy="71" rx="5.5" ry="3" fill={isFemale ? '#f43f5e' : '#f8fafc'} />
+          <ellipse cx="47" cy="71" rx="5.5" ry="3" fill={isFemale ? '#f43f5e' : '#f8fafc'} />
 
-          {/* Thân áo Chibi */}
-          <rect x="23" y="42" width="34" height="22" rx="11" fill={outfitColor} stroke="#ffffff" strokeWidth="1.2" />
+          {/* Thân áo Chibi (Nhân vật Nữ có thêm chân váy xếp ly xinh xắn) */}
+          <rect x="23" y="42" width="34" height="21" rx="10" fill={outfitColor} stroke="#ffffff" strokeWidth="1.2" />
+          {isFemale && (
+            <polygon
+              points="24,56 56,56 60,64 20,64"
+              fill={avatar.costume === 'uniform' ? '#1e3a8a' : outfitColor}
+              stroke="#ffffff"
+              strokeWidth="1"
+            />
+          )}
 
           {/* Họa tiết trang phục */}
           {avatar.costume === 'uniform' && (
             <>
               <polygon points="33,42 40,51 47,42" fill="#ffffff" />
-              <polygon points="38.5,47 41.5,47 42.5,58 40,61 37.5,58" fill="#ef4444" />
+              {isFemale ? (
+                <>
+                  {/* Nơ cổ nữ sinh dễ thương */}
+                  <polygon points="40,48 34,45 34,51" fill="#f43f5e" />
+                  <polygon points="40,48 46,45 46,51" fill="#f43f5e" />
+                  <circle cx="40" cy="48" r="2" fill="#fef08a" />
+                </>
+              ) : (
+                /* Cà vạt nam sinh */
+                <polygon points="38.5,47 41.5,47 42.5,58 40,61 37.5,58" fill="#ef4444" />
+              )}
             </>
           )}
           {avatar.costume === 'aodai' && (
@@ -1140,7 +1197,7 @@ export const StudentMobileView: React.FC<Props> = ({
             <polygon points="40,46 42,51 47,51 43,54 44.5,59 40,56 35.5,59 37,54 33,51 38,51" fill="#fde047" />
           )}
           {avatar.costume === 'sport' && (
-            <text x="40" y="57" textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="900">10</text>
+            <text x="40" y="56" textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="900">10</text>
           )}
 
           {/* Hai tay Chibi (Giơ cao ăn mừng khi trả lời đúng, hoặc cầm đạo cụ dễ thương) */}
@@ -1160,7 +1217,7 @@ export const StudentMobileView: React.FC<Props> = ({
             </>
           )}
 
-          {/* Đạo cụ theo trò chơi (Bảng vàng Rung Chuông Vàng / Ngọc phép Diệt Boss / Tia chớp Đua Tốc Độ) */}
+          {/* Đạo cụ theo trò chơi (Bảng vàng Rung Chuông Vàng / Ngọc phép Diệt Boss) */}
           {gameType === 'BELL' && (
             <g transform="translate(54, 46)">
               <rect x="0" y="0" width="16" height="14" rx="3" fill="#fef08a" stroke="#ca8a04" strokeWidth="1.5" />
@@ -1177,8 +1234,8 @@ export const StudentMobileView: React.FC<Props> = ({
           <circle cx="40" cy="28" r="19" fill="#fde68a" stroke="#fcd34d" strokeWidth="1" />
 
           {/* Má hồng Kawaii */}
-          <ellipse cx="27" cy="32" rx="4.2" ry="2.4" fill="#fb7185" opacity="0.65" />
-          <ellipse cx="53" cy="32" rx="4.2" ry="2.4" fill="#fb7185" opacity="0.65" />
+          <ellipse cx="27" cy="32" rx={isFemale ? '4.8' : '4.0'} ry="2.5" fill="#fb7185" opacity={isFemale ? '0.8' : '0.6'} />
+          <ellipse cx="53" cy="32" rx={isFemale ? '4.8' : '4.0'} ry="2.5" fill="#fb7185" opacity={isFemale ? '0.8' : '0.6'} />
 
           {/* Biểu cảm mắt & miệng theo trạng thái */}
           {mood === 'frozen' ? (
@@ -1199,7 +1256,6 @@ export const StudentMobileView: React.FC<Props> = ({
               <circle cx="30.5" cy="26.8" r="1.2" fill="#ffffff" />
               <circle cx="48.5" cy="28" r="3.4" fill="#0f172a" />
               <circle cx="47.5" cy="26.8" r="1.2" fill="#ffffff" />
-              {/* Giọt nước mắt chibi */}
               <path d="M26 31 Q24 35 26 37 Q28 35 26 31 Z" fill="#38bdf8" />
               <path d="M54 31 Q52 35 54 37 Q56 35 54 31 Z" fill="#38bdf8" />
               <path d="M34 37 Q40 33 46 37" stroke="#0f172a" strokeWidth="2.3" fill="none" strokeLinecap="round" />
@@ -1207,46 +1263,113 @@ export const StudentMobileView: React.FC<Props> = ({
           ) : (
             <>
               {/* Đôi mắt to tròn long lanh */}
-              <circle cx="31.5" cy="27.5" r="3.8" fill="#0f172a" />
+              <circle cx="31.5" cy="27.5" r="3.9" fill="#0f172a" />
               <circle cx="30.2" cy="26.2" r="1.5" fill="#ffffff" />
               <circle cx="32.8" cy="28.8" r="0.8" fill="#ffffff" />
-              <circle cx="48.5" cy="27.5" r="3.8" fill="#0f172a" />
+              <circle cx="48.5" cy="27.5" r="3.9" fill="#0f172a" />
               <circle cx="47.2" cy="26.2" r="1.5" fill="#ffffff" />
               <circle cx="49.8" cy="28.8" r="0.8" fill="#ffffff" />
-              <path d="M34 34.5 Q40 39.5 46 34.5" stroke="#0f172a" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+              {/* Lông mi cong dễ thương nếu là Nhân vật Nữ */}
+              {isFemale && (
+                <>
+                  <path d="M27.5 25 L25.5 23.2" stroke="#0f172a" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M52.5 25 L54.5 23.2" stroke="#0f172a" strokeWidth="1.8" strokeLinecap="round" />
+                </>
+              )}
+              <path d="M34 34.5 Q40 39.5 46 34.5" stroke={isFemale ? '#e11d48' : '#0f172a'} strokeWidth="2.4" fill="none" strokeLinecap="round" />
             </>
           )}
 
-          {/* Mũ / Tóc Chibi tùy chỉnh */}
+          {/* Mái tóc trước trán theo giới tính Nam / Nữ */}
+          {isFemale ? (
+            <path d="M21 23 Q30 14 40 20 Q50 14 59 23 Q53 11 40 11 Q27 11 21 23 Z" fill="#1e293b" />
+          ) : (
+            <path d="M21 23 L26 17 L31 22 L38 15 L44 22 L51 16 L59 23 Q52 10 40 10 Q28 10 21 23 Z" fill="#1e293b" />
+          )}
+
+          {/* Hai nơ cài tóc xinh xắn cho Nhân vật Nữ */}
+          {isFemale && (
+            <>
+              <circle cx="20" cy="23" r="3.6" fill="#f43f5e" stroke="#ffffff" strokeWidth="0.9" />
+              <circle cx="60" cy="23" r="3.6" fill="#f43f5e" stroke="#ffffff" strokeWidth="0.9" />
+            </>
+          )}
+
+          {/* Mũ / Phụ kiện đầu tùy chỉnh */}
           {avatar.hairStyle === 'crown' ? (
             <>
-              <path d="M21 22 Q40 12 59 22 Q49 16 40 17 Q31 16 21 22 Z" fill="#1e293b" />
-              <polygon points="23,17 29,6 40,14 51,6 57,17" fill="#facc15" stroke="#ca8a04" strokeWidth="1.6" />
-              <circle cx="40" cy="11" r="2" fill="#ef4444" />
+              <polygon points="24,16 30,5 40,13 50,5 56,16" fill="#facc15" stroke="#ca8a04" strokeWidth="1.5" />
+              <circle cx="40" cy="10" r="2" fill="#ef4444" />
             </>
           ) : avatar.hairStyle === 'cap' ? (
             <>
-              <path d="M20 20 Q40 5 60 20 Z" fill={accentColor} />
-              <rect x="19" y="18" width="44" height="4.5" rx="2.2" fill={accentColor} stroke="#ffffff" strokeWidth="0.8" />
+              <path d="M21 19 Q40 5 59 19 Z" fill={accentColor} />
+              <rect x="19" y="17" width="43" height="4" rx="2" fill={accentColor} stroke="#ffffff" strokeWidth="0.8" />
             </>
           ) : avatar.hairStyle === 'beret' ? (
             <>
-              <ellipse cx="41" cy="13" rx="20" ry="7.5" transform="rotate(-8 41 13)" fill={accentColor} />
+              <ellipse cx="41" cy="12" rx="19" ry="7" transform="rotate(-8 41 12)" fill={accentColor} />
               <rect x="39" y="4" width="3" height="4" rx="1" fill={accentColor} />
             </>
           ) : avatar.hairStyle === 'cyber' ? (
             <>
-              <path d="M20 26 Q20 8 40 8 Q60 8 60 26" stroke={accentColor} strokeWidth="4.5" fill="none" />
-              <rect x="15" y="21" width="7" height="12" rx="3.5" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
-              <rect x="58" y="21" width="7" height="12" rx="3.5" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
+              <path d="M20 26 Q20 8 40 8 Q60 8 60 26" stroke={accentColor} strokeWidth="4" fill="none" />
+              <rect x="15" y="21" width="6.5" height="11" rx="3" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
+              <rect x="58.5" y="21" width="6.5" height="11" rx="3" fill={accentColor} stroke="#ffffff" strokeWidth="1" />
             </>
           ) : (
-            <>
-              <path d="M20 24 Q24 8 40 9 Q56 8 60 24 Q50 15 40 16 Q30 15 20 24 Z" fill="#1e293b" />
-              <rect x="21" y="16" width="38" height="4.5" rx="2" fill={accentColor} />
-            </>
+            <rect x="22" y="15" width="36" height="4" rx="2" fill={accentColor} />
           )}
         </svg>
+      </div>
+    );
+  };
+
+  // Nút chuyển nhanh Nhân Vật Nam / Nhân Vật Nữ ngay trên màn hình điện thoại học sinh
+  const renderGenderQuickSelector = (compact: boolean = false) => {
+    const isFemale = avatar.gender === 'female';
+    return (
+      <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
+        <button
+          type="button"
+          onClick={() => handleSaveProfile(studentName, { ...avatar, gender: 'male' })}
+          style={{
+            padding: compact ? '4px 8px' : '8px 14px',
+            borderRadius: compact ? '8px' : '10px',
+            fontSize: compact ? '11px' : '13px',
+            fontWeight: 900,
+            background: !isFemale ? 'linear-gradient(135deg, #0284c7, #2563eb)' : '#1e293b',
+            color: '#ffffff',
+            border: !isFemale ? '2px solid #7dd3fc' : '1px solid #475569',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            boxShadow: !isFemale ? '0 3px 10px rgba(37, 99, 235, 0.4)' : 'none'
+          }}
+        >
+          👦 {compact ? 'Nam' : 'Nhân vật Nam'}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSaveProfile(studentName, { ...avatar, gender: 'female' })}
+          style={{
+            padding: compact ? '4px 8px' : '8px 14px',
+            borderRadius: compact ? '8px' : '10px',
+            fontSize: compact ? '11px' : '13px',
+            fontWeight: 900,
+            background: isFemale ? 'linear-gradient(135deg, #ec4899, #db2777)' : '#1e293b',
+            color: '#ffffff',
+            border: isFemale ? '2px solid #fbcfe8' : '1px solid #475569',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            boxShadow: isFemale ? '0 3px 10px rgba(236, 72, 153, 0.4)' : 'none'
+          }}
+        >
+          👧 {compact ? 'Nữ' : 'Nhân vật Nữ'}
+        </button>
       </div>
     );
   };
@@ -1429,17 +1552,18 @@ export const StudentMobileView: React.FC<Props> = ({
             )}
           </div>
 
-          {/* 3D Chibi Avatar Customization with Live Preview */}
+          {/* 3D Chibi Avatar Customization with Live Preview & Male/Female Selector */}
           <div style={{ background: '#0f172a', border: '1.5px solid #6366f1', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', background: 'rgba(99, 102, 241, 0.12)', padding: '12px', borderRadius: '14px', border: '1px solid rgba(99, 102, 241, 0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px', background: 'rgba(99, 102, 241, 0.12)', padding: '12px', borderRadius: '14px', border: '1px solid rgba(99, 102, 241, 0.35)' }}>
               {renderCuteChibiCharacter(88, 'happy')}
               <div>
                 <h3 style={{ margin: '0 0 4px 0', fontSize: '15.5px', color: '#fef08a', fontWeight: 900 }}>
                   ✨ Nhân Vật Chibi Của {studentName.trim() || 'Bạn'}
                 </h3>
-                <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.4 }}>
-                  Hãy chọn kiểu mũ, trang phục và màu sắc yêu thích! Nhân vật Chibi sẽ đồng hành cùng bạn trong suốt trận đấu.
+                <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.4, marginBottom: '8px' }}>
+                  Chọn <b>Nhân vật Nam</b> hoặc <b>Nhân vật Nữ</b>, kiểu mũ và trang phục yêu thích!
                 </div>
+                {renderGenderQuickSelector(false)}
               </div>
             </div>
 
@@ -1692,7 +1816,10 @@ export const StudentMobileView: React.FC<Props> = ({
             boxShadow: '0 4px 16px rgba(0,0,0,0.35)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {renderCuteChibiCharacter(62, 'thinking')}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                {renderCuteChibiCharacter(62, 'thinking')}
+                {renderGenderQuickSelector(true)}
+              </div>
               <div>
                 <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span>{studentName || 'Học sinh'}</span>
@@ -1869,17 +1996,20 @@ export const StudentMobileView: React.FC<Props> = ({
           {/* Header HUD with Cute Swaying Chibi Character, Waiting Room Button & Reconnect Button */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '10px 12px', borderRadius: '16px', border: '1.5px solid #334155', marginBottom: '10px', gap: '8px', flexWrap: 'wrap', boxShadow: '0 4px 16px rgba(0,0,0,0.35)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {/* Nhân vật hoạt hình Chibi dễ thương trên điện thoại học sinh */}
-              {renderCuteChibiCharacter(
-                64,
-                gameType === 'TUG' && isFrozen
-                  ? 'frozen'
-                  : (hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult
-                  ? lastLockedResult.isCorrect
-                    ? 'cheering'
-                    : 'sad'
-                  : 'happy'
-              )}
+              {/* Nhân vật hoạt hình Chibi Nam / Nữ dễ thương trên điện thoại học sinh */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                {renderCuteChibiCharacter(
+                  64,
+                  gameType === 'TUG' && isFrozen
+                    ? 'frozen'
+                    : (hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult
+                    ? lastLockedResult.isCorrect
+                      ? 'cheering'
+                      : 'sad'
+                    : 'happy'
+                )}
+                {renderGenderQuickSelector(true)}
+              </div>
               <div>
                 <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span>{studentName || 'Thí sinh'}</span>
