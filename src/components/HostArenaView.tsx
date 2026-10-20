@@ -1285,9 +1285,10 @@ export const HostArenaView: React.FC<Props> = ({
     }
   };
 
-  // Chuẩn bị sàn đấu để tập hợp đủ học sinh (Giữ nguyên toàn bộ học sinh đã kết nối)
+  // Chuẩn bị sàn đấu để tập hợp đủ học sinh (Giữ nguyên toàn bộ học sinh đã kết nối, đưa học sinh về Phòng chờ xem câu hỏi)
   const handlePrepareArenaGather = () => {
     AudioFX.whistle();
+    const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'LOBBY',
@@ -1308,22 +1309,35 @@ export const HostArenaView: React.FC<Props> = ({
       gameType: matchState.gameType,
       status: 'LOBBY',
       qIndex: 0,
+      question: firstQ,
       quiz: quizList
     });
   };
 
-  // Start contest - Giữ nguyên bộ đề đã chuẩn hóa, đồng bộ tức thì xuống máy học sinh
+  // Start contest - Khi giáo viên bấm Bắt đầu, mở khóa cho học sinh trong phòng chờ bắt đầu trả lời ngay lập tức
   const handleStartContest = () => {
     AudioFX.whistle();
     const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
-    CloudNetwork.sendMessage({
-      type: 'QUESTION_START',
+    const startPayload = {
+      type: 'QUESTION_START' as const,
+      status: 'PLAYING' as const,
       qIndex: 0,
       durationSec: durationSec,
       serverStartTime: Date.now(),
       question: firstQ,
       quiz: quizList
+    };
+    CloudNetwork.sendMessage(startPayload);
+    CloudNetwork.sendMessage({
+      type: 'MATCH_START',
+      status: 'PLAYING',
+      qIndex: 0,
+      question: firstQ,
+      quiz: quizList
     });
+    setTimeout(() => {
+      CloudNetwork.sendMessage(startPayload);
+    }, 250);
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -1336,10 +1350,19 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Pause / Resume
   const handlePauseMatch = () => {
+    const nextStatus = matchState.status === 'PLAYING' ? 'PAUSED' : 'PLAYING';
+    const curQ = quizList[matchState.globalQIndex % (quizList.length || 1)];
     onUpdateMatchState(prev => ({
       ...prev,
-      status: prev.status === 'PLAYING' ? 'PAUSED' : 'PLAYING'
+      status: nextStatus
     }));
+    CloudNetwork.sendMessage({
+      type: 'PAUSE_TOGGLE',
+      status: nextStatus,
+      qIndex: matchState.globalQIndex,
+      question: curQ ? ({ ...curQ, qIndex: matchState.globalQIndex } as any) : undefined,
+      quiz: quizList
+    });
   };
 
   // End match
