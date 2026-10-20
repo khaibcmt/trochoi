@@ -9,6 +9,7 @@ import {
   cleanQuestionTitleText,
   calculateFastestPoints,
   getConvertedGradeByRank,
+  getTeacherGradebookScore,
   FASTEST_Q_DURATION_SEC,
   getQuestionPartInfo,
   shuffleQuestionOrder
@@ -65,6 +66,7 @@ export const HostArenaView: React.FC<Props> = ({
   // Top 10 Leaderboard Modal & Live Display State
   const [showTop10Modal, setShowTop10Modal] = useState<boolean>(false);
   const [showLiveTop10, setShowLiveTop10] = useState<boolean>(true);
+  const [liveRankMode, setLiveRankMode] = useState<'SCORE' | 'CORRECT'>('SCORE');
 
   // Review Answers Mode & sky theme
   const [isReviewMode, setIsReviewMode] = useState(false);
@@ -1179,7 +1181,8 @@ export const HostArenaView: React.FC<Props> = ({
             playerId: p.id,
             lives: nextL,
             streak: 0,
-            eliminated: nextElim
+            eliminated: nextElim,
+            fastScore: p.fastScore
           });
           return {
             ...p,
@@ -1191,7 +1194,26 @@ export const HostArenaView: React.FC<Props> = ({
             wrongTotal: (p.wrongTotal || 0) + 1
           };
         }
-        // Các trò chơi khác (Kéo Co, Đua Tốc Độ, Diệt Boss): Ghi nhận 1 câu sai, reset chuỗi thắng, được 0 điểm câu này
+        if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
+          // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Không chọn coi như SAI -> Trừ 1000 điểm!
+          const nextScore = (p.fastScore || 0) - 1000;
+          CloudNetwork.sendMessage({
+            type: 'PLAYER_LIVES_SYNC',
+            playerId: p.id,
+            lives: 3,
+            streak: 0,
+            eliminated: false,
+            fastScore: nextScore
+          });
+          return {
+            ...p,
+            streak: 0,
+            fastScore: nextScore,
+            lastDelta: -1000,
+            wrongTotal: (p.wrongTotal || 0) + 1
+          };
+        }
+        // Trò Kéo Co: Ghi nhận 1 câu sai, reset chuỗi thắng, được 0 điểm câu này
         return {
           ...p,
           streak: 0,
@@ -1426,7 +1448,7 @@ export const HostArenaView: React.FC<Props> = ({
         if (isCorrect) {
           AudioFX.pullHeave();
           if (curQ) curQ.rightCount = (curQ.rightCount || 0) + 1;
-          const gained = 100 + Math.floor(Math.random() * 80);
+          const gained = 1000;
 
           const updateWinner = (p: Player): Player => {
             if (p.id !== chosen.id) return p;
@@ -1441,7 +1463,7 @@ export const HostArenaView: React.FC<Props> = ({
 
           const pullStep = chosen.team === 'BLUE' ? 0.75 : -0.75;
           const nextRope = prev.gameType === 'TUG' ? Math.max(-6, Math.min(6, prev.ropeScore + pullStep)) : prev.ropeScore;
-          const nextBossHP = prev.gameType === 'BOSS' ? Math.max(0, (prev.bossHP || 1000) - gained) : prev.bossHP;
+          const nextBossHP = prev.gameType === 'BOSS' ? Math.max(0, (prev.bossHP || 1000) - 150) : prev.bossHP;
 
           return {
             ...prev,
@@ -1469,6 +1491,15 @@ export const HostArenaView: React.FC<Props> = ({
                 eliminated: nextL <= 0,
                 role: nextL <= 0 ? 'SPECTATOR' : p.role,
                 streak: 0,
+                wrongTotal: (p.wrongTotal || 0) + 1
+              };
+            }
+            if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
+              return {
+                ...p,
+                streak: 0,
+                fastScore: (p.fastScore || 0) - 1000,
+                lastDelta: -1000,
                 wrongTotal: (p.wrongTotal || 0) + 1
               };
             }
@@ -1628,20 +1659,29 @@ export const HostArenaView: React.FC<Props> = ({
     }));
   };
 
-  // Export CSV
+  // Export CSV (Bao gồm cả Thứ hạng theo Điểm Thi Đấu và Thứ hạng theo Số Câu Đúng + Điểm Ghi Sổ Điểm Giáo Viên)
   const handleDownloadCSV = () => {
-    let csv = '\uFEFFHọ và Tên,Đội,Đúng,Sai,Điểm Tốc Độ,Điểm Quy Đổi,Trạng Thái\n';
-    const sorted = [...allPlayers].sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
-    sorted.forEach((p, idx) => {
-      const rank = idx + 1;
-      const g = getConvertedGradeByRank(rank, p.fastScore || 0);
-      csv += `"${p.label}","${p.team}","${p.correct}","${p.wrongTotal || 0}","${p.fastScore || 0}","${g.grade}","${p.eliminated ? 'Bị loại' : 'Còn trụ'}"\n`;
+    let csv = '\uFEFFHạng (Theo Điểm),Hạng (Theo Câu Đúng),Họ và Tên,Đội,Số Câu Đúng,Số Câu Sai,Tổng Điểm Thi Đấu (-1000đ/sai),Điểm Ghi Sổ Điểm GV (Thang 10),Trạng Thái\n';
+    const byScore = [...allPlayers].sort((a, b) => {
+      if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+      return (b.correct || 0) - (a.correct || 0);
+    });
+    const byCorrect = [...allPlayers].sort((a, b) => {
+      if ((b.correct || 0) !== (a.correct || 0)) return (b.correct || 0) - (a.correct || 0);
+      return (b.fastScore || 0) - (a.fastScore || 0);
+    });
+
+    byCorrect.forEach((p, idxCorrect) => {
+      const rankByCorrect = idxCorrect + 1;
+      const rankByScore = byScore.findIndex(x => x.id === p.id) + 1;
+      const gb = getTeacherGradebookScore(p.correct || 0, quizList.length || 12, rankByCorrect);
+      csv += `"${rankByScore}","${rankByCorrect}","${p.label}","${p.team}","${p.correct || 0}","${p.wrongTotal || 0}","${p.fastScore || 0}","${gb.grade}","${p.eliminated ? 'Khán giả' : 'Trụ sàn'}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `BangDiem_DauTruong3D_Phong${activeRoomId}.csv`;
+    link.download = `SoDiem_GiaoVien_Phong${activeRoomId}.csv`;
     link.click();
   };
 
@@ -1665,23 +1705,30 @@ export const HostArenaView: React.FC<Props> = ({
     setIsReviewMode(false);
   };
 
-  // Leaderboard for Fast Mode
-  const sortedFastLeaderboard = useMemo(() => {
-    return [...allPlayers]
-      .filter(p => (p.fastScore || 0) > 0)
-      .sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
-  }, [allPlayers]);
-
-  // Overall Top 10 Leaderboard across all modes
+  // 1. Bảng xếp hạng tính theo Tổng Điểm Thi Đấu (fastScore - có trừ 1000đ mỗi câu sai ở Ai Nhanh Hơn & Đánh Boss)
   const top10Leaderboard = useMemo(() => {
     return [...allPlayers].sort((a, b) => {
-      const scoreA = (a.fastScore || 0) * 100 + (a.correct || 0) * 50 + (a.streak || 0) * 10 + (a.lives || 0);
-      const scoreB = (b.fastScore || 0) * 100 + (b.correct || 0) * 50 + (b.streak || 0) * 10 + (b.lives || 0);
-      return scoreB - scoreA;
+      if (matchState.gameType === 'BELL') {
+        if (!a.eliminated && b.eliminated) return -1;
+        if (a.eliminated && !b.eliminated) return 1;
+        if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+      }
+      if ((b.fastScore || 0) !== (a.fastScore || 0)) {
+        return (b.fastScore || 0) - (a.fastScore || 0);
+      }
+      return (b.correct || 0) - (a.correct || 0);
+    });
+  }, [allPlayers, matchState.gameType]);
+
+  // 2. Bảng xếp hạng tính theo Số Câu Trả Lời Đúng (Để ghi vào Sổ điểm của Giáo viên - Chơi nhưng vẫn có điểm!)
+  const top10ByCorrectLeaderboard = useMemo(() => {
+    return [...allPlayers].sort((a, b) => {
+      if ((b.correct || 0) !== (a.correct || 0)) {
+        return (b.correct || 0) - (a.correct || 0);
+      }
+      return (b.fastScore || 0) - (a.fastScore || 0);
     });
   }, [allPlayers]);
-
-  const top1Fast = sortedFastLeaderboard[0];
 
   const getRoundTitleText = () => {
     if (matchState.gameType === 'BOSS') {
@@ -1864,8 +1911,9 @@ export const HostArenaView: React.FC<Props> = ({
             className="b3d-btn"
             style={{ background: '#b45309', border: '1px solid #fde047', padding: '5px 10px', fontSize: '11.5px' }}
             onClick={() => setShowTop10Modal(true)}
+            title="Xem 2 Bảng Xếp Hạng: Tổng Điểm Thi Đấu (-1000đ/sai) & Số Câu Đúng Ghi Sổ Điểm Giáo Viên"
           >
-            🏆 Top 10
+            🏆 2 BXH & Sổ Điểm
           </button>
 
           <button
@@ -2130,27 +2178,66 @@ export const HostArenaView: React.FC<Props> = ({
           </>
         )}
 
-        {/* Live Top 10 Leaderboard (Bảng Xếp Hạng Cá Nhân Trực Tiếp) */}
+        {/* Live Top 10 Leaderboard (Có 2 chế độ: Xếp hạng theo Tổng Điểm & Xếp hạng theo Số Câu Đúng ghi sổ điểm GV) */}
         {allPlayers.length > 0 && showLiveTop10 && (
-          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex', width: '265px' }} aria-label="Bảng ghi nhận Top 10 trực tiếp">
-            <div className="flb-title">
-              <span>🏆 BẢNG XẾP HẠNG TOP 10</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#38bdf8' }}>{allPlayers.length} HS</span>
+          <aside className="fast-live-leaderboard" id="fast-live-leaderboard" style={{ display: 'flex', width: '285px' }} aria-label="Bảng ghi nhận Top 10 trực tiếp">
+            <div className="flb-title" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '5px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>{liveRankMode === 'SCORE' ? '🏆 BXH THEO TỔNG ĐIỂM' : '📒 BXH SỐ CÂU ĐÚNG (SỔ ĐIỂM)'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '11px', color: '#38bdf8' }}>{allPlayers.length} HS</span>
+                  <button
+                    onClick={() => setShowLiveTop10(false)}
+                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '13px', cursor: 'pointer', padding: '0 4px', fontWeight: 900 }}
+                    title="Thu nhỏ Bảng Top 10"
+                  >
+                    ➖
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
                 <button
-                  onClick={() => setShowLiveTop10(false)}
-                  style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '13px', cursor: 'pointer', padding: '0 4px', fontWeight: 900 }}
-                  title="Thu nhỏ Bảng Top 10"
+                  type="button"
+                  onClick={() => setLiveRankMode('SCORE')}
+                  style={{
+                    padding: '3px 6px',
+                    borderRadius: '6px',
+                    fontSize: '10.5px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    background: liveRankMode === 'SCORE' ? '#f59e0b' : '#1e293b',
+                    color: liveRankMode === 'SCORE' ? '#0f172a' : '#cbd5e1',
+                    border: liveRankMode === 'SCORE' ? '1px solid #fef08a' : '1px solid #334155'
+                  }}
                 >
-                  ➖
+                  🏆 Theo Điểm Số
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLiveRankMode('CORRECT')}
+                  style={{
+                    padding: '3px 6px',
+                    borderRadius: '6px',
+                    fontSize: '10.5px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    background: liveRankMode === 'CORRECT' ? '#10b981' : '#1e293b',
+                    color: liveRankMode === 'CORRECT' ? '#ffffff' : '#cbd5e1',
+                    border: liveRankMode === 'CORRECT' ? '1px solid #6ee7b7' : '1px solid #334155'
+                  }}
+                >
+                  📒 Số Câu Đúng (GV)
                 </button>
               </div>
             </div>
             <div className="flb-list">
-              {top10Leaderboard.slice(0, 10).map((p, idx) => {
+              {(liveRankMode === 'SCORE' ? top10Leaderboard : top10ByCorrectLeaderboard).slice(0, 10).map((p, idx) => {
                 const rank = idx + 1;
                 const medal = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : `#${rank}`));
-                const scoreDisplay = matchState.gameType === 'BELL'
+                const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length || 12, rank);
+                const scoreDisplay = liveRankMode === 'CORRECT'
+                  ? `✅ ${p.correct || 0} đúng • ${gbScore.grade}đ`
+                  : matchState.gameType === 'BELL'
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
                   : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
                 return (
@@ -2162,7 +2249,7 @@ export const HostArenaView: React.FC<Props> = ({
                       )}
                       {p.label}
                     </div>
-                    <div className="flb-pts">
+                    <div className="flb-pts" style={{ color: liveRankMode === 'CORRECT' ? '#4ade80' : undefined }}>
                       {scoreDisplay}
                     </div>
                   </div>
@@ -2314,6 +2401,7 @@ export const HostArenaView: React.FC<Props> = ({
         <GrandFinaleScreen
           matchState={matchState}
           activeRoomId={activeRoomId}
+          totalQuestions={quizList.length || 12}
           onReviewMatch={() => {
             setIsReviewMode(true);
             setReviewQIdx(0);
@@ -2770,6 +2858,7 @@ export const HostArenaView: React.FC<Props> = ({
         gameType={matchState.gameType}
         allPlayers={allPlayers}
         activeRoomId={activeRoomId}
+        totalQuestions={quizList.length || 12}
         onDownloadCSV={handleDownloadCSV}
         onPrintPDFEvidence={onPrintPDFEvidence}
       />

@@ -1,12 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { MatchState, Player } from '../types';
-import { getConvertedGradeByRank } from '../data/defaultSubjects';
+import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
 import { exportHonorCertificateHTML } from '../utils/exportEvidence';
 
 interface Props {
   matchState: MatchState;
   activeRoomId: string;
+  totalQuestions?: number;
   onReviewMatch: () => void;
   onDownloadCSV: () => void;
   onExportHTMLSlide: () => void;
@@ -18,13 +19,15 @@ interface Props {
 export const GrandFinaleScreen: React.FC<Props> = ({
   matchState,
   activeRoomId,
+  totalQuestions = 12,
   onReviewMatch,
   onDownloadCSV,
-  onExportHTMLSlide,
   onPrintPDFEvidence,
   onRestartMatch,
   onReturnToSetup
 }) => {
+  const [activeTab, setActiveTab] = useState<'DUAL' | 'SCORE' | 'CORRECT'>('DUAL');
+
   // Fire celebration confetti when grand finale screen opens
   useEffect(() => {
     const duration = 4.0 * 1000;
@@ -47,30 +50,37 @@ export const GrandFinaleScreen: React.FC<Props> = ({
 
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
 
-  // Rank sorting based on score and correct answers (and survival in Golden Bell)
-  const rankedPlayers = [...allPlayers].sort((a, b) => {
+  // 1. BẢNG XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU (fastScore - có trừ 1000 điểm mỗi câu chọn sai trong Ai Nhanh Hơn & Đánh Boss)
+  const rankedByScorePlayers = [...allPlayers].sort((a, b) => {
     if (matchState.gameType === 'BELL') {
       if (!a.eliminated && b.eliminated) return -1;
       if (a.eliminated && !b.eliminated) return 1;
       if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
-      if ((b.correct || 0) !== (a.correct || 0)) return (b.correct || 0) - (a.correct || 0);
+    }
+    if ((b.fastScore || 0) !== (a.fastScore || 0)) {
       return (b.fastScore || 0) - (a.fastScore || 0);
     }
-    const scoreA = (a.fastScore || 0) + (a.correct || 0) * 100;
-    const scoreB = (b.fastScore || 0) + (b.correct || 0) * 100;
-    if (scoreB !== scoreA) return scoreB - scoreA;
     return (b.correct || 0) - (a.correct || 0);
   });
 
+  // 2. BẢNG XẾP HẠNG THEO SỐ CÂU TRẢ LỜI ĐÚNG (Để ghi vào Sổ điểm của Giáo viên - Chơi nhưng vẫn có điểm!)
+  const rankedByCorrectPlayers = [...allPlayers].sort((a, b) => {
+    if ((b.correct || 0) !== (a.correct || 0)) {
+      return (b.correct || 0) - (a.correct || 0);
+    }
+    return (b.fastScore || 0) - (a.fastScore || 0);
+  });
+
   // Top 10 Honorees
-  const top10Players = rankedPlayers.slice(0, 10);
-  const top1 = top10Players[0];
-  const top2 = top10Players[1];
-  const top3 = top10Players[2];
+  const top10ByScore = rankedByScorePlayers.slice(0, 10);
+  const top10ByCorrect = rankedByCorrectPlayers.slice(0, 10);
+  const top1 = top10ByScore[0];
+  const top2 = top10ByScore[1];
+  const top3 = top10ByScore[2];
 
   // Determine Tug-of-War Winning Team based on Round Wins, Rope Score, Total Correct Answers & Team Points
-  const redTotalPts = matchState.redPlayers.reduce((sum, p) => sum + (p.fastScore || 0) + (p.correct || 0) * 100, 0);
-  const blueTotalPts = matchState.bluePlayers.reduce((sum, p) => sum + (p.fastScore || 0) + (p.correct || 0) * 100, 0);
+  const redTotalPts = matchState.redPlayers.reduce((sum, p) => sum + (p.fastScore || 0), 0);
+  const blueTotalPts = matchState.bluePlayers.reduce((sum, p) => sum + (p.fastScore || 0), 0);
   const redTotalRight = matchState.redTotalCorrect || matchState.redPlayers.reduce((s, p) => s + (p.correct || 0), 0);
   const blueTotalRight = matchState.blueTotalCorrect || matchState.bluePlayers.reduce((s, p) => s + (p.correct || 0), 0);
 
@@ -101,16 +111,15 @@ export const GrandFinaleScreen: React.FC<Props> = ({
     return (b.fastScore || 0) - (a.fastScore || 0);
   })[0];
 
-  // Boss Slayer Champion
+  // Boss Slayer Champion (Tính theo Tổng Điểm fastScore có trừ 1000đ câu sai)
   const bossChampion = [...allPlayers].sort((a, b) => {
-    const dmgB = (b.fastScore || 0) + (b.correct || 0) * 100;
-    const dmgA = (a.fastScore || 0) + (a.correct || 0) * 100;
-    return dmgB - dmgA;
+    if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+    return (b.correct || 0) - (a.correct || 0);
   })[0];
 
   const getGradeInfo = (player: Player, rank: number) => {
-    const totalPts = (player.fastScore || 0) + (player.correct || 0) * 100;
-    if (matchState.gameType === 'FAST') {
+    const totalPts = player.fastScore || 0;
+    if (matchState.gameType === 'FAST' || matchState.gameType === 'BOSS') {
       return getConvertedGradeByRank(rank, totalPts);
     }
     if (matchState.gameType === 'BELL') {
@@ -146,12 +155,12 @@ export const GrandFinaleScreen: React.FC<Props> = ({
       }}
     >
       {/* Header Vinh Danh Chung Cuộc */}
-      <div style={{ textAlign: 'center', maxWidth: '1150px', width: '100%', marginBottom: '16px' }}>
-        <div style={{ fontSize: '44px', marginBottom: '2px', filter: 'drop-shadow(0 0 18px rgba(250, 204, 21, 0.75))' }}>
+      <div style={{ textAlign: 'center', maxWidth: '1240px', width: '100%', marginBottom: '16px' }}>
+        <div style={{ fontSize: '42px', marginBottom: '2px', filter: 'drop-shadow(0 0 18px rgba(250, 204, 21, 0.75))' }}>
           🏆👑🏆
         </div>
         <h1 style={{
-          fontSize: 'clamp(24px, 3vw, 36px)',
+          fontSize: 'clamp(22px, 2.8vw, 34px)',
           fontWeight: 900,
           background: 'linear-gradient(90deg, #fef08a, #f59e0b, #fde047, #f59e0b)',
           WebkitBackgroundClip: 'text',
@@ -160,10 +169,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
           letterSpacing: '0.8px',
           textTransform: 'uppercase'
         }}>
-          SÂN KHẤU VINH DANH QUÁN QUÂN & BẢNG VÀNG TOP 10
+          SÂN KHẤU VINH DANH QUÁN QUÂN & HỆ THỐNG 2 BẢNG XẾP HẠNG
         </h1>
-        <p style={{ fontSize: '14.5px', color: '#cbd5e1', margin: 0, fontWeight: 700 }}>
-          Phòng thi: <b style={{ color: '#38bdf8' }}>{activeRoomId}</b> • Tổng số thí sinh tham dự: <b style={{ color: '#4ade80' }}>{allPlayers.length} Học sinh</b> • Chương trình GDPT 2018
+        <p style={{ fontSize: '14px', color: '#cbd5e1', margin: 0, fontWeight: 700 }}>
+          Phòng thi: <b style={{ color: '#38bdf8' }}>{activeRoomId}</b> • Thí sinh: <b style={{ color: '#4ade80' }}>{allPlayers.length} Học sinh</b> • Xếp hạng theo <b style={{ color: '#fde047' }}>Tổng Điểm Thi Đấu (-1000đ/sai)</b> & <b style={{ color: '#6ee7b7' }}>Số Câu Đúng Ghi Sổ Điểm Giáo Viên</b>
         </p>
       </div>
 
@@ -172,7 +181,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
         gap: '14px',
-        maxWidth: '1150px',
+        maxWidth: '1240px',
         width: '100%',
         marginBottom: '18px'
       }}>
@@ -212,7 +221,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             </div>
             <div style={{ fontSize: '12.5px', color: '#a7f3d0', fontWeight: 800 }}>
               {bellChampion
-                ? `Còn ${bellChampion.lives ?? 3} ❤️ • ${bellChampion.correct || 0} câu đúng • ${(bellChampion.fastScore || 0) + (bellChampion.correct || 0) * 100}đ`
+                ? `Còn ${bellChampion.lives ?? 3} ❤️ • ${bellChampion.correct || 0} câu đúng • ${bellChampion.fastScore || 0}đ`
                 : 'Sẵn sàng vinh danh'}
             </div>
           </div>
@@ -254,7 +263,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             </div>
             <div style={{ fontSize: '12.5px', color: '#fde047', fontWeight: 800 }}>
               {bossChampion
-                ? `Sát thương: ${(bossChampion.fastScore || 0) + (bossChampion.correct || 0) * 100} HP • ${bossChampion.correct || 0} câu đúng`
+                ? `Tổng điểm: ${bossChampion.fastScore || 0}đ • ${bossChampion.correct || 0} câu đúng`
                 : `Boss HP: ${matchState.bossHP ?? 0}/${matchState.maxBossHP ?? 1000}`}
             </div>
           </div>
@@ -301,7 +310,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bục Vinh Danh Top 3 (Nếu có học sinh) */}
+      {/* Bục Vinh Danh Top 3 Theo Tổng Điểm (Nếu có học sinh) */}
       {top1 && (
         <div style={{
           display: 'flex',
@@ -310,7 +319,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
           gap: '16px',
           maxWidth: '760px',
           width: '100%',
-          margin: '4px auto 20px auto',
+          margin: '4px auto 18px auto',
           padding: '0 10px'
         }}>
           {/* Hạng 2 */}
@@ -321,7 +330,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                 {top2.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top2.correct || 0} đúng • {(top2.fastScore || 0) + (top2.correct || 0) * 100}đ
+                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng
               </div>
               <div style={{
                 width: '100%',
@@ -350,7 +359,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
               {top1.label}
             </div>
             <div style={{ fontSize: '13px', color: '#4ade80', marginBottom: '6px', fontWeight: 900 }}>
-              {top1.correct || 0} câu đúng • {(top1.fastScore || 0) + (top1.correct || 0) * 100} điểm
+              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng
             </div>
             <div style={{
               width: '100%',
@@ -366,7 +375,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
               fontWeight: 900
             }}>
               <div style={{ fontSize: '34px', color: '#fef08a' }}>QUÁN QUÂN</div>
-              <div style={{ fontSize: '12px', color: '#ffffff', letterSpacing: '1px' }}>TOP 1 XUẤT SẮC NHẤT 🏆</div>
+              <div style={{ fontSize: '12px', color: '#ffffff', letterSpacing: '1px' }}>TOP 1 TỔNG ĐIỂM 🏆</div>
             </div>
           </div>
 
@@ -378,7 +387,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                 {top3.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top3.correct || 0} đúng • {(top3.fastScore || 0) + (top3.correct || 0) * 100}đ
+                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng
               </div>
               <div style={{
                 width: '100%',
@@ -400,128 +409,270 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         </div>
       )}
 
-      {/* BẢNG VÀNG VINH DANH TOP 10 THÍ SINH XUẤT SẮC NHẤT */}
+      {/* Thanh chuyển chế độ xem 2 Bảng Xếp Hạng */}
       <div style={{
-        maxWidth: '1150px',
+        display: 'flex',
+        gap: '10px',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        maxWidth: '1240px',
         width: '100%',
-        background: 'rgba(15, 23, 42, 0.95)',
-        borderRadius: '20px',
-        border: '2px solid #38bdf8',
-        boxShadow: '0 15px 40px rgba(0,0,0,0.65)',
-        padding: '16px 20px',
+        marginBottom: '14px'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('DUAL')}
+          style={{
+            padding: '9px 18px',
+            borderRadius: '12px',
+            border: activeTab === 'DUAL' ? '2px solid #38bdf8' : '1.5px solid #334155',
+            background: activeTab === 'DUAL' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#0f172a',
+            color: '#ffffff',
+            fontWeight: 900,
+            fontSize: '13px',
+            cursor: 'pointer'
+          }}
+        >
+          📊 HIỂN THỊ SONG SONG CẢ 2 BẢNG XẾP HẠNG
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('SCORE')}
+          style={{
+            padding: '9px 18px',
+            borderRadius: '12px',
+            border: activeTab === 'SCORE' ? '2px solid #fde047' : '1.5px solid #334155',
+            background: activeTab === 'SCORE' ? 'linear-gradient(135deg, #d97706, #b45309)' : '#0f172a',
+            color: '#ffffff',
+            fontWeight: 900,
+            fontSize: '13px',
+            cursor: 'pointer'
+          }}
+        >
+          🏆 BẢNG 1: XẾP HẠNG THEO TỔNG ĐIỂM (-1000Đ/SAI)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('CORRECT')}
+          style={{
+            padding: '9px 18px',
+            borderRadius: '12px',
+            border: activeTab === 'CORRECT' ? '2px solid #6ee7b7' : '1.5px solid #334155',
+            background: activeTab === 'CORRECT' ? 'linear-gradient(135deg, #059669, #047857)' : '#0f172a',
+            color: '#ffffff',
+            fontWeight: 900,
+            fontSize: '13px',
+            cursor: 'pointer'
+          }}
+        >
+          📒 BẢNG 2: XẾP HẠNG THEO SỐ CÂU ĐÚNG (GHI SỔ ĐIỂM GV)
+        </button>
+      </div>
+
+      {/* HỆ THỐNG 2 BẢNG XẾP HẠNG: TỔNG ĐIỂM THI ĐẤU & SỔ ĐIỂM GIÁO VIÊN THEO SỐ CÂU ĐÚNG */}
+      <div style={{
+        maxWidth: '1240px',
+        width: '100%',
+        display: 'grid',
+        gridTemplateColumns: activeTab === 'DUAL' ? 'repeat(auto-fit, minmax(520px, 1fr))' : '1fr',
+        gap: '16px',
         marginBottom: '20px'
       }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          paddingBottom: '10px',
-          borderBottom: '1.5px solid #334155',
-          marginBottom: '10px',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          <h3 style={{ margin: 0, fontSize: '18px', color: '#fef08a', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>🌟 BẢNG VÀNG VINH DANH TOP 10 HỌC SINH XUẤT SẮC NHẤT</span>
-          </h3>
-          <span style={{ fontSize: '12.5px', color: '#7dd3fc', fontWeight: 800 }}>
-            Xếp hạng theo Tổng Điểm & Số Câu Trả Lời Đúng (Chuẩn GDPT 2018)
-          </span>
-        </div>
+        {/* BẢNG 1: XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU */}
+        {(activeTab === 'DUAL' || activeTab === 'SCORE') && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.95)',
+            borderRadius: '20px',
+            border: '2px solid #f59e0b',
+            boxShadow: '0 15px 40px rgba(0,0,0,0.65)',
+            padding: '16px 18px'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: '10px',
+              borderBottom: '1.5px solid #334155',
+              marginBottom: '10px',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16.5px', color: '#fde047', fontWeight: 900 }}>
+                  🏆 BẢNG 1: XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU
+                </h3>
+                <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700, marginTop: '2px' }}>
+                  Mỗi câu đúng <b style={{ color: '#4ade80' }}>+1000đ</b> • Chọn sai ở Ai Nhanh Hơn & Đánh Boss <b style={{ color: '#f87171' }}>trừ -1000đ</b>
+                </div>
+              </div>
+              <span style={{
+                fontSize: '11.5px',
+                background: 'rgba(245, 158, 11, 0.2)',
+                border: '1px solid #f59e0b',
+                color: '#fef08a',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontWeight: 900
+              }}>
+                Tính theo Điểm Số
+              </span>
+            </div>
 
-        {top10Players.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', fontSize: '15px', fontWeight: 800 }}>
-            Chưa có dữ liệu thí sinh trong trận đấu này.
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ background: '#1e293b', color: '#38bdf8', textAlign: 'left' }}>
-                  <th style={{ padding: '10px 12px', borderRadius: '10px 0 0 10px' }}>HẠNG</th>
-                  <th style={{ padding: '10px 12px' }}>HỌ VÀ TÊN THÍ SINH</th>
-                  <th style={{ padding: '10px 12px' }}>{matchState.gameType === 'TUG' ? 'ĐỘI THI ĐẤU' : 'TRẠNG THÁI'}</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>SỐ CÂU ĐÚNG</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>TỔNG ĐIỂM</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>ĐIỂM QUY ĐỔI (THANG 10)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {top10Players.map((player, idx) => {
-                  const rank = idx + 1;
-                  const info = getGradeInfo(player, rank);
-                  const totalPts = (player.fastScore || 0) + (player.correct || 0) * 100;
-                  return (
-                    <tr
-                      key={player.id}
-                      style={{
-                        borderBottom: '1px solid #1e293b',
-                        background: rank === 1
-                          ? 'rgba(234, 179, 8, 0.16)'
-                          : rank <= 3
-                          ? 'rgba(56, 189, 248, 0.08)'
-                          : 'transparent'
-                      }}
-                    >
-                      <td style={{ padding: '10px 12px', fontWeight: 900, fontSize: '15px', color: rank === 1 ? '#fde047' : rank === 2 ? '#e2e8f0' : rank === 3 ? '#fdba74' : '#94a3b8' }}>
-                        {rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`}
-                      </td>
-                      <td style={{ padding: '10px 12px', fontWeight: 900, color: '#ffffff', fontSize: '15px' }}>
-                        {player.label}
-                      </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        {matchState.gameType === 'TUG' ? (
-                          <span style={{
-                            padding: '3px 10px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: 900,
-                            background: player.team === 'RED' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(2, 132, 199, 0.25)',
-                            color: player.team === 'RED' ? '#fca5a5' : '#7dd3fc',
-                            border: player.team === 'RED' ? '1px solid #ef4444' : '1px solid #0284c7'
-                          }}>
-                            {player.team === 'RED' ? '🔴 Đội Đỏ' : '🔵 Đội Xanh'}
-                          </span>
-                        ) : matchState.gameType === 'BELL' ? (
-                          <span style={{
-                            padding: '3px 10px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: 900,
-                            background: player.eliminated ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                            color: player.eliminated ? '#fde047' : '#6ee7b7'
-                          }}>
-                            {player.eliminated ? '📣 Khán giả cổ vũ' : `🔔 Trụ sàn (${player.lives ?? 3}❤️)`}
-                          </span>
-                        ) : (
-                          <span style={{ color: '#cbd5e1', fontSize: '12.5px', fontWeight: 800 }}>
-                            🌟 Cá nhân toàn lớp
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
-                        {player.correct || 0} câu
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 900, color: '#38bdf8', fontSize: '15px' }}>
-                        {totalPts} điểm
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '4px 12px',
-                          borderRadius: '999px',
-                          fontWeight: 900,
-                          fontSize: '13px',
-                          background: info.grade >= 9.5 ? '#fef08a' : info.grade >= 9.0 ? '#bbf7d0' : '#bae6fd',
-                          color: '#0f172a'
-                        }}>
-                          {info.grade} điểm
-                        </span>
-                      </td>
+            {top10ByScore.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', fontSize: '14.5px', fontWeight: 800 }}>
+                Chưa có dữ liệu thí sinh trong trận đấu này.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+                  <thead>
+                    <tr style={{ background: '#1e293b', color: '#fde047', textAlign: 'left' }}>
+                      <th style={{ padding: '9px 10px', borderRadius: '10px 0 0 10px' }}>HẠNG</th>
+                      <th style={{ padding: '9px 10px' }}>HỌ VÀ TÊN</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'center' }}>ĐÚNG / SAI</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>TỔNG ĐIỂM THI ĐẤU</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {top10ByScore.map((player, idx) => {
+                      const rank = idx + 1;
+                      const totalPts = player.fastScore || 0;
+                      const info = getGradeInfo(player, rank);
+                      return (
+                        <tr
+                          key={`score-row-${player.id}`}
+                          style={{
+                            borderBottom: '1px solid #1e293b',
+                            background: rank === 1
+                              ? 'rgba(234, 179, 8, 0.16)'
+                              : rank <= 3
+                              ? 'rgba(56, 189, 248, 0.08)'
+                              : 'transparent'
+                          }}
+                        >
+                          <td style={{ padding: '9px 10px', fontWeight: 900, fontSize: '14px', color: rank === 1 ? '#fde047' : rank === 2 ? '#e2e8f0' : rank === 3 ? '#fdba74' : '#94a3b8' }}>
+                            {rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`}
+                          </td>
+                          <td style={{ padding: '9px 10px', fontWeight: 900, color: '#ffffff', fontSize: '14.5px' }}>
+                            {player.label}
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 800, fontSize: '12.5px' }}>
+                            <span style={{ color: '#4ade80' }}>✅ {player.correct || 0}</span>
+                            <span style={{ color: '#64748b', margin: '0 4px' }}>/</span>
+                            <span style={{ color: '#f87171' }}>❌ {player.wrongTotal || 0}</span>
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: totalPts < 0 ? '#f87171' : '#38bdf8', fontSize: '15px' }}>
+                            {totalPts} điểm <span style={{ fontSize: '11.5px', color: '#fde047' }}>({info.grade}đ)</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BẢNG 2: XẾP HẠNG THEO SỐ CÂU ĐÚNG — GHI SỔ ĐIỂM CỦA GIÁO VIÊN */}
+        {(activeTab === 'DUAL' || activeTab === 'CORRECT') && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.95)',
+            borderRadius: '20px',
+            border: '2px solid #10b981',
+            boxShadow: '0 15px 40px rgba(0,0,0,0.65)',
+            padding: '16px 18px'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: '10px',
+              borderBottom: '1.5px solid #334155',
+              marginBottom: '10px',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16.5px', color: '#6ee7b7', fontWeight: 900 }}>
+                  📒 BẢNG 2: XẾP HẠNG THEO SỐ CÂU ĐÚNG (GHI SỔ ĐIỂM GV)
+                </h3>
+                <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700, marginTop: '2px' }}>
+                  Tính theo <b style={{ color: '#4ade80' }}>Số câu trả lời đúng</b> — Học sinh tham gia chơi vẫn có điểm ghi vào Sổ điểm Giáo viên!
+                </div>
+              </div>
+              <span style={{
+                fontSize: '11.5px',
+                background: 'rgba(16, 185, 129, 0.2)',
+                border: '1px solid #10b981',
+                color: '#6ee7b7',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontWeight: 900
+              }}>
+                Ghi Sổ Điểm GV
+              </span>
+            </div>
+
+            {top10ByCorrect.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', fontSize: '14.5px', fontWeight: 800 }}>
+                Chưa có dữ liệu thí sinh trong trận đấu này.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+                  <thead>
+                    <tr style={{ background: '#1e293b', color: '#6ee7b7', textAlign: 'left' }}>
+                      <th style={{ padding: '9px 10px', borderRadius: '10px 0 0 10px' }}>HẠNG</th>
+                      <th style={{ padding: '9px 10px' }}>HỌ VÀ TÊN</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'center' }}>SỐ CÂU ĐÚNG</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'center', borderRadius: '0 10px 10px 0' }}>ĐIỂM GHI SỔ ĐIỂM GV</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {top10ByCorrect.map((player, idx) => {
+                      const rankByCorrect = idx + 1;
+                      const gb = getTeacherGradebookScore(player.correct || 0, totalQuestions, rankByCorrect);
+                      return (
+                        <tr
+                          key={`correct-row-${player.id}`}
+                          style={{
+                            borderBottom: '1px solid #1e293b',
+                            background: rankByCorrect === 1
+                              ? 'rgba(16, 185, 129, 0.16)'
+                              : rankByCorrect <= 3
+                              ? 'rgba(16, 185, 129, 0.08)'
+                              : 'transparent'
+                          }}
+                        >
+                          <td style={{ padding: '9px 10px', fontWeight: 900, fontSize: '14px', color: rankByCorrect === 1 ? '#fde047' : rankByCorrect === 2 ? '#e2e8f0' : rankByCorrect === 3 ? '#fdba74' : '#94a3b8' }}>
+                            {rankByCorrect === 1 ? '🥇 Hạng 1' : rankByCorrect === 2 ? '🥈 Hạng 2' : rankByCorrect === 3 ? '🥉 Hạng 3' : `#${rankByCorrect}`}
+                          </td>
+                          <td style={{ padding: '9px 10px', fontWeight: 900, color: '#ffffff', fontSize: '14.5px' }}>
+                            {player.label}
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
+                            ✅ {player.correct || 0}/{totalQuestions} câu
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '4px 12px',
+                              borderRadius: '999px',
+                              fontWeight: 900,
+                              fontSize: '13px',
+                              background: gb.grade >= 9.5 ? '#fef08a' : gb.grade >= 8.5 ? '#bbf7d0' : '#bae6fd',
+                              color: '#0f172a'
+                            }}>
+                              📒 {gb.grade} điểm
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -532,7 +683,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         flexWrap: 'wrap',
         gap: '10px',
         justifyContent: 'center',
-        maxWidth: '1050px',
+        maxWidth: '1150px',
         width: '100%'
       }}>
         <button
@@ -564,7 +715,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             cursor: 'pointer'
           }}
         >
-          📊 TẢI BẢNG ĐIỂM (.CSV)
+          📊 TẢI SỔ ĐIỂM GIÁO VIÊN (.CSV)
         </button>
 
         <button

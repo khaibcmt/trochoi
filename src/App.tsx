@@ -418,8 +418,10 @@ export const App: React.FC = () => {
             label: nextLabel,
             avatar: d.avatar || existing.avatar,
             ready: nextReady,
-            fastScore: typeof d.savedScore === 'number' ? Math.max(existing.fastScore || 0, d.savedScore) : existing.fastScore,
-            correct: typeof d.savedCorrect === 'number' ? Math.max(existing.correct || 0, d.savedCorrect) : existing.correct
+            fastScore: (existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
+              ? existing.fastScore
+              : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore),
+            correct: Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0)
           };
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
@@ -592,11 +594,7 @@ export const App: React.FC = () => {
         pObj.streak = (pObj.streak || 0) + 1;
 
         const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
-        const orderIdx = prev.redAnsweredIds.length + prev.blueAnsweredIds.length;
-        const baseFastPts = calculateFastestPoints(studentElapsedSec, orderIdx);
-        const gainedScore = prev.gameType === 'FAST'
-          ? baseFastPts
-          : (typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : baseFastPts);
+        const gainedScore = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
 
         pObj.fastScore = (pObj.fastScore || 0) + gainedScore;
         pObj.lastDelta = gainedScore;
@@ -619,7 +617,7 @@ export const App: React.FC = () => {
 
         // BOSS Mode: Deal damage to Boss & rank individuals by score/correct
         if (prev.gameType === 'BOSS') {
-          const dmg = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 100;
+          const dmg = 150;
           const nextBossHP = Math.max(0, (prev.bossHP || 1000) - dmg);
           let nextStatus: MatchStatus = prev.status;
 
@@ -634,7 +632,7 @@ export const App: React.FC = () => {
             status: nextStatus,
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
-            bossLastAttack: `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (Tổng: ${pObj.fastScore}đ)`,
+            bossLastAttack: `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (+${gainedScore}đ • Tổng: ${pObj.fastScore}đ)`,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
@@ -694,7 +692,7 @@ export const App: React.FC = () => {
         }
 
         // TUG mode (Kéo Co 3D): Kéo dây theo lực trả lời đúng, KHÔNG ngắt ngang đồng hồ 30 giây của câu hỏi đang chạy
-        const pullPower = d.gainedPts && d.gainedPts >= 200 ? 1.2 : 0.8;
+        const pullPower = d.gainedPts && d.gainedPts >= 1500 ? 1.2 : 0.8;
         const rawNextRope = prev.ropeScore + (pObj.team === 'BLUE' ? pullPower : -pullPower);
         const nextRope = Math.max(-6, Math.min(6, rawNextRope));
         const nextRedTotalCorrect = pObj.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect;
@@ -724,7 +722,6 @@ export const App: React.FC = () => {
 
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
-        pObj.lastDelta = 0;
 
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
         const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
@@ -743,6 +740,7 @@ export const App: React.FC = () => {
         if (prev.gameType === 'BELL') {
           AudioFX.freezeCrack();
           pObj.lives = Math.max(0, (pObj.lives ?? 3) - 1);
+          pObj.lastDelta = 0;
           if (pObj.lives <= 0) {
             pObj.eliminated = true;
             pObj.role = 'SPECTATOR';
@@ -754,15 +752,34 @@ export const App: React.FC = () => {
             lives: pObj.lives,
             streak: 0,
             eliminated: pObj.eliminated,
+            fastScore: pObj.fastScore,
+            bonusAwarded: false
+          });
+        } else if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
+          // TRÒ AI NHANH HƠN (FAST) VÀ ĐÁNH BOSS (BOSS): Mỗi câu chọn sai trừ 1000 điểm! (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên)
+          AudioFX.freezeCrack();
+          pObj.lives = 3;
+          pObj.eliminated = false;
+          pObj.fastScore = (pObj.fastScore || 0) - 1000;
+          pObj.lastDelta = -1000;
+
+          CloudNetwork.sendMessage({
+            type: 'PLAYER_LIVES_SYNC',
+            playerId: pObj.id,
+            lives: 3,
+            streak: 0,
+            eliminated: false,
+            fastScore: pObj.fastScore,
             bonusAwarded: false
           });
         } else {
-          // Các trò chơi khác (Kéo Co, Đua Tốc Độ, Diệt Boss): Câu sai không bị trừ mạng, không bị loại
+          // Trò Kéo Co (TUG): Câu sai không bị trừ điểm, không bị trừ mạng
           pObj.lives = 3;
           pObj.eliminated = false;
+          pObj.lastDelta = 0;
           if (prev.gameType === 'TUG') {
             AudioFX.freezeCrack();
-            pObj.freeze = Date.now() + 3000; // Chỉ hiệu ứng hình ảnh nhẹ trong Kéo Co
+            pObj.freeze = Date.now() + 3000;
           }
         }
 

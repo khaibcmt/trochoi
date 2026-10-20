@@ -458,8 +458,15 @@ export const StudentMobileView: React.FC<Props> = ({
         }
         return nextL;
       });
+    } else if (gameType === 'FAST' || gameType === 'BOSS') {
+      // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Chọn sai / hết giờ không chọn bị trừ 1000 điểm (Số câu đúng ghi sổ điểm GV giữ nguyên)
+      setFastScore(prev => prev - 1000);
+      setLastLockedResult({
+        isCorrect: false,
+        text: '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!'
+      });
     } else {
-      // Các trò chơi khác: Không chọn đáp án khi hết 30s coi như SAI (0 điểm câu này)
+      // Trò Kéo Co: Không chọn đáp án khi hết 30s coi như SAI (0 điểm câu này)
       setLastLockedResult({
         isCorrect: false,
         text: '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!'
@@ -653,6 +660,7 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
+      if (typeof d.fastScore === 'number') setFastScore(d.fastScore);
 
       if (d.bonusAwarded && gameType === 'TUG') {
         awardRandomPowerUp();
@@ -851,13 +859,16 @@ export const StudentMobileView: React.FC<Props> = ({
     setSelectedOptionOriginalIdx(origIdx);
 
     const isCorrect = Number(origIdx) === Number(resolvedCurrentQ.correct);
+    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
 
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? '✅ CHÍNH XÁC! Bạn đã chọn ĐÚNG đáp án (+100 điểm)'
+        ? '✅ CHÍNH XÁC! Bạn đã chọn ĐÚNG đáp án (+1000 điểm • +1 câu đúng ghi sổ điểm)'
         : (gameType === 'BELL'
             ? '❌ ĐÁP ÁN SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
+            : hasPenalty
+            ? '❌ ĐÁP ÁN SAI! Bạn bị trừ -1000 điểm ở câu này (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)'
             : '❌ ĐÁP ÁN SAI! (0 điểm câu này • Đã khóa câu trả lời)')
     });
 
@@ -882,17 +893,20 @@ export const StudentMobileView: React.FC<Props> = ({
     });
 
     const won = items.length > 0 && correctCount === items.length;
+    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
 
     setLastLockedResult({
       isCorrect: won,
       text: won
-        ? `✅ XUẤT SẮC! Bạn trả lời ĐÚNG cả ${correctCount}/${items.length} mệnh đề (+${correctCount * 100} điểm)`
+        ? `✅ XUẤT SẮC! Bạn trả lời ĐÚNG cả ${correctCount}/${items.length} mệnh đề (+1000 điểm • +1 câu đúng ghi sổ điểm)`
         : (gameType === 'BELL'
             ? `❌ CHƯA CHÍNH XÁC (${correctCount}/${items.length} ý đúng) • Bạn bị mất 1 ❤️ Mạng`
+            : hasPenalty
+            ? `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng) • Trừ -1000 điểm (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)`
             : `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng • 0 điểm) • Đã khóa câu trả lời`)
     });
 
-    processAnswerOutcome(won, won ? correctCount : 0);
+    processAnswerOutcome(won, won ? 1 : 0);
   };
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
@@ -919,13 +933,16 @@ export const StudentMobileView: React.FC<Props> = ({
     const isNumEqual = !isNaN(Number(normCorrect)) && !isNaN(Number(normUser)) && Number(normCorrect) === Number(normUser);
     const isStrEqual = correctVal === userVal;
     const isCorrect = isNumEqual || isStrEqual;
+    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
 
     setLastLockedResult({
       isCorrect,
       text: isCorrect
-        ? `✅ CHÍNH XÁC! Kết quả "${shortAnswerInput.trim()}" hoàn toàn ĐÚNG (+100 điểm)`
+        ? `✅ CHÍNH XÁC! Kết quả "${shortAnswerInput.trim()}" hoàn toàn ĐÚNG (+1000 điểm • +1 câu đúng ghi sổ điểm)`
         : (gameType === 'BELL'
             ? '❌ KẾT QUẢ SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
+            : hasPenalty
+            ? '❌ KẾT QUẢ SAI! Bạn bị trừ -1000 điểm ở câu này (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)'
             : '❌ KẾT QUẢ SAI! (0 điểm câu này • Đã khóa câu trả lời)')
     });
 
@@ -944,7 +961,7 @@ export const StudentMobileView: React.FC<Props> = ({
       const powerMultiplier = (gameType === 'TUG' && doublePowerActive) ? 2 : 1;
       if (doublePowerActive) setDoublePowerActive(false);
 
-      const gainedPts = Math.max(100, factor * powerMultiplier * 100);
+      const gainedPts = Math.max(1000, factor * powerMultiplier * 1000);
       setFastScore(prev => prev + gainedPts);
       setMyCorrectCount(prev => prev + 1);
 
@@ -977,6 +994,9 @@ export const StudentMobileView: React.FC<Props> = ({
           }
           return nextL;
         });
+      } else if (gameType === 'FAST' || gameType === 'BOSS') {
+        // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Mỗi câu chọn sai trừ 1000 điểm
+        setFastScore(prev => prev - 1000);
       }
 
       CloudNetwork.sendMessage({

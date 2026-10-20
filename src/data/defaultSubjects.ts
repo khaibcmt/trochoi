@@ -1094,23 +1094,24 @@ export function getStableShuffledQuestion(questionItem: QuizItem, qIndexKey: num
   return result;
 }
 
-export const FASTEST_Q_DURATION_SEC = 20;
+export const FASTEST_Q_DURATION_SEC = 30;
 export const FASTEST_MAX_POINTS = 1000;
+export const WRONG_ANSWER_PENALTY_POINTS = 1000;
 
 export function calculateFastestPoints(elapsedSeconds: number, orderIndex: number): number {
-  if (orderIndex === 0 && elapsedSeconds <= 1.2) {
+  if (orderIndex === 0 && elapsedSeconds <= 2.0) {
     return FASTEST_MAX_POINTS;
   }
   const clampedSec = Math.max(0, Math.min(FASTEST_Q_DURATION_SEC, elapsedSeconds));
-  const timeFactor = 1 - 0.85 * (clampedSec / FASTEST_Q_DURATION_SEC);
-  const orderPenalty = Math.min(150, orderIndex * 15);
+  const timeFactor = 1 - 0.5 * (clampedSec / FASTEST_Q_DURATION_SEC);
+  const orderPenalty = Math.min(150, orderIndex * 10);
   const rawPts = Math.round(FASTEST_MAX_POINTS * timeFactor) - orderPenalty;
-  return Math.max(100, Math.min(FASTEST_MAX_POINTS, rawPts));
+  return Math.max(500, Math.min(FASTEST_MAX_POINTS, rawPts));
 }
 
 export function getConvertedGradeByRank(rankNumber: number, totalScore: number) {
-  if (!totalScore || totalScore <= 0) {
-    return { grade: 0, label: '0 điểm (Chưa có điểm)', css: 'grade-other' };
+  if (totalScore <= 0 && rankNumber > 15) {
+    return { grade: 6.0, label: '6.0 điểm (Khuyến khích)', css: 'grade-other' };
   }
   if (rankNumber >= 1 && rankNumber <= 3) {
     return { grade: 10, label: '10 điểm', css: 'grade-10' };
@@ -1124,7 +1125,36 @@ export function getConvertedGradeByRank(rankNumber: number, totalScore: number) 
   if (rankNumber >= 11 && rankNumber <= 15) {
     return { grade: 7, label: '7 điểm', css: 'grade-7' };
   }
-  return { grade: 6, label: 'Khuyến khích', css: 'grade-other' };
+  return { grade: 6, label: '6 điểm (Khuyến khích)', css: 'grade-other' };
+}
+
+// Tính điểm ghi vào Sổ điểm của Giáo viên dựa trên Số Câu Trả Lời Đúng (học sinh tham gia chơi có câu đúng luôn có điểm công bằng để ghi sổ)
+export function getTeacherGradebookScore(correctCount: number, totalQuestions: number = 12, rankByCorrect: number = 1) {
+  const safeTotalQ = Math.max(1, totalQuestions || 12);
+  const ratioScore = Math.min(10, Math.round(((correctCount || 0) / safeTotalQ) * 10 * 10) / 10);
+
+  if (!correctCount || correctCount <= 0) {
+    return {
+      grade: 6.0,
+      ratioScore: 0,
+      label: '6.0đ (Tham gia tích cực)'
+    };
+  }
+
+  let rankBase = 7.0;
+  if (rankByCorrect === 1) rankBase = 10.0;
+  else if (rankByCorrect <= 3) rankBase = 9.5;
+  else if (rankByCorrect <= 6) rankBase = 9.0;
+  else if (rankByCorrect <= 10) rankBase = 8.5;
+  else if (rankByCorrect <= 15) rankBase = 8.0;
+  else rankBase = 7.5;
+
+  const finalGrade = Math.min(10, Math.max(ratioScore, rankBase));
+  return {
+    grade: finalGrade,
+    ratioScore,
+    label: `${finalGrade} điểm`
+  };
 }
 
 export function getInitialSubjects(): Record<string, SubjectData> {

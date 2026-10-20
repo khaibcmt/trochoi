@@ -1,5 +1,5 @@
 import { QuizItem, MatchState, Player } from '../types';
-import { cleanQuestionTitleText, getConvertedGradeByRank } from '../data/defaultSubjects';
+import { cleanQuestionTitleText, getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
 
 export function buildColorfulEvidenceHTMLDocument(
   quizList: QuizItem[],
@@ -258,18 +258,23 @@ export function printEvidenceColorfulPDF(quizList: QuizItem[], subjectTitle: str
 export function exportHonorCertificateHTML(matchState: MatchState, roomId: string) {
   const nowStr = new Date().toLocaleDateString('vi-VN');
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
-  const ranked = [...allPlayers].sort((a, b) => {
+  const rankedByScore = [...allPlayers].sort((a, b) => {
     if (matchState.gameType === 'BELL') {
       if (!a.eliminated && b.eliminated) return -1;
       if (a.eliminated && !b.eliminated) return 1;
       if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
     }
-    const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
-    const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
-    return sB - sA;
+    if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+    return (b.correct || 0) - (a.correct || 0);
   });
 
-  const top10 = ranked.slice(0, 10);
+  const rankedByCorrect = [...allPlayers].sort((a, b) => {
+    if ((b.correct || 0) !== (a.correct || 0)) return (b.correct || 0) - (a.correct || 0);
+    return (b.fastScore || 0) - (a.fastScore || 0);
+  });
+
+  const top10 = rankedByScore.slice(0, 10);
+  const top10Correct = rankedByCorrect.slice(0, 15);
   const champion = top10[0];
 
   const gameName =
@@ -284,7 +289,7 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
   const rowsHTML = top10
     .map((p, idx) => {
       const rank = idx + 1;
-      const totalPts = (p.fastScore || 0) + (p.correct || 0) * 100;
+      const totalPts = p.fastScore || 0;
       const g = getConvertedGradeByRank(rank, totalPts);
       return `
         <tr>
@@ -292,9 +297,25 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
             rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`
           }</td>
           <td style="padding:10px; font-weight:900; color:#1e293b;">${p.label}</td>
-          <td style="padding:10px; text-align:center; font-weight:800;">${p.correct || 0} câu</td>
+          <td style="padding:10px; text-align:center; font-weight:800;">✅ ${p.correct || 0} / ❌ ${p.wrongTotal || 0}</td>
           <td style="padding:10px; text-align:center; font-weight:900; color:#0284c7;">${totalPts} điểm</td>
-          <td style="padding:10px; text-align:center; font-weight:900; color:#059669;">${g.grade} điểm (TT22)</td>
+          <td style="padding:10px; text-align:center; font-weight:900; color:#059669;">${g.grade} điểm</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const gradebookRowsHTML = top10Correct
+    .map((p, idx) => {
+      const rankCorrect = idx + 1;
+      const gb = getTeacherGradebookScore(p.correct || 0, 12, rankCorrect);
+      return `
+        <tr>
+          <td style="padding:10px; font-weight:900; text-align:center;">#${rankCorrect}</td>
+          <td style="padding:10px; font-weight:900; color:#1e293b;">${p.label}</td>
+          <td style="padding:10px; text-align:center; font-weight:900; color:#059669;">✅ ${p.correct || 0} câu đúng</td>
+          <td style="padding:10px; text-align:center; font-weight:800; color:#64748b;">${p.fastScore || 0} điểm</td>
+          <td style="padding:10px; text-align:center; font-weight:900; color:#dc2626;">📒 ${gb.grade} điểm (Ghi sổ GV)</td>
         </tr>
       `;
     })
@@ -304,7 +325,7 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <title>Bảng Vàng & Giấy Khen Vinh Danh - Trường THPT Mang Thít</title>
+  <title>Bảng Vàng & Sổ Điểm Giáo Viên - Trường THPT Mang Thít</title>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; font-family: 'Nunito', sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -317,58 +338,74 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
     .cert-header { text-align: center; border-bottom: 2px dashed #f59e0b; padding-bottom: 18px; margin-bottom: 22px; }
     .gov-line { font-size: 14px; font-weight: 900; text-transform: uppercase; color: #334155; }
     .school-line { font-size: 16px; font-weight: 900; color: #b45309; margin-top: 4px; }
-    .cert-title { font-size: 32px; font-weight: 900; color: #dc2626; margin: 16px 0 6px 0; text-transform: uppercase; letter-spacing: 1px; }
+    .cert-title { font-size: 30px; font-weight: 900; color: #dc2626; margin: 16px 0 6px 0; text-transform: uppercase; letter-spacing: 1px; }
     .cert-sub { font-size: 16px; font-weight: 800; color: #0284c7; margin: 0; }
     .champ-box {
       background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2.5px solid #f59e0b;
       border-radius: 18px; padding: 18px 24px; text-align: center; margin-bottom: 24px;
     }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 22px; }
     th { background: #1e293b; color: #fef08a; padding: 10px; font-size: 13.5px; }
     td { border-bottom: 1px solid #e2e8f0; font-size: 14.5px; }
-    .sign-row { display: flex; justify-content: space-between; margin-top: 32px; padding: 0 24px; }
+    .sign-row { display: flex; justify-content: space-between; margin-top: 28px; padding: 0 24px; }
     @media print { .no-print { display: none !important; } body { background: #fff; padding: 0; } }
   </style>
 </head>
 <body>
   <div class="no-print" style="max-width:960px; margin:0 auto 16px auto; display:flex; justify-content:flex-end; gap:10px;">
-    <button onclick="window.print()" style="padding:10px 20px; border-radius:10px; background:#059669; color:#fff; border:none; font-weight:900; cursor:pointer;">🖨️ In Bằng Vinh Danh / Lưu PDF</button>
+    <button onclick="window.print()" style="padding:10px 20px; border-radius:10px; background:#059669; color:#fff; border:none; font-weight:900; cursor:pointer;">🖨️ In Bằng Vinh Danh & Sổ Điểm GV / Lưu PDF</button>
   </div>
   <div class="cert-frame">
     <div class="cert-header">
       <div class="gov-line">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM • Độc lập - Tự do - Hạnh phúc</div>
       <div class="school-line">SỞ GD&ĐT VĨNH LONG • TRƯỜNG THPT MANG THÍT</div>
-      <h1 class="cert-title">🏆 BẢNG VÀNG VINH DANH QUÁN QUÂN & TOP 10 XUẤT SẮC 🏆</h1>
+      <h1 class="cert-title">🏆 BẢNG VÀNG VINH DANH & SỔ ĐIỂM GIÁO VIÊN 🏆</h1>
       <p class="cert-sub">Học Liệu Số Đấu Trường 3D • Chế Độ: ${gameName} • Mã Phòng: ${roomId}</p>
     </div>
 
     <div class="champ-box">
-      <div style="font-size:14px; font-weight:900; color:#b45309;">👑 QUÁN QUÂN XUẤT SẮC NHẤT TRẬN ĐẤU</div>
+      <div style="font-size:14px; font-weight:900; color:#b45309;">👑 QUÁN QUÂN TỔNG ĐIỂM THI ĐẤU XUẤT SẮC NHẤT</div>
       <div style="font-size:28px; font-weight:900; color:#dc2626; margin:4px 0;">${
         champion ? champion.label : 'Tập thể Lớp Học Tích Cực'
       }</div>
       <div style="font-size:15px; font-weight:800; color:#065f46;">
         ${
           champion
-            ? `Đạt ${champion.correct || 0} câu đúng • Tổng điểm: ${(champion.fastScore || 0) + (champion.correct || 0) * 100} điểm • Điểm quy đổi: 10.0 điểm`
+            ? `Đạt ${champion.correct || 0} câu đúng • Tổng điểm thi đấu: ${champion.fastScore || 0} điểm • Điểm quy đổi: 10.0 điểm`
             : 'Hoàn thành xuất sắc nhiệm vụ học tập chương trình GDPT 2018'
         }
       </div>
     </div>
 
-    <h3 style="margin:0 0 8px 0; font-size:16px; color:#1e293b; text-transform:uppercase;">🌟 Danh Sách Top 10 Học Sinh Điển Hình & Quy Đổi Điểm Thường Xuyên (Thông Tư 22/2021/TT-BGDĐT):</h3>
+    <h3 style="margin:0 0 6px 0; font-size:15.5px; color:#b45309; text-transform:uppercase;">🏆 BẢNG 1: Xếp Hạng Theo Tổng Điểm Thi Đấu (Đúng +1000đ • Sai -1000đ ở Ai Nhanh Hơn & Đánh Boss):</h3>
     <table>
       <thead>
         <tr>
           <th>THỨ HẠNG</th>
           <th style="text-align:left;">HỌ VÀ TÊN HỌC SINH</th>
-          <th>SỐ CÂU ĐÚNG</th>
-          <th>TỔNG ĐIỂM</th>
-          <th>ĐIỂM QUY ĐỔI</th>
+          <th>ĐÚNG / SAI</th>
+          <th>TỔNG ĐIỂM THI ĐẤU</th>
+          <th>ĐIỂM XẾP HẠNG</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHTML || '<tr><td colspan="5" style="padding:16px; text-align:center;">Chưa có dữ liệu học sinh</td></tr>'}
+      </tbody>
+    </table>
+
+    <h3 style="margin:0 0 6px 0; font-size:15.5px; color:#059669; text-transform:uppercase;">📒 BẢNG 2: Xếp Hạng Theo Số Câu Đúng — Ghi Vào Sổ Điểm Của Giáo Viên (Chơi Nhưng Vẫn Có Điểm!):</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>HẠNG CÂU ĐÚNG</th>
+          <th style="text-align:left;">HỌ VÀ TÊN HỌC SINH</th>
+          <th>SỐ CÂU TRẢ LỜI ĐÚNG</th>
+          <th>ĐIỂM TRÒ CHƠI</th>
+          <th>ĐIỂM GHI SỔ ĐIỂM GV</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${gradebookRowsHTML || '<tr><td colspan="5" style="padding:16px; text-align:center;">Chưa có dữ liệu học sinh</td></tr>'}
       </tbody>
     </table>
 
