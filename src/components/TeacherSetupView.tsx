@@ -138,39 +138,92 @@ export const TeacherSetupView: React.FC<Props> = ({
     return combined;
   };
 
-  const populate3BoxesFromItems = (items: QuizItem[]) => {
-    const { mcHTML, tfHTML, saHTML } = splitQuizTo3FormatHTML(items);
-    if (mcEditorRef.current) mcEditorRef.current.innerHTML = mcHTML;
-    if (tfEditorRef.current) tfEditorRef.current.innerHTML = tfHTML;
-    if (saEditorRef.current) saEditorRef.current.innerHTML = saHTML;
-
+  const syncLiveToStorageAndHost = (items: QuizItem[]) => {
     const mc = items.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE').length;
     const tf = items.filter(q => q.format === 'TRUE_FALSE').length;
     const sa = items.filter(q => q.format === 'SHORT_ANSWER').length;
     setFormatCounts({ mc, tf, sa });
     setLivePreviewItems(items);
+    try {
+      localStorage.setItem('custom_Active_Quiz_V31', JSON.stringify(items));
+    } catch {}
+    if (items.length > 0 && onSyncQuizLive) {
+      onSyncQuizLive(items);
+    }
+  };
+
+  const populate3BoxesFromItems = (items: QuizItem[]) => {
+    const { mcHTML, tfHTML, saHTML } = splitQuizTo3FormatHTML(items);
+    if (mcEditorRef.current) mcEditorRef.current.innerHTML = mcHTML;
+    if (tfEditorRef.current) tfEditorRef.current.innerHTML = tfHTML;
+    if (saEditorRef.current) saEditorRef.current.innerHTML = saHTML;
+    syncLiveToStorageAndHost(items);
   };
 
   const syncEditorQuestionsLive = () => {
     const combined = getCombinedQuizFrom3Boxes();
-    const mc = combined.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE').length;
-    const tf = combined.filter(q => q.format === 'TRUE_FALSE').length;
-    const sa = combined.filter(q => q.format === 'SHORT_ANSWER').length;
-    setFormatCounts({ mc, tf, sa });
-    setLivePreviewItems(combined);
-    if (combined.length > 0 && onSyncQuizLive) {
-      onSyncQuizLive(combined);
+    syncLiveToStorageAndHost(combined);
+  };
+
+  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml> của Word nhưng giữ nguyên gạch chân <u> và xuống dòng
+  const handleCleanPasteInBox = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const htmlData = e.clipboardData.getData('text/html');
+    const textData = e.clipboardData.getData('text/plain');
+
+    let cleanToInsert = '';
+    if (htmlData && htmlData.trim()) {
+      const stripped = htmlData
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<(?:style|script|xml|head|meta|link|title|o:p)[^>]*>[\s\S]*?<\/(?:style|script|xml|head|meta|link|title|o:p)>/gi, '')
+        .replace(/<(?:meta|link|o:p)[^>]*\/?>/gi, '');
+      const temp = document.createElement('div');
+      temp.innerHTML = stripped;
+
+      // Chuyển các phần tử có underline / màu đỏ-xanh-vàng thành thẻ <u> chuẩn để hiển thị rõ trong khung
+      temp.querySelectorAll('*').forEach(el => {
+        const styleAttr = (el.getAttribute('style') || '').toLowerCase();
+        const colorAttr = (el.getAttribute('color') || '').toLowerCase();
+        const isUnderline = /text-decoration(?:-line)?\s*:\s*[^;]*underline/i.test(styleAttr);
+        const isHighlightColor =
+          /(?:^|;|\s)color\s*:\s*(?:red|#ff0000|#f00|#ef4444|#dc2626|#c00000|#e11d48|green|#008000|#00b050|#10b981)/i.test(styleAttr) ||
+          /background(?:-color)?\s*:\s*(?:yellow|#ffff00|#fef08a|#fde047)/i.test(styleAttr) ||
+          /^(?:red|#ff0000|#c00000|green|#008000|#00b050)$/i.test(colorAttr);
+        if ((isUnderline || isHighlightColor) && el.tagName.toLowerCase() !== 'u') {
+          const uTag = document.createElement('u');
+          while (el.firstChild) {
+            uTag.appendChild(el.firstChild);
+          }
+          el.appendChild(uTag);
+        }
+        el.removeAttribute('class');
+        el.removeAttribute('style');
+      });
+      cleanToInsert = temp.innerHTML;
+    } else if (textData) {
+      cleanToInsert = textData
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => `<div>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`)
+        .join('');
     }
+
+    if (cleanToInsert) {
+      document.execCommand('insertHTML', false, cleanToInsert);
+    }
+    setTimeout(() => {
+      syncEditorQuestionsLive();
+    }, 30);
   };
 
   // Sync 3 format boxes when subject changes
+  const lastLoadedSubjectKeyRef = useRef<string>('');
   useEffect(() => {
-    if (subjectsDB[currentSubjectKey]) {
+    if (subjectsDB[currentSubjectKey] && lastLoadedSubjectKeyRef.current !== currentSubjectKey) {
+      lastLoadedSubjectKeyRef.current = currentSubjectKey;
       const parsed = parseHTMLToQuiz(subjectsDB[currentSubjectKey].html);
       populate3BoxesFromItems(parsed);
-      if (parsed.length > 0 && onSyncQuizLive) {
-        onSyncQuizLive(parsed);
-      }
     }
   }, [currentSubjectKey, subjectsDB]);
 
@@ -206,13 +259,84 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   };
 
-  // Cho phép giáo viên bấm chọn nhanh đáp án đúng ngay trên Bảng Xem Trước (Live Preview)
+  // Thêm nhanh 1 câu hỏi mới theo đúng Dạng thức I, II, III
+  const handleAddBlankQuestionByFormat = (fmt: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'SHORT_ANSWER') => {
+    const newQ: QuizItem =
+      fmt === 'TRUE_FALSE'
+        ? {
+            qid: livePreviewItems.length,
+            q: 'Nhập nội dung câu hỏi Đúng/Sai (Dạng thức II) tại đây:',
+            format: 'TRUE_FALSE',
+            tfItems: [
+              { label: 'a', text: 'Nội dung mệnh đề a', isCorrect: true },
+              { label: 'b', text: 'Nội dung mệnh đề b', isCorrect: false },
+              { label: 'c', text: 'Nội dung mệnh đề c', isCorrect: true },
+              { label: 'd', text: 'Nội dung mệnh đề d', isCorrect: false }
+            ],
+            opts: [
+              'a) Nội dung mệnh đề a (Đúng)',
+              'b) Nội dung mệnh đề b (Sai)',
+              'c) Nội dung mệnh đề c (Đúng)',
+              'd) Nội dung mệnh đề d (Sai)'
+            ],
+            correct: 0
+          }
+        : fmt === 'SHORT_ANSWER'
+        ? {
+            qid: livePreviewItems.length,
+            q: 'Nhập nội dung câu hỏi Trả lời ngắn (Dạng thức III) tại đây:',
+            format: 'SHORT_ANSWER',
+            shortAnswer: '10',
+            opts: ['10'],
+            correct: 0
+          }
+        : {
+            qid: livePreviewItems.length,
+            q: 'Nhập nội dung câu hỏi 4 phương án (Dạng thức I) tại đây:',
+            format: 'MULTIPLE_CHOICE',
+            opts: ['Phương án A (Đúng)', 'Phương án B', 'Phương án C', 'Phương án D'],
+            correct: 0
+          };
+
+    const updated = [...livePreviewItems, newQ].map((item, idx) => ({ ...item, qid: idx }));
+    populate3BoxesFromItems(updated);
+    setShowPreviewList(true);
+  };
+
+  // Chỉnh sửa trực tiếp nội dung câu hỏi & phương án trong Bảng Kiểm Tra 3 Dạng Thức
+  const handleQuickEditQuestionTitle = (qIdx: number, newTitle: string) => {
+    const updated = livePreviewItems.map((item, idx) => (idx === qIdx ? { ...item, q: newTitle } : item));
+    syncLiveToStorageAndHost(updated);
+  };
+
+  const handleQuickEditMCOptionText = (qIdx: number, optIdx: number, newOptText: string) => {
+    const updated = livePreviewItems.map((item, idx) => {
+      if (idx !== qIdx) return item;
+      const nextOpts = [...item.opts];
+      nextOpts[optIdx] = newOptText;
+      return { ...item, opts: nextOpts };
+    });
+    syncLiveToStorageAndHost(updated);
+  };
+
   const handleQuickChangeCorrectMC = (qIdx: number, newCorrectOptIdx: number) => {
     const updated = livePreviewItems.map((item, idx) =>
       idx === qIdx ? { ...item, correct: newCorrectOptIdx, aiSelected: false } : item
     );
     populate3BoxesFromItems(updated);
-    if (onSyncQuizLive) onSyncQuizLive(updated);
+  };
+
+  const handleQuickEditTFStatementText = (qIdx: number, tfIdx: number, newText: string) => {
+    const updated = livePreviewItems.map((item, idx) => {
+      if (idx !== qIdx || !item.tfItems) return item;
+      const nextTf = item.tfItems.map((tf, i) => (i === tfIdx ? { ...tf, text: newText } : tf));
+      return {
+        ...item,
+        tfItems: nextTf,
+        opts: nextTf.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`)
+      };
+    });
+    syncLiveToStorageAndHost(updated);
   };
 
   const handleQuickToggleTFItem = (qIdx: number, tfIdx: number) => {
@@ -226,32 +350,45 @@ export const TeacherSetupView: React.FC<Props> = ({
       };
     });
     populate3BoxesFromItems(updated);
-    if (onSyncQuizLive) onSyncQuizLive(updated);
   };
 
   const handleQuickEditShortAnswer = (qIdx: number, newVal: string) => {
     const updated = livePreviewItems.map((item, idx) =>
       idx === qIdx ? { ...item, shortAnswer: newVal, opts: [newVal] } : item
     );
-    populate3BoxesFromItems(updated);
-    if (onSyncQuizLive) onSyncQuizLive(updated);
+    syncLiveToStorageAndHost(updated);
+  };
+
+  const handleCommitPreviewEditsToBoxes = () => {
+    const { mcHTML, tfHTML, saHTML } = splitQuizTo3FormatHTML(livePreviewItems);
+    if (mcEditorRef.current) mcEditorRef.current.innerHTML = mcHTML;
+    if (tfEditorRef.current) tfEditorRef.current.innerHTML = tfHTML;
+    if (saEditorRef.current) saEditorRef.current.innerHTML = saHTML;
   };
 
   const handleQuickDeleteQuestion = (qIdx: number) => {
     const updated = livePreviewItems.filter((_, idx) => idx !== qIdx).map((item, i) => ({ ...item, qid: i }));
     populate3BoxesFromItems(updated);
-    if (onSyncQuizLive) onSyncQuizLive(updated);
   };
 
   const handleAIAutoMark = () => {
-    const parsed = getCombinedQuizFrom3Boxes();
-    if (!parsed.length) {
+    // Nếu giáo viên dán chung cả 3 phần vào 1 khung, tự động phân loại về đúng 3 khung Dạng thức I, II, III
+    const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
+    const tfRaw = tfEditorRef.current?.innerHTML?.trim() || '';
+    const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
+
+    const autoItems = [
+      ...(mcRaw ? parseHTMLToQuiz(mcRaw) : []),
+      ...(tfRaw ? parseHTMLToQuiz(tfRaw, 'TRUE_FALSE') : []),
+      ...(saRaw ? parseHTMLToQuiz(saRaw, 'SHORT_ANSWER') : [])
+    ].map((item, idx) => ({ ...item, qid: idx }));
+
+    if (!autoItems.length) {
       alert('Vui lòng nhập hoặc dán câu hỏi vào ít nhất 1 trong 3 khung Dạng thức trước!');
       return;
     }
-    populate3BoxesFromItems(parsed);
-    if (onSyncQuizLive) onSyncQuizLive(parsed);
-    alert(`🤖 Hệ thống đã tự động chuẩn hóa định dạng và gạch chân đáp án đúng cho toàn bộ ${parsed.length} câu hỏi chuẩn GDPT 2018!`);
+    populate3BoxesFromItems(autoItems);
+    alert(`🤖 Hệ thống đã tự động chuẩn hóa, chia đúng 3 khung Dạng thức và gạch chân đáp án đúng cho toàn bộ ${autoItems.length} câu hỏi chuẩn GDPT 2018!`);
   };
 
   // AI Question Generation (Client-Side Gemini & Intelligent Offline Fallback)
@@ -855,6 +992,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={mcEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -932,6 +1070,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={tfEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1009,6 +1148,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={saEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1028,7 +1168,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </section>
 
-        {/* BẢNG KIỂM TRA & CHỈNH SỬA NHANH CÂU HỎI ĐÃ NHẬN DIỆN (LIVE PARSED PREVIEW) */}
+        {/* BẢNG KIỂM TRA & SOẠN THẢO TRỰC QUAN 3 DẠNG THỨC (LIVE INTERACTIVE EDITOR) */}
         <section
           style={{
             margin: '10px 0',
@@ -1040,23 +1180,49 @@ export const TeacherSetupView: React.FC<Props> = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#0f172a' }}>
-              ✅ Kiểm Tra Danh Sách Câu Hỏi Đã Nhận Diện ({livePreviewItems.length} câu — Bấm trực tiếp vào phương án để đổi Đáp án đúng nếu cần):
+              ✅ Bảng Soạn Thảo & Kiểm Tra Trực Quan 3 Dạng Thức ({livePreviewItems.length} câu — Sửa trực tiếp nội dung hoặc bấm chọn Đáp án đúng):
             </div>
-            <button
-              type="button"
-              className="btn-action-sm"
-              style={{ fontSize: '11.5px', padding: '4px 10px' }}
-              onClick={() => setShowPreviewList(!showPreviewList)}
-            >
-              {showPreviewList ? '🔽 Thu gọn danh sách kiểm tra' : '▶️ Mở danh sách kiểm tra câu hỏi'}
-            </button>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11.5px', padding: '4px 9px', background: '#dbeafe', borderColor: '#60a5fa', color: '#1e3a8a', fontWeight: 900 }}
+                onClick={() => handleAddBlankQuestionByFormat('MULTIPLE_CHOICE')}
+              >
+                ➕ Thêm Câu Dạng I (A,B,C,D)
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11.5px', padding: '4px 9px', background: '#ede9fe', borderColor: '#a78bfa', color: '#4c1d95', fontWeight: 900 }}
+                onClick={() => handleAddBlankQuestionByFormat('TRUE_FALSE')}
+              >
+                ➕ Thêm Câu Dạng II (Đúng/Sai)
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11.5px', padding: '4px 9px', background: '#d1fae5', borderColor: '#34d399', color: '#065f46', fontWeight: 900 }}
+                onClick={() => handleAddBlankQuestionByFormat('SHORT_ANSWER')}
+              >
+                ➕ Thêm Câu Dạng III (Trả lời ngắn)
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11.5px', padding: '4px 10px' }}
+                onClick={() => setShowPreviewList(!showPreviewList)}
+              >
+                {showPreviewList ? '🔽 Thu gọn danh sách' : '▶️ Mở danh sách câu hỏi'}
+              </button>
+            </div>
           </div>
 
           {showPreviewList && (
             <div
               style={{
                 marginTop: '8px',
-                maxHeight: '240px',
+                maxHeight: '320px',
                 overflowY: 'auto',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1066,13 +1232,13 @@ export const TeacherSetupView: React.FC<Props> = ({
             >
               {livePreviewItems.length === 0 ? (
                 <div style={{ padding: '14px', textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px' }}>
-                  Chưa có câu hỏi nào. Hãy copy và dán câu hỏi vào 1 trong 3 khung Dạng thức ở trên!
+                  Chưa có câu hỏi nào. Hãy copy dán câu hỏi vào 3 khung ở trên hoặc bấm nút <b>&ldquo;➕ Thêm Câu Dạng I / II / III&rdquo;</b>!
                 </div>
               ) : (
                 livePreviewItems.map((item, qIdx) => {
                   const fmtLabel =
                     item.format === 'TRUE_FALSE'
-                      ? 'Dạng II: Đúng/Sai'
+                      ? 'Dạng II: Đúng/Sai (4 ý)'
                       : item.format === 'SHORT_ANSWER'
                       ? 'Dạng III: Trả lời ngắn'
                       : 'Dạng I: 4 lựa chọn';
@@ -1084,28 +1250,43 @@ export const TeacherSetupView: React.FC<Props> = ({
                       key={qIdx}
                       style={{
                         background: '#f8fafc',
-                        border: '1.5px solid #e2e8f0',
+                        border: '1.5px solid #cbd5e1',
                         borderRadius: '10px',
-                        padding: '8px 12px',
+                        padding: '9px 12px',
                         fontSize: '12.5px'
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                        <div style={{ fontWeight: 900, color: '#0f172a', lineHeight: 1.4 }}>
-                          <span
-                            style={{
-                              background: fmtColor,
-                              color: '#fff',
-                              padding: '2px 7px',
-                              borderRadius: '6px',
-                              fontSize: '11px',
-                              marginRight: '6px'
-                            }}
-                          >
-                            Câu {qIdx + 1} • {fmtLabel}
-                          </span>
-                          {item.q}
-                        </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                        <span
+                          style={{
+                            background: fmtColor,
+                            color: '#fff',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            flexShrink: 0
+                          }}
+                        >
+                          Câu {qIdx + 1} • {fmtLabel}
+                        </span>
+                        <input
+                          type="text"
+                          value={item.q}
+                          onChange={e => handleQuickEditQuestionTitle(qIdx, e.target.value)}
+                          onBlur={handleCommitPreviewEditsToBoxes}
+                          placeholder="Nhập nội dung câu hỏi..."
+                          style={{
+                            flex: 1,
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontWeight: 800,
+                            fontSize: '12.5px',
+                            color: '#0f172a',
+                            background: '#ffffff'
+                          }}
+                        />
                         <button
                           type="button"
                           onClick={() => handleQuickDeleteQuestion(qIdx)}
@@ -1114,7 +1295,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                             color: '#b91c1c',
                             border: '1px solid #fca5a5',
                             borderRadius: '6px',
-                            padding: '2px 7px',
+                            padding: '4px 8px',
                             fontSize: '11px',
                             fontWeight: 900,
                             cursor: 'pointer',
@@ -1127,68 +1308,125 @@ export const TeacherSetupView: React.FC<Props> = ({
                       </div>
 
                       {(!item.format || item.format === 'MULTIPLE_CHOICE') && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
                           {item.opts.map((optTxt, oIdx) => {
                             const isCorr = item.correct === oIdx;
                             const letter = String.fromCharCode(65 + oIdx);
                             return (
-                              <button
+                              <div
                                 key={oIdx}
-                                type="button"
-                                onClick={() => handleQuickChangeCorrectMC(qIdx, oIdx)}
                                 style={{
-                                  textAlign: 'left',
-                                  padding: '5px 8px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '4px 6px',
                                   borderRadius: '8px',
                                   border: isCorr ? '2px solid #059669' : '1px solid #cbd5e1',
-                                  background: isCorr ? '#dcfce7' : '#ffffff',
-                                  color: isCorr ? '#065f46' : '#334155',
-                                  fontWeight: isCorr ? 900 : 700,
-                                  fontSize: '12px',
-                                  cursor: 'pointer'
+                                  background: isCorr ? '#dcfce7' : '#ffffff'
                                 }}
-                                title="Bấm để đặt phương án này làm Đáp án Đúng"
                               >
-                                {isCorr ? '✅ ' : ''}{letter}. {optTxt}
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickChangeCorrectMC(qIdx, oIdx)}
+                                  title="Bấm để chọn làm Đáp án Đúng"
+                                  style={{
+                                    padding: '3px 7px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: isCorr ? '#059669' : '#e2e8f0',
+                                    color: isCorr ? '#ffffff' : '#334155',
+                                    fontWeight: 900,
+                                    fontSize: '11.5px',
+                                    cursor: 'pointer',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  {isCorr ? `✅ ${letter}` : letter}
+                                </button>
+                                <input
+                                  type="text"
+                                  value={optTxt}
+                                  onChange={e => handleQuickEditMCOptionText(qIdx, oIdx, e.target.value)}
+                                  onBlur={handleCommitPreviewEditsToBoxes}
+                                  style={{
+                                    flex: 1,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    fontWeight: isCorr ? 900 : 700,
+                                    color: isCorr ? '#065f46' : '#1e293b',
+                                    fontSize: '12px',
+                                    outline: 'none'
+                                  }}
+                                />
+                              </div>
                             );
                           })}
                         </div>
                       )}
 
                       {item.format === 'TRUE_FALSE' && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '6px' }}>
                           {(item.tfItems || []).map((tf, tfIdx) => (
-                            <button
+                            <div
                               key={tfIdx}
-                              type="button"
-                              onClick={() => handleQuickToggleTFItem(qIdx, tfIdx)}
                               style={{
-                                textAlign: 'left',
-                                padding: '5px 8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 6px',
                                 borderRadius: '8px',
                                 border: tf.isCorrect ? '2px solid #059669' : '1.5px solid #f43f5e',
-                                background: tf.isCorrect ? '#dcfce7' : '#ffe4e6',
-                                color: tf.isCorrect ? '#065f46' : '#9f1239',
-                                fontWeight: 800,
-                                fontSize: '12px',
-                                cursor: 'pointer'
+                                background: tf.isCorrect ? '#dcfce7' : '#ffe4e6'
                               }}
-                              title="Bấm để chuyển đổi Đúng / Sai cho mệnh đề này"
                             >
-                              <b>{tf.label})</b> {tf.text} — <b>[{tf.isCorrect ? 'ĐÚNG' : 'SAI'}]</b>
-                            </button>
+                              <span style={{ fontWeight: 900, color: '#1e293b', fontSize: '12px' }}>{tf.label})</span>
+                              <input
+                                type="text"
+                                value={tf.text}
+                                onChange={e => handleQuickEditTFStatementText(qIdx, tfIdx, e.target.value)}
+                                onBlur={handleCommitPreviewEditsToBoxes}
+                                style={{
+                                  flex: 1,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  fontWeight: 800,
+                                  color: tf.isCorrect ? '#065f46' : '#9f1239',
+                                  fontSize: '12px',
+                                  outline: 'none'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleQuickToggleTFItem(qIdx, tfIdx)}
+                                title="Bấm để đổi Đúng / Sai"
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  border: 'none',
+                                  background: tf.isCorrect ? '#059669' : '#e11d48',
+                                  color: '#ffffff',
+                                  fontWeight: 900,
+                                  fontSize: '11px',
+                                  cursor: 'pointer',
+                                  flexShrink: 0
+                                }}
+                              >
+                                {tf.isCorrect ? 'ĐÚNG' : 'SAI'}
+                              </button>
+                            </div>
                           ))}
                         </div>
                       )}
 
                       {item.format === 'SHORT_ANSWER' && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontWeight: 900, color: '#047857', fontSize: '12px' }}>🔑 Đáp số đúng:</span>
+                          <span style={{ fontWeight: 900, color: '#047857', fontSize: '12px' }}>🔑 Đáp án ngắn đúng:</span>
                           <input
                             type="text"
-                            value={item.shortAnswer || item.opts[0] || ''}
+                            value={item.shortAnswer ?? item.opts[0] ?? ''}
                             onChange={e => handleQuickEditShortAnswer(qIdx, e.target.value)}
+                            onBlur={handleCommitPreviewEditsToBoxes}
+                            placeholder="Nhập đáp số hoặc từ khóa (VD: 12,5)"
                             style={{
                               padding: '4px 10px',
                               borderRadius: '6px',
@@ -1197,7 +1435,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                               color: '#065f46',
                               fontWeight: 900,
                               fontSize: '12.5px',
-                              width: '220px'
+                              width: '240px'
                             }}
                           />
                         </div>

@@ -190,8 +190,9 @@ export const StudentMobileView: React.FC<Props> = ({
   // Tab switch anti-cheat warning
   const [tabWarning, setTabWarning] = useState<string | null>(null);
 
-  // Track Teacher Match Status so students in Waiting Room only see the question and can only answer when Teacher presses Start ('PLAYING')
-  const [hostMatchStatus, setHostMatchStatus] = useState<'LOBBY' | 'PLAYING' | 'PAUSED' | 'ROUND_BREAK' | 'ENDED'>('LOBBY');
+  // Track Teacher Match Status & whether student chose Waiting Room mode
+  const [hostMatchStatus, setHostMatchStatus] = useState<'LOBBY' | 'PLAYING' | 'PAUSED' | 'ROUND_BREAK' | 'ENDED'>('PLAYING');
+  const waitingRoomLockedRef = useRef<boolean>(false);
 
   // Keep refs in sync with latest profile & score so network callbacks NEVER use stale closure values
   const studentNameRef = useRef<string>(studentName);
@@ -326,19 +327,19 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   // 30s Local countdown timer per question:
-  // Chỉ bắt đầu tính giờ 30s khi Giáo viên đã bấm Bắt đầu (hostMatchStatus === 'PLAYING') và học sinh đang ở màn hình trả lời (QUIZ).
-  // Khi ở Phòng chờ (WAITING) hoặc Giáo viên chưa bấm Bắt đầu, chỉ hiển thị câu hỏi chứ chưa đếm giờ và chưa cho trả lời.
+  // Bắt đầu tính giờ 30s ngay khi học sinh vào màn hình câu hỏi (QUIZ).
+  // Khi học sinh ở Phòng chờ (WAITING), chỉ hiển thị câu hỏi chứ chưa đếm giờ và chưa cho trả lời.
   useEffect(() => {
-    if (screen !== 'QUIZ' || eliminated || hostMatchStatus !== 'PLAYING') {
+    if (screen !== 'QUIZ' || eliminated) {
       activeStudentTimerQIndexRef.current = -1;
-      if (hostMatchStatus !== 'PLAYING') {
+      if (screen === 'WAITING') {
         setRemSec(30);
       }
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
-    // Chỉ khởi tạo lại đồng hồ 30s khi chuyển sang chỉ số câu hỏi mới hoặc khi Giáo viên vừa bấm Bắt đầu
+    // Chỉ khởi tạo lại đồng hồ 30s khi chuyển sang chỉ số câu hỏi mới hoặc vừa từ Phòng chờ mở khóa vào thi
     if (activeStudentTimerQIndexRef.current !== currentGlobalQIndex) {
       activeStudentTimerQIndexRef.current = currentGlobalQIndex;
       setRemSec(30);
@@ -373,7 +374,7 @@ export const StudentMobileView: React.FC<Props> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [screen, currentGlobalQIndex, eliminated, hostMatchStatus]);
+  }, [screen, currentGlobalQIndex, eliminated]);
 
   const resolvedCurrentQ: QuizItem = broadcastQuestionMap[currentGlobalQIndex] ||
     (currentBroadcastQ && (currentBroadcastQ as any).qIndex === currentGlobalQIndex ? currentBroadcastQ : null) ||
@@ -509,9 +510,8 @@ export const StudentMobileView: React.FC<Props> = ({
         setQuizDeck(d.quiz);
       }
       if (d.status === 'PLAYING' && hasJoinedArenaRef.current && !eliminated) {
+        waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
-      } else if (d.status && d.status !== 'PLAYING' && hasJoinedArenaRef.current && screen === 'QUIZ') {
-        setScreen('WAITING');
       }
     }
     else if (d.type === 'ENTER_CONFIRMED' && d.playerId === myPlayerId) {
@@ -542,9 +542,10 @@ export const StudentMobileView: React.FC<Props> = ({
       }
 
       if (d.matchStatus === 'PLAYING' && hasJoinedArenaRef.current) {
+        waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
-      } else if (hasJoinedArenaRef.current) {
-        setScreen('WAITING');
+      } else if (hasJoinedArenaRef.current && !waitingRoomLockedRef.current) {
+        setScreen('QUIZ');
       }
     }
     else if (d.type === 'QUIZ_SYNC') {
@@ -561,6 +562,7 @@ export const StudentMobileView: React.FC<Props> = ({
     else if (d.type === 'MATCH_START') {
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
+      waitingRoomLockedRef.current = false;
       activeStudentTimerQIndexRef.current = -1;
       startMsRef.current = Date.now();
       setRemSec(30);
@@ -590,11 +592,13 @@ export const StudentMobileView: React.FC<Props> = ({
         setHostMatchStatus(d.status);
         hostMatchStatusRef.current = d.status;
         if (d.status === 'PLAYING' && !eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+          waitingRoomLockedRef.current = false;
           activeStudentTimerQIndexRef.current = -1;
           startMsRef.current = Date.now();
           setScreen('QUIZ');
           triggerBonusToast('▶️ Giáo viên đã mở tiếp tục — Em có thể trả lời ngay!');
-        } else if (d.status !== 'PLAYING' && screen === 'QUIZ') {
+        } else if (d.status === 'PAUSED' && screen === 'QUIZ') {
+          waitingRoomLockedRef.current = true;
           setScreen('WAITING');
           triggerBonusToast('⏸️ Giáo viên đang tạm dừng — Chuyển về Phòng chờ xem câu hỏi!');
         }
@@ -633,12 +637,15 @@ export const StudentMobileView: React.FC<Props> = ({
 
       if (hasJoinedArenaRef.current || screen !== 'LOBBY') {
         hasJoinedArenaRef.current = true;
-        if (nextStatus === 'PLAYING') {
+        if (!waitingRoomLockedRef.current || nextStatus === 'PLAYING') {
+          activeStudentTimerQIndexRef.current = -1;
+          startMsRef.current = Date.now();
+          setRemSec(30);
           setScreen('QUIZ');
-          triggerBonusToast('🎮 Đã chuyển sang trò chơi mới — Bắt đầu thi đấu ngay!');
+          triggerBonusToast('🎮 Đã đồng bộ bộ câu hỏi mới — Bắt đầu thi đấu ngay!');
         } else {
           setScreen('WAITING');
-          triggerBonusToast('📣 Đã vào Phòng chờ trò chơi mới — Xem trước câu hỏi và chờ Giáo viên bấm Bắt đầu!');
+          triggerBonusToast('📣 Đã đồng bộ câu hỏi mới trong Phòng chờ!');
         }
       }
     }
@@ -654,7 +661,7 @@ export const StudentMobileView: React.FC<Props> = ({
       if (d.rescuedNow) {
         setEliminated(false);
         setIsFrozen(false);
-        setScreen(hostMatchStatusRef.current === 'PLAYING' ? 'QUIZ' : 'WAITING');
+        setScreen(waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
         triggerBonusToast("🛟 THẦY ĐÃ CỨU TRỢ HỒI SINH EM TRỞ LẠI SÀN ĐẤU! (❤️)");
       } else if (d.eliminated && gameType === 'BELL') {
         setScreen('ELIMINATED');
@@ -664,7 +671,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setEliminated(false);
       setIsFrozen(false);
       setLives(1);
-      setScreen(hostMatchStatusRef.current === 'PLAYING' ? 'QUIZ' : 'WAITING');
+      setScreen(waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
       triggerBonusToast("🛟 TOÀN BỘ HỌC SINH ĐÃ ĐƯỢC CỨU TRỢ HỒI SINH! (❤️)");
     }
     else if (d.type === 'OPPONENT_FROZEN' && d.targetPlayerId === myPlayerId && gameType === 'TUG') {
@@ -722,22 +729,21 @@ export const StudentMobileView: React.FC<Props> = ({
         setLastCompletedQIndex(-1);
         clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
         if (d.status === 'PLAYING' && !eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+          waitingRoomLockedRef.current = false;
           setScreen('QUIZ');
         }
       }
 
-      if (d.status === 'LOBBY' && screen !== 'LOBBY') {
-        setEliminated(false);
-        setScreen('WAITING');
-      } else if (d.status === 'PLAYING' && !eliminated && screen === 'WAITING') {
+      if (d.status === 'PLAYING' && !eliminated && screen === 'WAITING') {
+        waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
-      } else if ((d.status === 'ENDED' || d.status === 'ROUND_BREAK' || d.status === 'PAUSED') && screen !== 'LOBBY') {
-        setScreen('WAITING');
+        triggerBonusToast('🚀 Giáo viên đã bắt đầu trận đấu — Đã mở khóa câu trả lời!');
       }
     }
     else if (d.type === 'QUESTION_START') {
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
+      waitingRoomLockedRef.current = false;
       if (typeof d.qIndex === 'number') {
         const isNewQuestion = d.qIndex !== currentGlobalQIndexRef.current || screen !== 'QUIZ';
         currentGlobalQIndexRef.current = d.qIndex;
@@ -836,9 +842,9 @@ export const StudentMobileView: React.FC<Props> = ({
     }, 1000);
   };
 
-  // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu, và chỉ khi Giáo viên đã bấm Bắt đầu)
+  // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
-    if (hostMatchStatusRef.current !== 'PLAYING' || screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -858,9 +864,9 @@ export const StudentMobileView: React.FC<Props> = ({
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
-  // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất khi Giáo viên đã bấm Bắt đầu)
+  // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
-    if (hostMatchStatusRef.current !== 'PLAYING' || screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -889,15 +895,23 @@ export const StudentMobileView: React.FC<Props> = ({
     processAnswerOutcome(won, won ? correctCount : 0);
   };
 
-  // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất khi Giáo viên đã bấm Bắt đầu)
+  // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
-    if (hostMatchStatusRef.current !== 'PLAYING' || screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
+    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const correctVal = (resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '').trim().toLowerCase();
-    const userVal = shortAnswerInput.trim().toLowerCase();
+    const correctVal = (resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '')
+      .replace(/^(?:Đáp\s*án|ĐA|KQ|Kết\s*quả|Đáp\s*số)\s*(?:đúng\s*)?(?:là\s*)?[:.=]?\s*/i, '')
+      .replace(/\.+$/, '')
+      .trim()
+      .toLowerCase();
+    const userVal = shortAnswerInput
+      .replace(/^(?:Đáp\s*án|ĐA|KQ|Kết\s*quả|Đáp\s*số)\s*(?:đúng\s*)?(?:là\s*)?[:.=]?\s*/i, '')
+      .replace(/\.+$/, '')
+      .trim()
+      .toLowerCase();
 
     // Check numerical or string equivalence (support comma/dot decimal)
     const normCorrect = correctVal.replace(',', '.');
@@ -976,8 +990,8 @@ export const StudentMobileView: React.FC<Props> = ({
     setLastCompletedQIndex(currentGlobalQIndex);
   };
 
-  // Ready in Arena - Bắt buộc học sinh phải ghi tên và đồng bộ ngay lập tức lên màn hình chính
-  const handleReadyInRope = () => {
+  // Vào trực tiếp phòng có câu hỏi (QUIZ) hoặc vào Phòng chờ (WAITING)
+  const handleReadyInRope = (targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ') => {
     const cleanName = (studentName || '').trim();
     if (!cleanName) {
       setShowNameAlert(true);
@@ -992,6 +1006,7 @@ export const StudentMobileView: React.FC<Props> = ({
     hasJoinedArenaRef.current = true;
     hasConfirmedEnterRef.current = false;
     setHasConfirmedEnter(false);
+    waitingRoomLockedRef.current = targetScreen === 'WAITING';
     AudioFX.stepInRope();
 
     const joinPayload: CloudMessage = {
@@ -1009,7 +1024,12 @@ export const StudentMobileView: React.FC<Props> = ({
     setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 250);
     setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 800);
 
-    setScreen('WAITING');
+    if (targetScreen === 'QUIZ') {
+      activeStudentTimerQIndexRef.current = -1;
+      startMsRef.current = Date.now();
+      setRemSec(30);
+    }
+    setScreen(targetScreen);
   };
 
   const currentQItem = resolvedCurrentQ;
@@ -1520,30 +1540,57 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           )}
 
-          <button
-            onClick={handleReadyInRope}
-            style={{
-              width: '100%',
-              padding: '15px 14px',
-              borderRadius: '14px',
-              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              color: '#0f172a',
-              fontWeight: 900,
-              fontSize: '16px',
-              border: '2px solid #fef08a',
-              cursor: 'pointer',
-              boxShadow: '0 8px 20px rgba(245, 158, 11, 0.45)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '3px'
-            }}
-          >
-            <span>🚪 BẤM VÀO PHÒNG CHỜ THI ĐẤU</span>
-            <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#1e293b' }}>
-              (Chỉ xem trước câu hỏi • Khi nào Giáo viên bấm Bắt đầu mới được trả lời)
-            </span>
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button
+              onClick={() => handleReadyInRope('QUIZ')}
+              style={{
+                width: '100%',
+                padding: '15px 14px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: '16px',
+                border: '2px solid #6ee7b7',
+                cursor: 'pointer',
+                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.45)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <span>🚀 VÀO TRỰC TIẾP PHÒNG CÓ CÂU HỎI (THI NGAY)</span>
+              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#d1fae5' }}>
+                (Hiện câu hỏi &amp; đáp án trả lời ngay lập tức)
+              </span>
+            </button>
+
+            <button
+              onClick={() => handleReadyInRope('WAITING')}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#0f172a',
+                fontWeight: 900,
+                fontSize: '14.5px',
+                border: '2px solid #fef08a',
+                cursor: 'pointer',
+                boxShadow: '0 6px 16px rgba(245, 158, 11, 0.35)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '2px'
+              }}
+            >
+              <span>🚪 BẤM VÀO PHÒNG CHỜ (CHỈ XEM CÂU HỎI)</span>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#1e293b' }}>
+                (Chỉ thấy câu hỏi • Khi nào Giáo viên bấm Bắt đầu mới mở trả lời)
+              </span>
+            </button>
+          </div>
 
           {/* Bảng thông báo bắt buộc học sinh phải ghi tên */}
           {showNameAlert && (
@@ -1751,26 +1798,7 @@ export const StudentMobileView: React.FC<Props> = ({
               Các nút chọn đáp án đang được khóa lại. Hãy đọc kỹ câu hỏi phía trên, ngay khi <b>Giáo viên bấm nút &ldquo;🚀 BẮT ĐẦU THI&rdquo;</b> trên màn hình chính, các đáp án sẽ tự động hiện ra để em trả lời!
             </p>
 
-            {hostMatchStatus === 'PLAYING' ? (
-              <button
-                type="button"
-                onClick={() => setScreen('QUIZ')}
-                style={{
-                  width: '100%',
-                  padding: '14px 18px',
-                  borderRadius: '14px',
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#ffffff',
-                  border: '2px solid #6ee7b7',
-                  fontWeight: 900,
-                  fontSize: '15.5px',
-                  cursor: 'pointer',
-                  boxShadow: '0 6px 20px rgba(16, 185, 129, 0.45)'
-                }}
-              >
-                🚀 GIÁO VIÊN ĐÃ BẮT ĐẦU — BẤM ĐỂ TRẢ LỜI NGAY!
-              </button>
-            ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
               <div style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -1783,9 +1811,34 @@ export const StudentMobileView: React.FC<Props> = ({
                 fontSize: '13.5px',
                 fontWeight: 900
               }}>
-                ⏳ Đang chờ Giáo viên bấm &ldquo;🚀 BẮT ĐẦU THI&rdquo;...
+                ⏳ Đang chờ Giáo viên bấm &ldquo;🚀 BẮT ĐẦU THI&rdquo; để tự động mở đáp án...
               </div>
-            )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  waitingRoomLockedRef.current = false;
+                  activeStudentTimerQIndexRef.current = -1;
+                  startMsRef.current = Date.now();
+                  setRemSec(30);
+                  setScreen('QUIZ');
+                }}
+                style={{
+                  width: '100%',
+                  padding: '13px 16px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  border: '2px solid #6ee7b7',
+                  fontWeight: 900,
+                  fontSize: '14.5px',
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 18px rgba(16, 185, 129, 0.4)'
+                }}
+              >
+                🚀 VÀO TRỰC TIẾP PHÒNG CÓ CÂU HỎI (TRẢ LỜI NGAY)
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1856,7 +1909,10 @@ export const StudentMobileView: React.FC<Props> = ({
               {/* Nút bấm vào Phòng chờ (Chỉ xem câu hỏi, chưa trả lời) */}
               <button
                 type="button"
-                onClick={() => setScreen('WAITING')}
+                onClick={() => {
+                  waitingRoomLockedRef.current = true;
+                  setScreen('WAITING');
+                }}
                 title="Bấm để vào Phòng chờ (Chỉ xem câu hỏi, chờ Giáo viên bắt đầu)"
                 style={{
                   background: 'rgba(245, 158, 11, 0.18)',
@@ -1943,8 +1999,8 @@ export const StudentMobileView: React.FC<Props> = ({
               }}>
                 CÂU {currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'DẠNG THỨC II: ĐÚNG / SAI (4 Ý)' : currentQItem.format === 'SHORT_ANSWER' ? 'DẠNG THỨC III: TRẢ LỜI NGẮN' : 'DẠNG THỨC I: 4 PHƯƠNG ÁN'}
               </span>
-              <span style={{ fontSize: '13px', fontWeight: 900, color: hostMatchStatus !== 'PLAYING' ? '#fde047' : remSec <= 5 ? '#f87171' : '#fde047' }}>
-                {hostMatchStatus !== 'PLAYING' ? '⏳ Chờ Giáo viên bắt đầu' : `⏱️ ${Math.ceil(remSec)}s`}
+              <span style={{ fontSize: '13px', fontWeight: 900, color: remSec <= 5 ? '#f87171' : '#fde047' }}>
+                ⏱️ {Math.ceil(remSec)}s
               </span>
             </div>
             <div style={{ fontSize: '17.5px', fontWeight: 900, lineHeight: 1.42, color: '#ffffff' }}>
@@ -1952,25 +2008,7 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Nếu Giáo viên chưa bấm Bắt đầu (hostMatchStatus !== 'PLAYING') thì chỉ hiển thị câu hỏi, khóa hoàn toàn phần trả lời */}
-          {hostMatchStatus !== 'PLAYING' ? (
-            <div style={{
-              padding: '20px 16px',
-              borderRadius: '18px',
-              background: 'linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%)',
-              border: '2px dashed #f59e0b',
-              textAlign: 'center',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
-            }}>
-              <div style={{ fontSize: '28px', marginBottom: '6px' }}>🔒</div>
-              <div style={{ fontSize: '16px', fontWeight: 900, color: '#fef08a', marginBottom: '6px' }}>
-                ĐANG Ở PHÒNG CHỜ — CHỈ XEM CÂU HỎI, CHƯA ĐƯỢC TRẢ LỜI
-              </div>
-              <p style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.5, margin: 0 }}>
-                Khi nào <b>Giáo viên bấm nút &ldquo;🚀 BẮT ĐẦU THI&rdquo;</b> trên màn hình chính thì các phương án trả lời sẽ tự động mở khóa!
-              </p>
-            </div>
-          ) : (hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult ? (
+          {(hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult ? (
             <div
               style={{
                 padding: '22px 18px',

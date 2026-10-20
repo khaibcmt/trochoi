@@ -26,6 +26,7 @@ import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
 import { StudentMobileView } from './components/StudentMobileView';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
+import { NationalJuryDossierModal } from './components/NationalJuryDossierModal';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 export const App: React.FC = () => {
@@ -85,8 +86,9 @@ export const App: React.FC = () => {
     bossMaxHP: 1000
   });
 
-  // Google Gemini API Key Modal
+  // Google Gemini API Key Modal & National Contest Dossier Modal
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showNationalDossier, setShowNationalDossier] = useState(false);
 
   const [matchState, setMatchState] = useState<MatchState>({
     gameType: 'TUG',
@@ -578,7 +580,7 @@ export const App: React.FC = () => {
     }
     else if (d.type === 'PULL_CORRECT') {
       setMatchState(prev => {
-        if (prev.status !== 'PLAYING') return prev;
+        if (prev.status === 'ENDED') return prev;
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
@@ -864,6 +866,7 @@ export const App: React.FC = () => {
         <TopAuthorBanner
           onToggleFullScreen={handleToggleFullScreen}
           onOpenKeyModal={() => setShowKeyModal(true)}
+          onOpenNationalDossier={() => setShowNationalDossier(true)}
         />
       )}
 
@@ -910,6 +913,7 @@ export const App: React.FC = () => {
           onExportHTMLSlide={handleExportHTMLSlide}
           onPrintPDFEvidence={handlePrintPDFEvidence}
           onOpenKeyModal={() => setShowKeyModal(true)}
+          onOpenNationalDossier={() => setShowNationalDossier(true)}
         />
       )}
 
@@ -928,6 +932,18 @@ export const App: React.FC = () => {
       <GeminiKeyModal
         isOpen={showKeyModal}
         onClose={() => setShowKeyModal(false)}
+      />
+
+      {/* Hồ Sơ Thuyết Minh & Phân Tích Ma Trận Cấp Quốc Gia */}
+      <NationalJuryDossierModal
+        isOpen={showNationalDossier}
+        onClose={() => setShowNationalDossier(false)}
+        quizList={quizList}
+        matchState={matchState}
+        subjectName={subjectsDB[currentSubjectKey]?.name || 'Đấu Trường 3D'}
+        activeRoomId={activeRoomId}
+        onExportHTMLSlide={handleExportHTMLSlide}
+        onPrintPDFEvidence={handlePrintPDFEvidence}
       />
     </div>
   );

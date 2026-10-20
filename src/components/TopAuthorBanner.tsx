@@ -3,9 +3,10 @@ import React from 'react';
 interface Props {
   onToggleFullScreen: () => void;
   onOpenKeyModal?: () => void;
+  onOpenNationalDossier?: () => void;
 }
 
-export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal }) => {
+export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier }) => {
   return (
     <header id="top-author-banner">
       <div className="brand-left">
@@ -25,6 +26,24 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
         <h1 className="brand-title">ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • AI NHANH NHẤT</h1>
       </div>
       <div className="author-right">
+        {onOpenNationalDossier && (
+          <button
+            className="btn-fullscreen-top"
+            onClick={onOpenNationalDossier}
+            title="Mở Hồ Sơ Thuyết Minh & Ma Trận Đặc Tả Dự Thi Cấp Quốc Gia"
+            style={{
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#0f172a',
+              borderColor: '#fef08a',
+              fontWeight: 900,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            🏅 Hồ Sơ Quốc Gia
+          </button>
+        )}
         <button
           className="btn-fullscreen-top"
           onClick={onOpenKeyModal}

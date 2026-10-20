@@ -31,6 +31,7 @@ interface Props {
   onExportHTMLSlide: () => void;
   onPrintPDFEvidence: () => void;
   onOpenKeyModal?: () => void;
+  onOpenNationalDossier?: () => void;
 }
 
 export const HostArenaView: React.FC<Props> = ({
@@ -44,7 +45,8 @@ export const HostArenaView: React.FC<Props> = ({
   onToggleFullScreen,
   onExportHTMLSlide,
   onPrintPDFEvidence,
-  onOpenKeyModal
+  onOpenKeyModal,
+  onOpenNationalDossier
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -87,6 +89,11 @@ export const HostArenaView: React.FC<Props> = ({
   const [showAIExplainModal, setShowAIExplainModal] = useState<boolean>(false);
   const [aiExplainText, setAiExplainText] = useState<string>('');
   const [aiExplainLoading, setAiExplainLoading] = useState<boolean>(false);
+
+  // National Contest Demo Bots & Vietnamese TTS Voice Read-Aloud State
+  const [demoBotsActive, setDemoBotsActive] = useState<boolean>(false);
+  const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
+  const demoBotIntervalRef = useRef<any>(null);
 
   // Floating cheers
   const [floatingCheers, setFloatingCheers] = useState<{ id: string; emoji: string; left: number }[]>([]);
@@ -1285,6 +1292,210 @@ export const HostArenaView: React.FC<Props> = ({
     }
   };
 
+  // MC Voice Read-Aloud (Vietnamese TTS) for National Contest Classroom Presentation
+  const handleReadQuestionAloud = () => {
+    if (!('speechSynthesis' in window)) return;
+    if (isSpeakingTTS) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingTTS(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const cleanQ = cleanQuestionTitleText(currentQItem.q)
+      .replace(/\$+/g, '')
+      .replace(/\\[a-zA-Z]+/g, '');
+    let script = `Câu hỏi số ${(currentQIndex % (quizList.length || 1)) + 1}. ${cleanQ}. `;
+    if (currentQItem.format === 'TRUE_FALSE' && currentQItem.tfItems) {
+      script += 'Hãy xét tính Đúng hoặc Sai của 4 mệnh đề: ';
+      currentQItem.tfItems.forEach(tf => {
+        script += `Ý ${tf.label}: ${tf.text}. `;
+      });
+    } else if (currentQItem.format === 'SHORT_ANSWER') {
+      script += 'Các em hãy tính toán và nhập kết quả trả lời ngắn trên màn hình điện thoại.';
+    } else if (currentQItem.opts) {
+      currentQItem.opts.forEach((opt, idx) => {
+        script += `Phương án ${String.fromCharCode(65 + idx)}: ${opt}. `;
+      });
+    }
+
+    const utter = new SpeechSynthesisUtterance(script);
+    utter.lang = 'vi-VN';
+    utter.rate = 1.02;
+    utter.onend = () => setIsSpeakingTTS(false);
+    utter.onerror = () => setIsSpeakingTTS(false);
+    setIsSpeakingTTS(true);
+    window.speechSynthesis.speak(utter);
+  };
+
+  // Toggle National Jury Classroom Simulation (Spawns realistic 3D students & simulates live answering)
+  const handleToggleDemoBots = () => {
+    const demoRoster = [
+      { id: 'bot_1', label: 'Nguyễn Minh Khôi', team: 'RED' as const, costume: 'superhero' as const, hair: 'crown' as const, color: '#f59e0b' },
+      { id: 'bot_2', label: 'Trần Ngọc Bảo Trâm', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'beret' as const, color: '#ec4899' },
+      { id: 'bot_3', label: 'Lê Hoàng Gia Huy', team: 'RED' as const, costume: 'sport' as const, hair: 'cap' as const, color: '#10b981' },
+      { id: 'bot_4', label: 'Phạm Phương Thảo', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'headband' as const, color: '#0284c7' },
+      { id: 'bot_5', label: 'Võ Quốc Anh', team: 'RED' as const, costume: 'uniform' as const, hair: 'cyber' as const, color: '#8b5cf6' },
+      { id: 'bot_6', label: 'Đặng Khánh Linh', team: 'BLUE' as const, costume: 'uniform' as const, hair: 'crown' as const, color: '#f59e0b' },
+      { id: 'bot_7', label: 'Huỳnh Tuấn Kiệt', team: 'RED' as const, costume: 'sport' as const, hair: 'cap' as const, color: '#ef4444' },
+      { id: 'bot_8', label: 'Bùi Thanh Trúc', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'beret' as const, color: '#10b981' },
+      { id: 'bot_9', label: 'Đỗ Quang Minh', team: 'RED' as const, costume: 'superhero' as const, hair: 'cyber' as const, color: '#0284c7' },
+      { id: 'bot_10', label: 'Ngô Bảo Ngọc', team: 'BLUE' as const, costume: 'uniform' as const, hair: 'headband' as const, color: '#ec4899' },
+      { id: 'bot_11', label: 'Lý Hải Đăng', team: 'RED' as const, costume: 'uniform' as const, hair: 'cap' as const, color: '#f59e0b' },
+      { id: 'bot_12', label: 'Phan Thảo Vy', team: 'BLUE' as const, costume: 'sport' as const, hair: 'crown' as const, color: '#8b5cf6' }
+    ];
+
+    if (!demoBotsActive) {
+      AudioFX.spawnPop();
+      onUpdateMatchState(prev => {
+        const existingIds = new Set([...prev.redPlayers, ...prev.bluePlayers].map(p => p.id));
+        const newRed = [...prev.redPlayers];
+        const newBlue = [...prev.bluePlayers];
+
+        demoRoster.forEach(b => {
+          if (!existingIds.has(b.id)) {
+            const pObj: Player = {
+              id: b.id,
+              label: b.label,
+              team: b.team,
+              ready: true,
+              spawned: true,
+              correct: 0,
+              freeze: 0,
+              role: 'PULLER',
+              lives: 3,
+              wrongTotal: 0,
+              streak: 0,
+              eliminated: false,
+              fastScore: 0,
+              avatar: {
+                hairStyle: b.hair,
+                costume: b.costume,
+                accessoryColor: b.color,
+                expression: 'happy'
+              }
+            };
+            if (b.team === 'RED') newRed.push(pObj);
+            else newBlue.push(pObj);
+          }
+        });
+
+        return {
+          ...prev,
+          redPlayers: newRed,
+          bluePlayers: newBlue
+        };
+      });
+      setDemoBotsActive(true);
+      triggerRescueBanner('🤖 ĐÃ BẬT LỚP HỌC GIẢ LẬP (12 HS 3D) PHỤC VỤ THUYẾT TRÌNH GIÁM KHẢO!');
+    } else {
+      setDemoBotsActive(false);
+    }
+  };
+
+  // Run automated Demo Bot answers when demoBotsActive && matchState.status === 'PLAYING'
+  useEffect(() => {
+    if (!demoBotsActive || matchState.status !== 'PLAYING') {
+      if (demoBotIntervalRef.current) clearInterval(demoBotIntervalRef.current);
+      return;
+    }
+
+    demoBotIntervalRef.current = setInterval(() => {
+      onUpdateMatchState(prev => {
+        if (prev.status !== 'PLAYING') return prev;
+        const answeredSet = new Set([...prev.redAnsweredIds, ...prev.blueAnsweredIds]);
+        const allBots = [...prev.redPlayers, ...prev.bluePlayers].filter(
+          p => p.id.startsWith('bot_') && !answeredSet.has(p.id) && !(prev.gameType === 'BELL' && p.eliminated)
+        );
+        if (allBots.length === 0) return prev;
+
+        const chosen = allBots[Math.floor(Math.random() * allBots.length)];
+        const isCorrect = Math.random() < 0.76; // 76% realistic accuracy
+
+        const activeDeck = quizListRef.current;
+        const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
+
+        const nextRedAns =
+          chosen.team === 'RED' && !prev.redAnsweredIds.includes(chosen.id)
+            ? [...prev.redAnsweredIds, chosen.id]
+            : prev.redAnsweredIds;
+        const nextBlueAns =
+          chosen.team === 'BLUE' && !prev.blueAnsweredIds.includes(chosen.id)
+            ? [...prev.blueAnsweredIds, chosen.id]
+            : prev.blueAnsweredIds;
+
+        if (isCorrect) {
+          AudioFX.pullHeave();
+          if (curQ) curQ.rightCount = (curQ.rightCount || 0) + 1;
+          const gained = 100 + Math.floor(Math.random() * 80);
+
+          const updateWinner = (p: Player): Player => {
+            if (p.id !== chosen.id) return p;
+            return {
+              ...p,
+              correct: (p.correct || 0) + 1,
+              streak: (p.streak || 0) + 1,
+              fastScore: (p.fastScore || 0) + gained,
+              lastDelta: gained
+            };
+          };
+
+          const pullStep = chosen.team === 'BLUE' ? 0.75 : -0.75;
+          const nextRope = prev.gameType === 'TUG' ? Math.max(-6, Math.min(6, prev.ropeScore + pullStep)) : prev.ropeScore;
+          const nextBossHP = prev.gameType === 'BOSS' ? Math.max(0, (prev.bossHP || 1000) - gained) : prev.bossHP;
+
+          return {
+            ...prev,
+            ropeScore: nextRope,
+            bossHP: nextBossHP,
+            status: prev.gameType === 'BOSS' && nextBossHP <= 0 ? 'ENDED' : prev.status,
+            redRoundWins: prev.gameType === 'TUG' && chosen.team === 'RED' ? prev.redRoundWins + 1 : prev.redRoundWins,
+            blueRoundWins: prev.gameType === 'TUG' && chosen.team === 'BLUE' ? prev.blueRoundWins + 1 : prev.blueRoundWins,
+            redTotalCorrect: chosen.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect,
+            blueTotalCorrect: chosen.team === 'BLUE' ? prev.blueTotalCorrect + 1 : prev.blueTotalCorrect,
+            redAnsweredIds: nextRedAns,
+            blueAnsweredIds: nextBlueAns,
+            redPlayers: prev.redPlayers.map(updateWinner),
+            bluePlayers: prev.bluePlayers.map(updateWinner)
+          };
+        } else {
+          if (curQ) curQ.wrongCount = (curQ.wrongCount || 0) + 1;
+          const updateLoser = (p: Player): Player => {
+            if (p.id !== chosen.id) return p;
+            if (prev.gameType === 'BELL') {
+              const nextL = Math.max(0, (p.lives ?? 3) - 1);
+              return {
+                ...p,
+                lives: nextL,
+                eliminated: nextL <= 0,
+                role: nextL <= 0 ? 'SPECTATOR' : p.role,
+                streak: 0,
+                wrongTotal: (p.wrongTotal || 0) + 1
+              };
+            }
+            return {
+              ...p,
+              streak: 0,
+              wrongTotal: (p.wrongTotal || 0) + 1,
+              freeze: prev.gameType === 'TUG' ? Date.now() + 2500 : 0
+            };
+          };
+
+          return {
+            ...prev,
+            redAnsweredIds: nextRedAns,
+            blueAnsweredIds: nextBlueAns,
+            redPlayers: prev.redPlayers.map(updateLoser),
+            bluePlayers: prev.bluePlayers.map(updateLoser)
+          };
+        }
+      });
+    }, 1150);
+
+    return () => {
+      if (demoBotIntervalRef.current) clearInterval(demoBotIntervalRef.current);
+    };
+  }, [demoBotsActive, matchState.status, matchState.globalQIndex]);
+
   // Chuẩn bị sàn đấu để tập hợp đủ học sinh (Giữ nguyên toàn bộ học sinh đã kết nối, đưa học sinh về Phòng chờ xem câu hỏi)
   const handlePrepareArenaGather = () => {
     AudioFX.whistle();
@@ -1622,6 +1833,32 @@ export const HostArenaView: React.FC<Props> = ({
           >
             {qrVisible ? '🙈 Ẩn QR' : '📱 Mã QR'}
           </button>
+
+          <button
+            className="b3d-btn"
+            style={{
+              background: demoBotsActive ? 'linear-gradient(135deg, #10b981, #047857)' : '#1e293b',
+              border: demoBotsActive ? '1.5px solid #fef08a' : '1px solid #38bdf8',
+              color: demoBotsActive ? '#fef08a' : '#7dd3fc',
+              padding: '5px 10px',
+              fontSize: '11.5px'
+            }}
+            onClick={handleToggleDemoBots}
+            title="Bật/Tắt chế độ Giả lập Lớp học 3D thông minh để thuyết trình trước Ban Giám Khảo"
+          >
+            {demoBotsActive ? '🤖 Đang Demo GK' : '🤖 Demo GK'}
+          </button>
+
+          {onOpenNationalDossier && (
+            <button
+              className="b3d-btn"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', border: '1px solid #fef08a', padding: '5px 10px', fontSize: '11.5px', fontWeight: 900 }}
+              onClick={onOpenNationalDossier}
+              title="Mở Hồ Sơ Thuyết Minh & Phân Tích Ma Trận Cấp Quốc Gia"
+            >
+              🏅 Hồ Sơ
+            </button>
+          )}
 
           <button
             className="b3d-btn"
@@ -2161,6 +2398,21 @@ export const HostArenaView: React.FC<Props> = ({
               </button>
               <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
                 Tiếp ▶
+              </button>
+              <button
+                className="hq-nav-btn"
+                style={{
+                  padding: '3px 10px',
+                  fontSize: '12px',
+                  background: isSpeakingTTS ? '#dc2626' : '#0284c7',
+                  borderColor: '#7dd3fc',
+                  color: '#fff',
+                  fontWeight: 800
+                }}
+                onClick={handleReadQuestionAloud}
+                title="Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt"
+              >
+                {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
               </button>
               <button
                 className="hq-nav-btn"

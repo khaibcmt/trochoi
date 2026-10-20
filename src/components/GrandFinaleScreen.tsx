@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { MatchState, Player } from '../types';
 import { getConvertedGradeByRank } from '../data/defaultSubjects';
+import { exportHonorCertificateHTML } from '../utils/exportEvidence';
 
 interface Props {
   matchState: MatchState;
@@ -567,6 +568,22 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         </button>
 
         <button
+          onClick={() => exportHonorCertificateHTML(matchState, activeRoomId)}
+          style={{
+            padding: '11px 18px',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, #d97706, #b45309)',
+            color: '#ffffff',
+            border: '1.5px solid #fde047',
+            fontWeight: 900,
+            fontSize: '13.5px',
+            cursor: 'pointer'
+          }}
+        >
+          📜 XUẤT BẰNG VINH DANH QUÁN QUÂN
+        </button>
+
+        <button
           onClick={onPrintPDFEvidence}
           style={{
             padding: '11px 18px',
@@ -579,7 +596,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             cursor: 'pointer'
           }}
         >
-          🖨️ IN / LƯU PDF VINH DANH
+          🖨️ IN / LƯU PDF HỒ SƠ ĐỀ THI
         </button>
 
         <button
