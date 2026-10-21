@@ -148,7 +148,10 @@ export const App: React.FC = () => {
     quizListRef.current = normalized;
   };
 
+  const answeredQKeysRef = useRef<Set<string>>(new Set());
+
   const handleSelectGameType = (newGameType: GamePlayType) => {
+    answeredQKeysRef.current.clear();
     setGameType(newGameType);
     setMatchState(prev => {
       const resetPlayer = (p: Player): Player => ({
@@ -259,6 +262,7 @@ export const App: React.FC = () => {
 
   // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
+    answeredQKeysRef.current.clear();
     const normalizedDeck: QuizItem[] = parsedQuiz.map((item, idx) => ({
       ...item,
       qid: idx,
@@ -339,10 +343,11 @@ export const App: React.FC = () => {
     const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : currentQ;
     const allP = [...currentMS.redPlayers, ...currentMS.bluePlayers];
     const aliveCount = allP.filter(x => !x.eliminated).length;
-    const rawActiveQ = activeDeck[currentMS.globalQIndex % (activeDeck.length || 1)];
+    const safeIdx = Math.min(Math.max(0, currentMS.globalQIndex), Math.max(0, (activeDeck.length || 1) - 1));
+    const rawActiveQ = activeDeck[safeIdx];
     const activeQWithMeta = rawActiveQ ? {
       ...rawActiveQ,
-      qIndex: currentMS.globalQIndex,
+      qIndex: safeIdx,
       totalQuestions: activeDeck.length
     } : undefined;
 
@@ -353,7 +358,7 @@ export const App: React.FC = () => {
           roomId,
           gameType: currentMS.gameType,
           status: currentMS.status,
-          globalQIndex: currentMS.globalQIndex,
+          globalQIndex: safeIdx,
           question: activeQWithMeta,
           quiz: activeDeck,
           subj: currentSubjectKeyRef.current,
@@ -370,7 +375,7 @@ export const App: React.FC = () => {
       redRoundWins: currentMS.redRoundWins,
       blueRoundWins: currentMS.blueRoundWins,
       ropeScore: currentMS.ropeScore,
-      globalQIndex: currentMS.globalQIndex,
+      globalQIndex: safeIdx,
       redDoneCount: currentMS.redAnsweredIds.length,
       redTotalMembers: Math.max(currentMS.redPlayers.length, 1),
       blueDoneCount: currentMS.blueAnsweredIds.length,
@@ -392,8 +397,13 @@ export const App: React.FC = () => {
   const handleHostIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
 
-    if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE') {
-      const isReady = d.type === 'PLAYER_READY_ROPE';
+    if (d.type === 'MATCH_START' || d.type === 'GAME_SWITCH' || d.type === 'GAME_SWITCHED') {
+      answeredQKeysRef.current.clear();
+      return;
+    }
+
+    if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ') {
+      const isReady = d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ';
       setMatchState(prev => {
         const existingRedIdx = prev.redPlayers.findIndex(x => x.id === d.playerId);
         const existingBlueIdx = prev.bluePlayers.findIndex(x => x.id === d.playerId);
@@ -418,40 +428,45 @@ export const App: React.FC = () => {
             label: nextLabel,
             avatar: d.avatar || existing.avatar,
             ready: nextReady,
-            fastScore: (existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
-              ? existing.fastScore
-              : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore),
+            fastScore: d.type === 'PLAYER_FINISH_QUIZ' && typeof d.savedScore === 'number'
+              ? d.savedScore
+              : ((existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
+                  ? existing.fastScore
+                  : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore)),
             correct: Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0)
           };
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
-          const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
+          const safeIdx = Math.min(Math.max(0, prev.globalQIndex), Math.max(0, (currentList.length || 1) - 1));
+          const rawActiveQ = currentList[safeIdx];
           const activeQWithMeta = rawActiveQ ? {
             ...rawActiveQ,
-            qIndex: prev.globalQIndex,
+            qIndex: safeIdx,
             totalQuestions: currentList.length
           } : null;
 
           // Crucial: Send confirmation back to student so their phone restores full session & score
-          CloudNetwork.sendMessage({
-            type: 'ENTER_CONFIRMED',
-            playerId: updatedPlayer.id,
-            team: updatedPlayer.team,
-            role: updatedPlayer.role,
-            label: updatedPlayer.label,
-            gameType: prev.gameType,
-            matchStatus: prev.status,
-            globalQIndex: prev.globalQIndex,
-            lives: prev.gameType === 'BELL' ? updatedPlayer.lives : 3,
-            streak: updatedPlayer.streak,
-            eliminated: prev.gameType === 'BELL' ? updatedPlayer.eliminated : false,
-            fastScore: updatedPlayer.fastScore || 0,
-            savedCorrect: updatedPlayer.correct || 0,
-            bossHP: prev.bossHP,
-            maxBossHP: prev.maxBossHP,
-            quiz: currentList,
-            question: activeQWithMeta
-          });
+          if (d.type !== 'PLAYER_FINISH_QUIZ') {
+            CloudNetwork.sendMessage({
+              type: 'ENTER_CONFIRMED',
+              playerId: updatedPlayer.id,
+              team: updatedPlayer.team,
+              role: updatedPlayer.role,
+              label: updatedPlayer.label,
+              gameType: prev.gameType,
+              matchStatus: prev.status,
+              globalQIndex: safeIdx,
+              lives: prev.gameType === 'BELL' ? updatedPlayer.lives : 3,
+              streak: updatedPlayer.streak,
+              eliminated: prev.gameType === 'BELL' ? updatedPlayer.eliminated : false,
+              fastScore: updatedPlayer.fastScore || 0,
+              savedCorrect: updatedPlayer.correct || 0,
+              bossHP: prev.bossHP,
+              maxBossHP: prev.maxBossHP,
+              quiz: currentList,
+              question: activeQWithMeta
+            });
+          }
 
           const nextRed = existingRedIdx !== -1
             ? prev.redPlayers.map((p, idx) => idx === existingRedIdx ? updatedPlayer : p)
@@ -490,10 +505,11 @@ export const App: React.FC = () => {
         }
 
         const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
-        const rawActiveQ = currentList[prev.globalQIndex % (currentList.length || 1)];
+        const safeIdx = Math.min(Math.max(0, prev.globalQIndex), Math.max(0, (currentList.length || 1) - 1));
+        const rawActiveQ = currentList[safeIdx];
         const activeQWithMeta = rawActiveQ ? {
           ...rawActiveQ,
-          qIndex: prev.globalQIndex,
+          qIndex: safeIdx,
           totalQuestions: currentList.length
         } : null;
 
@@ -530,7 +546,7 @@ export const App: React.FC = () => {
             label: newP.label,
             gameType: prev.gameType,
             matchStatus: prev.status,
-            globalQIndex: prev.globalQIndex,
+            globalQIndex: safeIdx,
             lives: newP.lives,
             streak: newP.streak,
             eliminated: newP.eliminated,
@@ -552,7 +568,7 @@ export const App: React.FC = () => {
             label: d.playerName || 'Khán giả',
             gameType: prev.gameType,
             matchStatus: prev.status,
-            globalQIndex: prev.globalQIndex,
+            globalQIndex: safeIdx,
             lives: 0,
             eliminated: true,
             quiz: currentList,
@@ -586,24 +602,31 @@ export const App: React.FC = () => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
-        // Không cho phép nộp lại nếu đã trả lời câu hỏi này rồi
-        if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
+
+        const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
+        const answerKey = `${pObj.id}_q_${targetQIdx}`;
+        if (answeredQKeysRef.current.has(answerKey)) return prev;
+        answeredQKeysRef.current.add(answerKey);
 
         AudioFX.pullHeave();
         pObj.correct = (pObj.correct || 0) + 1;
+        if (typeof d.savedCorrect === 'number' && d.savedCorrect > pObj.correct) {
+          pObj.correct = d.savedCorrect;
+        }
         pObj.streak = (pObj.streak || 0) + 1;
 
         const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
         const gainedScore = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
 
-        pObj.fastScore = (pObj.fastScore || 0) + gainedScore;
+        pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + gainedScore;
         pObj.lastDelta = gainedScore;
         pObj.lastTimeSec = studentElapsedSec;
         pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
 
         // Record question rightCount in ref without re-triggering quizList effects mid-question
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
-        const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
+        const safeQIdx = Math.min(Math.max(0, targetQIdx), Math.max(0, (activeDeck.length || 1) - 1));
+        const curQ = activeDeck[safeQIdx];
         if (curQ) {
           curQ.rightCount = (curQ.rightCount || 0) + 1;
         }
@@ -624,6 +647,11 @@ export const App: React.FC = () => {
           if (nextBossHP <= 0) {
             AudioFX.winFanfare();
             nextStatus = 'ENDED';
+            CloudNetwork.sendMessage({
+              type: 'MATCH_ENDED',
+              status: 'ENDED',
+              globalQIndex: prev.globalQIndex
+            });
           }
 
           return {
@@ -645,7 +673,7 @@ export const App: React.FC = () => {
           CloudNetwork.sendMessage({
             type: 'FAST_ANSWER_RESULT',
             playerId: pObj.id,
-            qIndex: prev.globalQIndex,
+            qIndex: targetQIdx,
             isCorrect: true,
             gainedPts: gainedScore,
             elapsedSec: studentElapsedSec,
@@ -717,14 +745,18 @@ export const App: React.FC = () => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         const pObj = allP.find(x => x.id === d.playerId);
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
-        // Không cho phép chọn lại trên cùng 1 câu hỏi
-        if (prev.redAnsweredIds.includes(pObj.id) || prev.blueAnsweredIds.includes(pObj.id)) return prev;
+
+        const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
+        const answerKey = `${pObj.id}_q_${targetQIdx}`;
+        if (answeredQKeysRef.current.has(answerKey)) return prev;
+        answeredQKeysRef.current.add(answerKey);
 
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
 
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
-        const curQ = activeDeck[prev.globalQIndex % (activeDeck.length || 1)];
+        const safeQIdx = Math.min(Math.max(0, targetQIdx), Math.max(0, (activeDeck.length || 1) - 1));
+        const curQ = activeDeck[safeQIdx];
         if (curQ) {
           curQ.wrongCount = (curQ.wrongCount || 0) + 1;
         }
@@ -760,7 +792,7 @@ export const App: React.FC = () => {
           AudioFX.freezeCrack();
           pObj.lives = 3;
           pObj.eliminated = false;
-          pObj.fastScore = (pObj.fastScore || 0) - 1000;
+          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - 1000;
           pObj.lastDelta = -1000;
 
           CloudNetwork.sendMessage({

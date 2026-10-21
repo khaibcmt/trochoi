@@ -174,6 +174,127 @@ Hãy chỉ rõ:
   }
 });
 
+// ============================================================================
+// 4. HỆ THỐNG ĐỒNG BỘ PHÒNG THI ĐẤU REAL-TIME QUA HTTP CÙNG TÊN MIỀN (FIREWALL-PROOF)
+// Giúp học sinh kết nối 100% thông suốt qua 3G/4G/Wi-Fi trường học mà không bao giờ bị văng
+// ============================================================================
+interface RoomEventRecord {
+  seq: number;
+  ts: number;
+  msg: any;
+}
+
+interface RoomHubState {
+  roomId: string;
+  seqCounter: number;
+  latestHeartbeat: any | null;
+  events: RoomEventRecord[];
+  players: Record<string, any>;
+  updatedAt: number;
+}
+
+const roomsHub = new Map<string, RoomHubState>();
+
+function getOrCreateRoomHub(rawRoomId: string): RoomHubState {
+  const cleanId = String(rawRoomId || '12345').replace(/[^a-zA-Z0-9]/g, '') || '12345';
+  let room = roomsHub.get(cleanId);
+  if (!room) {
+    room = {
+      roomId: cleanId,
+      seqCounter: 1,
+      latestHeartbeat: null,
+      events: [],
+      players: {},
+      updatedAt: Date.now()
+    };
+    roomsHub.set(cleanId, room);
+  }
+  return room;
+}
+
+// Dọn dẹp phòng cũ không hoạt động quá 12 giờ để tối ưu bộ nhớ
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, room] of roomsHub.entries()) {
+    if (now - room.updatedAt > 12 * 3600 * 1000) {
+      roomsHub.delete(key);
+    }
+  }
+}, 30 * 60 * 1000);
+
+app.post('/api/room/:roomId/publish', (req, res) => {
+  try {
+    const room = getOrCreateRoomHub(req.params.roomId);
+    const payload = req.body;
+    if (!payload || !payload.type) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+
+    room.updatedAt = Date.now();
+
+    if (payload.type === 'HOST_HEARTBEAT') {
+      room.latestHeartbeat = payload;
+    } else {
+      room.seqCounter += 1;
+      room.events.push({
+        seq: room.seqCounter,
+        ts: Date.now(),
+        msg: payload
+      });
+      if (room.events.length > 350) {
+        room.events.splice(0, room.events.length - 350);
+      }
+
+      // Lưu thông tin học sinh vào danh sách phòng để không bao giờ bị mất kết nối
+      if (
+        (payload.type === 'AUTO_ENTER_ARENA' ||
+          payload.type === 'PLAYER_READY_ROPE' ||
+          payload.type === 'PLAYER_FINISH_QUIZ') &&
+        payload.playerId
+      ) {
+        room.players[payload.playerId] = {
+          ...(room.players[payload.playerId] || {}),
+          playerId: payload.playerId,
+          playerName: payload.playerName || room.players[payload.playerId]?.playerName || 'Học sinh',
+          preferredTeam: payload.preferredTeam || payload.team || room.players[payload.playerId]?.preferredTeam || 'RED',
+          avatar: payload.avatar || room.players[payload.playerId]?.avatar,
+          savedScore: typeof payload.savedScore === 'number' ? payload.savedScore : room.players[payload.playerId]?.savedScore,
+          savedCorrect: typeof payload.savedCorrect === 'number' ? payload.savedCorrect : room.players[payload.playerId]?.savedCorrect,
+          ready: payload.type === 'PLAYER_READY_ROPE' || payload.type === 'PLAYER_FINISH_QUIZ' || Boolean(room.players[payload.playerId]?.ready),
+          updatedAt: Date.now()
+        };
+      }
+    }
+
+    return res.json({
+      ok: true,
+      seq: room.seqCounter
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Publish error' });
+  }
+});
+
+app.get('/api/room/:roomId/poll', (req, res) => {
+  try {
+    const room = getOrCreateRoomHub(req.params.roomId);
+    const sinceSeq = parseInt(String(req.query.since || '0'), 10) || 0;
+    const newEvents = sinceSeq > 0
+      ? room.events.filter(e => e.seq > sinceSeq)
+      : room.events.slice(-40);
+
+    return res.json({
+      ok: true,
+      seq: room.seqCounter,
+      latestHeartbeat: room.latestHeartbeat,
+      events: newEvents.map(e => e.msg),
+      players: Object.values(room.players)
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Poll error' });
+  }
+});
+
 // Vite middleware in dev or static files in production
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {

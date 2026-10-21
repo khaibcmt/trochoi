@@ -1103,8 +1103,9 @@ export const HostArenaView: React.FC<Props> = ({
   }, [allPlayers]);
 
   // Current Question (tự động phục hồi nếu câu hỏi Phần II bị dính mệnh đề hoặc rác CSS Word)
-  const currentQIndex = isReviewMode ? reviewQIdx : matchState.globalQIndex;
-  const rawCurrentQItem: QuizItem = quizList[currentQIndex % (quizList.length || 1)] || {
+  const safeTotalQuestions = Math.max(1, quizList.length);
+  const currentQIndex = Math.min(Math.max(0, isReviewMode ? reviewQIdx : matchState.globalQIndex), safeTotalQuestions - 1);
+  const rawCurrentQItem: QuizItem = quizList[currentQIndex] || {
     qid: 0,
     q: 'Đang tải câu hỏi...',
     opts: ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
@@ -1130,6 +1131,26 @@ export const HostArenaView: React.FC<Props> = ({
       return;
     }
 
+    const currentDeck = quizListRef.current;
+    const totalCount = Math.max(1, currentDeck.length);
+
+    // Nếu đã vượt quá câu hỏi cuối cùng thì lập tức dừng và thông báo kết quả cuối cùng, tuyệt đối không quay lại câu 1
+    if (matchState.globalQIndex >= totalCount) {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      AudioFX.winFanfare();
+      CloudNetwork.sendMessage({
+        type: 'MATCH_ENDED',
+        status: 'ENDED',
+        globalQIndex: totalCount - 1
+      });
+      onUpdateMatchState(prev => ({
+        ...prev,
+        status: 'ENDED',
+        globalQIndex: totalCount - 1
+      }));
+      return;
+    }
+
     const timerKey = `PLAYING_Q_${matchState.globalQIndex}_${durationSec}`;
     if (activeTimerQuestionKeyRef.current === timerKey) {
       // Đang đếm ngược cho chính câu hỏi này -> tuyệt đối không reset lại 30 giây
@@ -1142,18 +1163,18 @@ export const HostArenaView: React.FC<Props> = ({
     isTransitioningRef.current = false;
     correctOrderCountRef.current = 0;
 
-    const currentDeck = quizListRef.current;
-    const rawQ = currentDeck[matchState.globalQIndex % (currentDeck.length || 1)] || currentQItem;
+    const safeIdx = Math.min(Math.max(0, matchState.globalQIndex), totalCount - 1);
+    const rawQ = currentDeck[safeIdx] || currentQItem;
     const activeQWithMeta = {
       ...rawQ,
-      qIndex: matchState.globalQIndex,
-      totalQuestions: currentDeck.length
+      qIndex: safeIdx,
+      totalQuestions: totalCount
     };
 
     // Broadcast question started ONCE when this question appears
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
-      qIndex: matchState.globalQIndex,
+      qIndex: safeIdx,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
       question: activeQWithMeta,
@@ -1186,10 +1207,8 @@ export const HostArenaView: React.FC<Props> = ({
     };
   }, []);
 
-  // Handle Timeout: Hết 30 giây -> Học sinh không chọn đáp án coi như SAI, lập tức chuyển qua câu hỏi tiếp theo
+  // Handle Timeout: Hết 30 giây -> Học sinh không chọn đáp án coi như SAI; nếu là câu cuối cùng thì NGỪNG và thông báo kết quả cuối cùng!
   const handleQuestionTimeout = () => {
-    AudioFX.freezeCrack();
-
     onUpdateMatchState(prev => {
       if (prev.status !== 'PLAYING') return prev;
       const answeredIds = [...prev.redAnsweredIds, ...prev.blueAnsweredIds];
@@ -1251,6 +1270,27 @@ export const HostArenaView: React.FC<Props> = ({
       const updatedRed = prev.redPlayers.map(updateUnansweredPlayer);
       const updatedBlue = prev.bluePlayers.map(updateUnansweredPlayer);
 
+      const totalCount = Math.max(1, quizListRef.current.length || quizList.length || 1);
+      // Nếu đã làm hết câu hỏi cuối cùng -> NGỪNG NGAY và mở màn hình Kết Quả Cuối Cùng (không chạy lại câu 1)
+      if (prev.globalQIndex + 1 >= totalCount) {
+        AudioFX.winFanfare();
+        CloudNetwork.sendMessage({
+          type: 'MATCH_ENDED',
+          status: 'ENDED',
+          globalQIndex: totalCount - 1
+        });
+        return {
+          ...prev,
+          status: 'ENDED',
+          globalQIndex: totalCount - 1,
+          redAnsweredIds: [],
+          blueAnsweredIds: [],
+          redPlayers: updatedRed,
+          bluePlayers: updatedBlue
+        };
+      }
+
+      AudioFX.freezeCrack();
       return {
         ...prev,
         globalQIndex: prev.globalQIndex + 1,
@@ -1262,14 +1302,32 @@ export const HostArenaView: React.FC<Props> = ({
     });
   };
 
-  // Force advance
+  // Force advance (Nếu đang ở câu cuối cùng thì kết thúc và công bố kết quả luôn, không quay lại câu 1)
   const handleForceAdvanceQ = () => {
-    onUpdateMatchState(prev => ({
-      ...prev,
-      globalQIndex: prev.globalQIndex + 1,
-      redAnsweredIds: [],
-      blueAnsweredIds: []
-    }));
+    const totalCount = Math.max(1, quizListRef.current.length || quizList.length || 1);
+    onUpdateMatchState(prev => {
+      if (prev.globalQIndex + 1 >= totalCount) {
+        AudioFX.winFanfare();
+        CloudNetwork.sendMessage({
+          type: 'MATCH_ENDED',
+          status: 'ENDED',
+          globalQIndex: totalCount - 1
+        });
+        return {
+          ...prev,
+          status: 'ENDED',
+          globalQIndex: totalCount - 1,
+          redAnsweredIds: [],
+          blueAnsweredIds: []
+        };
+      }
+      return {
+        ...prev,
+        globalQIndex: prev.globalQIndex + 1,
+        redAnsweredIds: [],
+        blueAnsweredIds: []
+      };
+    });
   };
 
   // Rescue All Eliminated Students
@@ -1636,6 +1694,12 @@ export const HostArenaView: React.FC<Props> = ({
   // End match
   const handleEndMatch = () => {
     if (confirm('Bạn có chắc muốn kết thúc trận đấu và xem bảng tổng kết?')) {
+      AudioFX.winFanfare();
+      CloudNetwork.sendMessage({
+        type: 'MATCH_ENDED',
+        status: 'ENDED',
+        globalQIndex: matchState.globalQIndex
+      });
       onUpdateMatchState(prev => ({ ...prev, status: 'ENDED' }));
     }
   };
@@ -1653,19 +1717,32 @@ export const HostArenaView: React.FC<Props> = ({
     setReviewQIdx(matchState.globalQIndex);
   };
 
-  // Step Question in review
+  // Step Question in review or live mode (Không tự động quay vòng lại câu 1 khi đã hết câu cuối)
   const handleStepQ = (delta: number) => {
+    const totalCount = Math.max(1, quizList.length);
     if (isReviewMode) {
-      setReviewQIdx(prev => {
-        const next = prev + delta;
-        return next < 0 ? quizList.length - 1 : next % quizList.length;
-      });
+      setReviewQIdx(prev => Math.min(Math.max(0, prev + delta), totalCount - 1));
     } else {
       onUpdateMatchState(prev => {
         const next = prev.globalQIndex + delta;
+        if (delta > 0 && next >= totalCount) {
+          AudioFX.winFanfare();
+          CloudNetwork.sendMessage({
+            type: 'MATCH_ENDED',
+            status: 'ENDED',
+            globalQIndex: totalCount - 1
+          });
+          return {
+            ...prev,
+            status: 'ENDED',
+            globalQIndex: totalCount - 1,
+            redAnsweredIds: [],
+            blueAnsweredIds: []
+          };
+        }
         return {
           ...prev,
-          globalQIndex: next < 0 ? quizList.length - 1 : next % quizList.length,
+          globalQIndex: Math.min(Math.max(0, next), totalCount - 1),
           redAnsweredIds: [],
           blueAnsweredIds: []
         };
@@ -1713,6 +1790,14 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Restart match for a fresh new game round
   const handleRestartMatch = () => {
+    const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
+    CloudNetwork.sendMessage({
+      type: 'MATCH_START',
+      status: 'PLAYING',
+      qIndex: 0,
+      question: firstQ,
+      quiz: quizList
+    });
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -2491,7 +2576,7 @@ export const HostArenaView: React.FC<Props> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
               <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
-                CÂU {((currentQIndex % (quizList.length || 1)) + 1)}/{quizList.length || 1}
+                CÂU {currentQIndex + 1}/{quizList.length || 1}
               </span>
               <span aria-hidden="true">·</span>
               <span style={{ color: '#38bdf8' }}>

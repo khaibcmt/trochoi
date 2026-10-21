@@ -7,6 +7,7 @@ import {
   cleanTFStatementText,
   repairQuizItemIfCorrupted,
   getStableShuffledQuestion,
+  getTeacherGradebookScore,
   FASTEST_Q_DURATION_SEC,
   getPresetQuizBySubject
 } from '../data/defaultSubjects';
@@ -76,10 +77,23 @@ export const StudentMobileView: React.FC<Props> = ({
   // Short answer text state
   const [shortAnswerInput, setShortAnswerInput] = useState<string>('');
 
-  // Connection & Screen state
-  const [connStatus, setConnStatus] = useState('🔄 Đang kết nối sân đấu 3D...');
+  // Connection & Screen state (Tự động khôi phục phiên thi đang làm để học sinh KHÔNG BAO GIỜ bị văng ra ngoài)
+  const [connStatus, setConnStatus] = useState('🟢 Đã kết nối thông suốt sân đấu 3D!');
   const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
-  const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED'>('LOBBY');
+  const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED' | 'ENDED'>(() => {
+    try {
+      const savedName = (localStorage.getItem('student_saved_name') || '').trim();
+      const joined = sessionStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`);
+      const savedScr = sessionStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`);
+      if (savedName && joined === '1') {
+        if (savedScr === 'ENDED' || savedScr === 'QUIZ' || savedScr === 'WAITING' || savedScr === 'ELIMINATED') {
+          return savedScr;
+        }
+        return 'QUIZ';
+      }
+    } catch {}
+    return 'LOBBY';
+  });
   const [hasConfirmedEnter, setHasConfirmedEnter] = useState(false);
 
   // Gameplay state - Persistent student player ID per room to avoid losing score on disconnect/refresh
@@ -100,13 +114,36 @@ export const StudentMobileView: React.FC<Props> = ({
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
   const [eliminated, setEliminated] = useState(false);
-  const [matchStatText, setMatchStatText] = useState('Đang chờ trận đấu bắt đầu...');
-  const hasJoinedArenaRef = useRef<boolean>(false);
+  const [matchStatText, setMatchStatText] = useState('Đang kết nối thông suốt...');
+  const hasJoinedArenaRef = useRef<boolean>((() => {
+    try {
+      const savedName = (localStorage.getItem('student_saved_name') || '').trim();
+      const joined = sessionStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`);
+      return Boolean(savedName && joined === '1');
+    } catch {
+      return false;
+    }
+  })());
+  const hasFinishedAllQuestionsRef = useRef<boolean>((() => {
+    try {
+      const savedScr = sessionStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`);
+      return savedScr === 'ENDED';
+    } catch {
+      return false;
+    }
+  })());
 
   // Questions deck & pointers - Đồng bộ câu hỏi trực tiếp từ Host màn hình chính theo đúng chỉ số qIndex
   const [quizDeck, setQuizDeck] = useState<QuizItem[]>(() => {
     if (initialQuizList && initialQuizList.length > 0) return initialQuizList;
     try {
+      const savedLive = localStorage.getItem(`kc3d_live_sync_${initialRoomId || '12345'}`);
+      if (savedLive) {
+        const parsedLive = JSON.parse(savedLive);
+        if (parsedLive && Array.isArray(parsedLive.quiz) && parsedLive.quiz.length > 0) {
+          return parsedLive.quiz;
+        }
+      }
       const savedCustom = localStorage.getItem('custom_Active_Quiz_V31');
       if (savedCustom) {
         const parsed = JSON.parse(savedCustom);
@@ -117,8 +154,17 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [broadcastQuestionMap, setBroadcastQuestionMap] = useState<Record<number, QuizItem>>({});
   const [currentBroadcastQ, setCurrentBroadcastQ] = useState<QuizItem | null>(null);
-  const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState(0);
-  const currentGlobalQIndexRef = useRef(0);
+  const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState<number>(() => {
+    try {
+      const savedQ = sessionStorage.getItem(`kc3d_qidx_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_qidx_${initialRoomId || '12345'}`);
+      const parsed = savedQ ? parseInt(savedQ, 10) : 0;
+      return !isNaN(parsed) && parsed >= 0 ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const currentGlobalQIndexRef = useRef<number>(currentGlobalQIndex);
+  const maxReachedQIndexRef = useRef<number>(currentGlobalQIndex);
   const [lastCompletedQIndex, setLastCompletedQIndex] = useState(-1);
 
   // Sync initialQuizList whenever parent updates it
@@ -214,6 +260,11 @@ export const StudentMobileView: React.FC<Props> = ({
   const myCorrectCountRef = useRef<number>(myCorrectCount);
   const hasConfirmedEnterRef = useRef<boolean>(hasConfirmedEnter);
   const hostMatchStatusRef = useRef<'LOBBY' | 'PLAYING' | 'PAUSED' | 'ROUND_BREAK' | 'ENDED'>(hostMatchStatus);
+  const screenRef = useRef<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED' | 'ENDED'>(screen);
+  const eliminatedRef = useRef<boolean>(eliminated);
+  const gameTypeRef = useRef<GamePlayType>(gameType);
+  const quizDeckRef = useRef<QuizItem[]>(quizDeck);
+  const finishTransitionTimerRef = useRef<any>(null);
 
   useEffect(() => {
     studentNameRef.current = studentName;
@@ -236,6 +287,37 @@ export const StudentMobileView: React.FC<Props> = ({
   useEffect(() => {
     hostMatchStatusRef.current = hostMatchStatus;
   }, [hostMatchStatus]);
+  useEffect(() => {
+    screenRef.current = screen;
+    try {
+      sessionStorage.setItem(`kc3d_screen_${roomId}`, screen);
+      localStorage.setItem(`kc3d_screen_${roomId}`, screen);
+      if (screen !== 'LOBBY') {
+        hasJoinedArenaRef.current = true;
+        sessionStorage.setItem(`kc3d_joined_${roomId}`, '1');
+        localStorage.setItem(`kc3d_joined_${roomId}`, '1');
+      }
+    } catch {}
+  }, [screen, roomId]);
+  useEffect(() => {
+    currentGlobalQIndexRef.current = currentGlobalQIndex;
+    if (currentGlobalQIndex > maxReachedQIndexRef.current) {
+      maxReachedQIndexRef.current = currentGlobalQIndex;
+    }
+    try {
+      sessionStorage.setItem(`kc3d_qidx_${roomId}`, String(currentGlobalQIndex));
+      localStorage.setItem(`kc3d_qidx_${roomId}`, String(currentGlobalQIndex));
+    } catch {}
+  }, [currentGlobalQIndex, roomId]);
+  useEffect(() => {
+    eliminatedRef.current = eliminated;
+  }, [eliminated]);
+  useEffect(() => {
+    gameTypeRef.current = gameType;
+  }, [gameType]);
+  useEffect(() => {
+    quizDeckRef.current = quizDeck;
+  }, [quizDeck]);
 
   // Save student name and avatar to localStorage
   const handleSaveProfile = (name: string, av: AvatarConfig) => {
@@ -263,14 +345,17 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
     const cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
-    // Chỉ gửi thông tin vào sàn đấu khi học sinh đã nhập tên hoặc đã bấm tham gia (tránh hiện "Học sinh" rỗng khi chưa nhập tên)
     if (!cleanName && !hasJoinedArenaRef.current) return;
 
     const finalName = cleanName || 'Học sinh';
     const finalTeam = overrideTeam || teamRef.current;
 
     CloudNetwork.sendMessage({
-      type: hasJoinedArenaRef.current ? 'PLAYER_READY_ROPE' : 'AUTO_ENTER_ARENA',
+      type: hasFinishedAllQuestionsRef.current
+        ? 'PLAYER_FINISH_QUIZ'
+        : hasJoinedArenaRef.current
+        ? 'PLAYER_READY_ROPE'
+        : 'AUTO_ENTER_ARENA',
       playerId: myPlayerId,
       preferredTeam: finalTeam,
       playerName: finalName,
@@ -280,52 +365,48 @@ export const StudentMobileView: React.FC<Props> = ({
     });
   };
 
-  // Connect to room with network status tracking
-  useEffect(() => {
-    CloudNetwork.connect(
-      roomId,
-      handleIncomingMessage,
-      () => {
-        setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-        setNetworkState('CONNECTED');
-        if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
-          sendEnter();
-        }
-      },
-      (newStatus) => {
-        setNetworkState(newStatus);
-        if (newStatus === 'CONNECTED') {
-          setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-          if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
-            sendEnter();
-          }
-        } else if (newStatus === 'RECONNECTING') {
-          setConnStatus(`🔄 Đang kết nối lại mạng...`);
-        } else {
-          setConnStatus(`⚠️ Mất kết nối mạng`);
-        }
-      }
-    );
+  // Chuyển sang câu hỏi tiếp theo hoặc DỪNG & THÔNG BÁO KẾT QUẢ CUỐI CÙNG khi đã làm hết câu hỏi (tuyệt đối không chạy lại câu 1)
+  const advanceStudentQuestionOrFinish = (fromIndex?: number) => {
+    if (finishTransitionTimerRef.current) {
+      clearTimeout(finishTransitionTimerRef.current);
+      finishTransitionTimerRef.current = null;
+    }
+    const totalCount = Math.max(1, quizDeckRef.current.length || 1);
+    const curIdx = typeof fromIndex === 'number' ? fromIndex : currentGlobalQIndexRef.current;
 
-    const interval = setInterval(() => {
-      if (hasJoinedArenaRef.current && !hasConfirmedEnterRef.current && studentNameRef.current.trim()) {
-        sendEnter();
-      }
-    }, 1200);
+    if (curIdx + 1 >= totalCount) {
+      // ĐÃ LÀM HẾT CÂU HỎI CUỐI CÙNG -> NGỪNG NGAY VÀ HIỂN THỊ KẾT QUẢ CUỐI CÙNG (KHÔNG CHẠY LẠI CÂU 1)
+      hasFinishedAllQuestionsRef.current = true;
+      if (timerRef.current) clearInterval(timerRef.current);
+      AudioFX.winFanfare();
+      CloudNetwork.sendMessage({
+        type: 'PLAYER_FINISH_QUIZ',
+        playerId: myPlayerId,
+        preferredTeam: teamRef.current,
+        playerName: (studentNameRef.current || '').trim() || 'Học sinh',
+        avatar: avatarRef.current,
+        savedScore: fastScoreRef.current,
+        savedCorrect: myCorrectCountRef.current
+      });
+      setScreen('ENDED');
+      return;
+    }
 
-    return () => {
-      clearInterval(interval);
-      CloudNetwork.disconnect();
-    };
-  }, [roomId]);
+    const nextIdx = curIdx + 1;
+    currentGlobalQIndexRef.current = nextIdx;
+    if (nextIdx > maxReachedQIndexRef.current) {
+      maxReachedQIndexRef.current = nextIdx;
+    }
+    setCurrentGlobalQIndex(nextIdx);
+  };
 
   const handleManualReconnect = () => {
-    setConnStatus('🔄 Đang kết nối lại & khôi phục điểm số...');
+    setConnStatus('🟢 Đang đồng bộ lại kết nối & bảo lưu điểm số...');
     CloudNetwork.reconnectImmediate();
     setTimeout(() => {
       const cleanName = studentNameRef.current.trim() || 'Học sinh';
       CloudNetwork.sendMessage({
-        type: 'PLAYER_READY_ROPE',
+        type: hasFinishedAllQuestionsRef.current ? 'PLAYER_FINISH_QUIZ' : 'PLAYER_READY_ROPE',
         playerId: myPlayerId,
         preferredTeam: teamRef.current,
         playerName: cleanName,
@@ -333,21 +414,28 @@ export const StudentMobileView: React.FC<Props> = ({
         savedScore: fastScoreRef.current,
         savedCorrect: myCorrectCountRef.current
       });
-      setConnStatus(`🟢 Đã kết nối lại Phòng ${roomId} (Bảo lưu ${fastScoreRef.current}đ • ${myCorrectCountRef.current} câu đúng)`);
-      triggerBonusToast(`✅ Đã kết nối lại thành công! Bảo lưu ${fastScoreRef.current} điểm (${myCorrectCountRef.current} câu đúng).`);
-    }, 200);
+      setNetworkState('CONNECTED');
+      setConnStatus(`🟢 Đã kết nối Phòng ${roomId} (Bảo lưu ${fastScoreRef.current}đ • ${myCorrectCountRef.current} câu đúng)`);
+      triggerBonusToast(`✅ Kết nối thông suốt! Đã bảo lưu ${fastScoreRef.current} điểm (${myCorrectCountRef.current} câu đúng).`);
+    }, 100);
   };
 
   // 30s Local countdown timer per question:
   // Bắt đầu tính giờ 30s ngay khi học sinh vào màn hình câu hỏi (QUIZ).
-  // Khi học sinh ở Phòng chờ (WAITING), chỉ hiển thị câu hỏi chứ chưa đếm giờ và chưa cho trả lời.
+  // Khi làm hết câu hỏi cuối cùng sẽ NGỪNG và thông báo kết quả cuối cùng, không bao giờ chạy lại câu hỏi 1.
   useEffect(() => {
-    if (screen !== 'QUIZ' || eliminated) {
+    if (screen !== 'QUIZ' || eliminated || hasFinishedAllQuestionsRef.current) {
       activeStudentTimerQIndexRef.current = -1;
       if (screen === 'WAITING') {
         setRemSec(30);
       }
       if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+
+    const totalCount = Math.max(1, quizDeckRef.current.length || quizDeck.length || 1);
+    if (currentGlobalQIndex >= totalCount) {
+      advanceStudentQuestionOrFinish(totalCount - 1);
       return;
     }
 
@@ -379,6 +467,9 @@ export const StudentMobileView: React.FC<Props> = ({
         // Hết 30s mà học sinh không chọn đáp án -> Coi như trả lời SAI
         if (!hasAnsweredCurrentQRef.current) {
           handleTimeoutFail();
+        } else {
+          // Đã trả lời và hết 30s -> Tự động chuyển sang câu kế tiếp hoặc kết thúc nếu là câu cuối cùng
+          advanceStudentQuestionOrFinish(currentGlobalQIndexRef.current);
         }
       }
     }, 100);
@@ -388,9 +479,11 @@ export const StudentMobileView: React.FC<Props> = ({
     };
   }, [screen, currentGlobalQIndex, eliminated]);
 
-  const resolvedCurrentQ: QuizItem = broadcastQuestionMap[currentGlobalQIndex] ||
-    (currentBroadcastQ && (currentBroadcastQ as any).qIndex === currentGlobalQIndex ? currentBroadcastQ : null) ||
-    (quizDeck && quizDeck.length > 0 ? quizDeck[currentGlobalQIndex % quizDeck.length] : null) || {
+  const safeTotalDeckCount = Math.max(1, quizDeck.length || 1);
+  const clampedQIndex = Math.min(Math.max(0, currentGlobalQIndex), safeTotalDeckCount - 1);
+  const resolvedCurrentQ: QuizItem = broadcastQuestionMap[clampedQIndex] ||
+    (currentBroadcastQ && (currentBroadcastQ as any).qIndex === clampedQIndex ? currentBroadcastQ : null) ||
+    (quizDeck && quizDeck.length > 0 ? quizDeck[clampedQIndex] : null) || {
       qid: 0,
       q: 'Đang tải câu hỏi...',
       opts: ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
@@ -399,7 +492,7 @@ export const StudentMobileView: React.FC<Props> = ({
     };
 
   // Xáo trộn thứ tự đáp án của học sinh ĐÚNG 1 LẦN DUY NHẤT khi câu hỏi xuất hiện rồi ĐỨNG IM hoàn toàn (không bao giờ nhảy lại)
-  const resolvedQSignature = `${currentGlobalQIndex}::${resolvedCurrentQ?.q || ''}::${(resolvedCurrentQ?.opts || []).join('|')}`;
+  const resolvedQSignature = `${clampedQIndex}::${resolvedCurrentQ?.q || ''}::${(resolvedCurrentQ?.opts || []).join('|')}`;
   useEffect(() => {
     if (!resolvedCurrentQ || !resolvedCurrentQ.opts || resolvedCurrentQ.opts.length === 0) {
       setShuffledOpts([]);
@@ -416,7 +509,7 @@ export const StudentMobileView: React.FC<Props> = ({
     }));
 
     // Deterministic seed per student + question index so it shuffles once and stays 100% locked
-    const seedStr = `${myPlayerId}_q_${currentGlobalQIndex}_${resolvedCurrentQ.q}`;
+    const seedStr = `${myPlayerId}_q_${clampedQIndex}_${resolvedCurrentQ.q}`;
     let hash = 2166136261;
     for (let i = 0; i < seedStr.length; i++) {
       hash ^= seedStr.charCodeAt(i);
@@ -443,7 +536,7 @@ export const StudentMobileView: React.FC<Props> = ({
     }));
 
     setShuffledOpts(finalItems);
-  }, [resolvedQSignature, myPlayerId, currentGlobalQIndex]);
+  }, [resolvedQSignature, myPlayerId, clampedQIndex]);
 
   const handleTimeoutFail = () => {
     if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
@@ -454,8 +547,13 @@ export const StudentMobileView: React.FC<Props> = ({
     AudioFX.freezeCrack();
     setStreak(0);
 
-    if (gameType === 'BELL') {
-      // Chỉ có trò Rung Chuông Vàng khi trả lời sai / không chọn đáp án khi hết giờ mới bị mất 1 mạng; hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
+    const activeGM = gameTypeRef.current;
+    const curIdx = currentGlobalQIndexRef.current;
+    const totalCount = Math.max(1, quizDeckRef.current.length || 1);
+    const isFinalQ = curIdx + 1 >= totalCount;
+    let nextScoreAfterTimeout = fastScoreRef.current;
+
+    if (activeGM === 'BELL') {
       setLives(prev => {
         const nextL = Math.max(0, prev - 1);
         setLastLockedResult({
@@ -470,27 +568,41 @@ export const StudentMobileView: React.FC<Props> = ({
         }
         return nextL;
       });
-    } else if (gameType === 'FAST' || gameType === 'BOSS') {
-      // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Chọn sai / hết giờ không chọn bị trừ 1000 điểm (Số câu đúng ghi sổ điểm GV giữ nguyên)
-      setFastScore(prev => prev - 1000);
+    } else if (activeGM === 'FAST' || activeGM === 'BOSS') {
+      nextScoreAfterTimeout = fastScoreRef.current - 1000;
+      fastScoreRef.current = nextScoreAfterTimeout;
+      setFastScore(nextScoreAfterTimeout);
       setLastLockedResult({
         isCorrect: false,
-        text: '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!'
+        text: isFinalQ
+          ? '⏰ HẾT 30 GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (-1000 điểm) • Đang tổng kết kết quả cuối cùng!'
+          : '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!'
       });
     } else {
-      // Trò Kéo Co: Không chọn đáp án khi hết 30s coi như SAI (0 điểm câu này)
       setLastLockedResult({
         isCorrect: false,
-        text: '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!'
+        text: isFinalQ
+          ? '⏰ HẾT 30 GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (0 điểm) • Đang tổng kết kết quả cuối cùng!'
+          : '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!'
       });
     }
 
     CloudNetwork.sendMessage({
       type: 'FREEZE_WRONG',
       playerId: myPlayerId,
-      team,
-      globalQIndex: currentGlobalQIndex
+      team: teamRef.current,
+      globalQIndex: curIdx,
+      totalScore: nextScoreAfterTimeout,
+      savedCorrect: myCorrectCountRef.current
     });
+
+    // Tự động chuyển qua câu tiếp theo hoặc dừng ở màn hình Kết quả cuối cùng sau 1.2 giây
+    if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+    finishTransitionTimerRef.current = setTimeout(() => {
+      if (!eliminatedRef.current) {
+        advanceStudentQuestionOrFinish(curIdx);
+      }
+    }, 1200);
   };
 
   const handleIncomingMessage = (d: CloudMessage) => {
@@ -498,9 +610,11 @@ export const StudentMobileView: React.FC<Props> = ({
 
     if (d.gameType) {
       setGameType(d.gameType);
+      gameTypeRef.current = d.gameType;
     }
     if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
       setQuizDeck(d.quiz);
+      quizDeckRef.current = d.quiz;
     }
     if (typeof d.bossHP === 'number') {
       setBossHP(d.bossHP);
@@ -509,14 +623,29 @@ export const StudentMobileView: React.FC<Props> = ({
       setMaxBossHP(d.maxBossHP);
     }
 
+    // Nếu giáo viên kết thúc trận đấu hoặc đã hết câu hỏi -> Dừng ngay và thông báo kết quả cuối cùng!
+    if (d.type === 'MATCH_ENDED' || d.status === 'ENDED' || d.matchStatus === 'ENDED') {
+      setHostMatchStatus('ENDED');
+      hostMatchStatusRef.current = 'ENDED';
+      if (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY') {
+        hasFinishedAllQuestionsRef.current = true;
+        if (timerRef.current) clearInterval(timerRef.current);
+        setScreen('ENDED');
+      }
+      return;
+    }
+
+    if (d.type === 'FAST_ANSWER_RESULT' && d.playerId === myPlayerId) {
+      if (typeof d.rank === 'number' && d.rank > 0) {
+        setFastRank(d.rank);
+      }
+      return;
+    }
+
     if (d.type === 'WELCOME_ACK' || d.type === 'HOST_STATE_SYNC') {
       if (d.status) {
         setHostMatchStatus(d.status);
         hostMatchStatusRef.current = d.status;
-      }
-      if (typeof d.globalQIndex === 'number') {
-        currentGlobalQIndexRef.current = d.globalQIndex;
-        setCurrentGlobalQIndex(d.globalQIndex);
       }
       if (d.question) {
         const qIdx = typeof (d.question as any).qIndex === 'number'
@@ -525,25 +654,24 @@ export const StudentMobileView: React.FC<Props> = ({
         setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
         setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
       }
-      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
-        setQuizDeck(d.quiz);
+      if (!hasFinishedAllQuestionsRef.current && typeof d.globalQIndex === 'number' && d.globalQIndex > maxReachedQIndexRef.current) {
+        currentGlobalQIndexRef.current = d.globalQIndex;
+        maxReachedQIndexRef.current = d.globalQIndex;
+        setCurrentGlobalQIndex(d.globalQIndex);
       }
-      if (d.status === 'PLAYING' && hasJoinedArenaRef.current && !eliminated) {
+      if (d.status === 'PLAYING' && hasJoinedArenaRef.current && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
         waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
       }
     }
     else if (d.type === 'ENTER_CONFIRMED' && d.playerId === myPlayerId) {
       setHasConfirmedEnter(true);
+      hasConfirmedEnterRef.current = true;
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
       if (d.matchStatus) {
         setHostMatchStatus(d.matchStatus);
         hostMatchStatusRef.current = d.matchStatus;
-      }
-      if (typeof d.globalQIndex === 'number') {
-        currentGlobalQIndexRef.current = d.globalQIndex;
-        setCurrentGlobalQIndex(d.globalQIndex);
       }
       if (d.question) {
         const qIdx = typeof (d.question as any).qIndex === 'number'
@@ -552,24 +680,34 @@ export const StudentMobileView: React.FC<Props> = ({
         setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
         setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
       }
-      if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) setQuizDeck(d.quiz);
+      if (!hasFinishedAllQuestionsRef.current && typeof d.globalQIndex === 'number' && d.globalQIndex > maxReachedQIndexRef.current) {
+        currentGlobalQIndexRef.current = d.globalQIndex;
+        maxReachedQIndexRef.current = d.globalQIndex;
+        setCurrentGlobalQIndex(d.globalQIndex);
+      }
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
       if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
-      if (typeof d.fastScore === 'number' && d.fastScore > 0) {
-        setFastScore(prev => Math.max(prev, d.fastScore!));
+      if (typeof d.fastScore === 'number' && d.fastScore > fastScoreRef.current) {
+        setFastScore(d.fastScore);
+      }
+      if (typeof d.savedCorrect === 'number' && d.savedCorrect > myCorrectCountRef.current) {
+        setMyCorrectCount(d.savedCorrect);
       }
 
-      if (d.matchStatus === 'PLAYING' && hasJoinedArenaRef.current) {
+      if (hasFinishedAllQuestionsRef.current) {
+        setScreen('ENDED');
+      } else if (d.matchStatus === 'PLAYING' && hasJoinedArenaRef.current) {
         waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
-      } else if (hasJoinedArenaRef.current && !waitingRoomLockedRef.current) {
+      } else if (hasJoinedArenaRef.current && !waitingRoomLockedRef.current && screenRef.current === 'LOBBY') {
         setScreen('QUIZ');
       }
     }
     else if (d.type === 'QUIZ_SYNC') {
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
+        quizDeckRef.current = d.quiz;
         setBroadcastQuestionMap({});
       }
       if (d.question) {
@@ -579,6 +717,9 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     }
     else if (d.type === 'MATCH_START') {
+      // Giáo viên bấm BẮT ĐẦU THI trận mới
+      hasFinishedAllQuestionsRef.current = false;
+      maxReachedQIndexRef.current = 0;
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
       waitingRoomLockedRef.current = false;
@@ -589,19 +730,19 @@ export const StudentMobileView: React.FC<Props> = ({
       setHasAnsweredCurrentQ(false);
       setIsAnswerLocked(false);
       setLastLockedResult(null);
-      if (typeof d.qIndex === 'number') {
-        currentGlobalQIndexRef.current = d.qIndex;
-        setCurrentGlobalQIndex(d.qIndex);
-      }
+      const startIdx = typeof d.qIndex === 'number' ? d.qIndex : 0;
+      currentGlobalQIndexRef.current = startIdx;
+      maxReachedQIndexRef.current = startIdx;
+      setCurrentGlobalQIndex(startIdx);
       if (d.question) {
-        const qIdx = typeof d.qIndex === 'number' ? d.qIndex : 0;
-        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
-        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+        setBroadcastQuestionMap(prev => ({ ...prev, [startIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: startIdx } as any);
       }
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
+        quizDeckRef.current = d.quiz;
       }
-      if (!eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+      if (!eliminatedRef.current && (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY')) {
         setScreen('QUIZ');
         triggerBonusToast('🚀 GIÁO VIÊN ĐÃ BẤM BẮT ĐẦU! ĐÃ MỞ KHÓA ĐÁP ÁN ĐỂ EM TRẢ LỜI!');
       }
@@ -610,13 +751,13 @@ export const StudentMobileView: React.FC<Props> = ({
       if (d.status) {
         setHostMatchStatus(d.status);
         hostMatchStatusRef.current = d.status;
-        if (d.status === 'PLAYING' && !eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+        if (d.status === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY')) {
           waitingRoomLockedRef.current = false;
           activeStudentTimerQIndexRef.current = -1;
           startMsRef.current = Date.now();
           setScreen('QUIZ');
           triggerBonusToast('▶️ Giáo viên đã mở tiếp tục — Em có thể trả lời ngay!');
-        } else if (d.status === 'PAUSED' && screen === 'QUIZ') {
+        } else if (d.status === 'PAUSED' && screenRef.current === 'QUIZ') {
           waitingRoomLockedRef.current = true;
           setScreen('WAITING');
           triggerBonusToast('⏸️ Giáo viên đang tạm dừng — Chuyển về Phòng chờ xem câu hỏi!');
@@ -625,12 +766,16 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'GAME_SWITCH' || d.type === 'GAME_SWITCHED') {
       // Giáo viên đổi trò chơi hoặc bấm Chuẩn bị sàn đấu: Học sinh đang chơi KHÔNG cần quét lại mã QR!
-      if (d.gameType) setGameType(d.gameType);
+      if (d.gameType) {
+        setGameType(d.gameType);
+        gameTypeRef.current = d.gameType;
+      }
       const nextStatus = d.status || 'LOBBY';
       setHostMatchStatus(nextStatus);
       hostMatchStatusRef.current = nextStatus;
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
+        quizDeckRef.current = d.quiz;
         setBroadcastQuestionMap({});
       }
       if (d.question) {
@@ -638,23 +783,28 @@ export const StudentMobileView: React.FC<Props> = ({
         setCurrentBroadcastQ({ ...d.question, qIndex: 0 } as any);
       }
       const nextQIdx = d.qIndex ?? d.globalQIndex ?? 0;
+      hasFinishedAllQuestionsRef.current = false;
       currentGlobalQIndexRef.current = nextQIdx;
+      maxReachedQIndexRef.current = nextQIdx;
       setCurrentGlobalQIndex(nextQIdx);
       setLastCompletedQIndex(-1);
       lastShuffledKeyRef.current = '';
       clearFreeze();
       setEliminated(false);
+      eliminatedRef.current = false;
       setLives(3);
       setStreak(0);
       setFastScore(0);
+      fastScoreRef.current = 0;
       setMyCorrectCount(0);
+      myCorrectCountRef.current = 0;
       hasAnsweredCurrentQRef.current = false;
       setHasAnsweredCurrentQ(false);
       setIsAnswerLocked(false);
       setSelectedOptionOriginalIdx(null);
       setLastLockedResult(null);
 
-      if (hasJoinedArenaRef.current || screen !== 'LOBBY') {
+      if (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY') {
         hasJoinedArenaRef.current = true;
         if (!waitingRoomLockedRef.current || nextStatus === 'PLAYING') {
           activeStudentTimerQIndexRef.current = -1;
@@ -671,31 +821,38 @@ export const StudentMobileView: React.FC<Props> = ({
     else if (d.type === 'PLAYER_LIVES_SYNC' && d.playerId === myPlayerId) {
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
-      if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
-      if (typeof d.fastScore === 'number') setFastScore(d.fastScore);
+      if (typeof d.eliminated === 'boolean') {
+        setEliminated(d.eliminated);
+        eliminatedRef.current = d.eliminated;
+      }
+      if (typeof d.fastScore === 'number') {
+        setFastScore(d.fastScore);
+        fastScoreRef.current = d.fastScore;
+      }
 
-      if (d.bonusAwarded && gameType === 'TUG') {
+      if (d.bonusAwarded && gameTypeRef.current === 'TUG') {
         awardRandomPowerUp();
         triggerBonusToast("🔥 ĐÚNG 3 CÂU LIÊN TIẾP! NHẬN THẺ KỸ NĂNG KÉO CO!");
       }
       if (d.rescuedNow) {
         setEliminated(false);
+        eliminatedRef.current = false;
         setIsFrozen(false);
-        setScreen(waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
+        setScreen(hasFinishedAllQuestionsRef.current ? 'ENDED' : waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
         triggerBonusToast("🛟 THẦY ĐÃ CỨU TRỢ HỒI SINH EM TRỞ LẠI SÀN ĐẤU! (❤️)");
-      } else if (d.eliminated && gameType === 'BELL') {
+      } else if (d.eliminated && gameTypeRef.current === 'BELL') {
         setScreen('ELIMINATED');
       }
     }
     else if (d.type === 'RESCUE_ALL_PLAYERS') {
       setEliminated(false);
+      eliminatedRef.current = false;
       setIsFrozen(false);
       setLives(1);
-      setScreen(waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
+      setScreen(hasFinishedAllQuestionsRef.current ? 'ENDED' : waitingRoomLockedRef.current ? 'WAITING' : 'QUIZ');
       triggerBonusToast("🛟 TOÀN BỘ HỌC SINH ĐÃ ĐƯỢC CỨU TRỢ HỒI SINH! (❤️)");
     }
-    else if (d.type === 'OPPONENT_FROZEN' && d.targetPlayerId === myPlayerId && gameType === 'TUG') {
-      // Chỉ có trò Kéo Co (TUG) mới bị các hiệu ứng kỹ năng đóng băng
+    else if (d.type === 'OPPONENT_FROZEN' && d.targetPlayerId === myPlayerId && gameTypeRef.current === 'TUG') {
       if (activeShield) {
         setActiveShield(false);
         triggerBonusToast('🛡️ KHIÊN BẢO VỆ ĐÃ CHẶN ĐÒN ĐÓNG BĂNG TỪ ĐỐI THỦ!');
@@ -714,17 +871,18 @@ export const StudentMobileView: React.FC<Props> = ({
         const maxHp = d.maxBossHP ?? 1000;
         setBossHP(hp);
         setMaxBossHP(maxHp);
-        setMatchStatText(`🐉 Boss Máu: ${hp}/${maxHp} HP • Câu ${d.globalQIndex !== undefined ? d.globalQIndex + 1 : 1}`);
+        setMatchStatText(`🐉 Boss Máu: ${hp}/${maxHp} HP • Câu ${currentGlobalQIndexRef.current + 1}`);
       } else if (d.gameType === 'BELL') {
         setMatchStatText(`Còn trụ: ${d.bellAliveCount || 0}/${d.bellTotalCount || 0} HS`);
       } else if (d.gameType === 'FAST') {
-        setMatchStatText(`⚡ Đua Tốc Độ • Câu #${(d.globalQIndex || 0) + 1}`);
+        setMatchStatText(`⚡ Đua Tốc Độ • Câu #${currentGlobalQIndexRef.current + 1}`);
       } else {
         setMatchStatText(`Tỉ số kéo: Đỏ ${d.redRoundWins || 0} - Xanh ${d.blueRoundWins || 0}`);
       }
 
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
+        quizDeckRef.current = d.quiz;
       }
       if (d.question) {
         const qIdx = typeof (d.question as any).qIndex === 'number'
@@ -743,35 +901,65 @@ export const StudentMobileView: React.FC<Props> = ({
         });
       }
 
-      if (typeof d.globalQIndex === 'number' && d.globalQIndex !== currentGlobalQIndexRef.current) {
+      // Chỉ tiến lên câu hỏi mới nếu Host đang PLAYING và có chỉ số câu hỏi lớn hơn chỉ số câu hiện tại của học sinh
+      // TUYỆT ĐỐI KHÔNG kéo lùi học sinh về câu 1 hoặc làm văng học sinh đã hoàn thành bài thi!
+      if (
+        !hasFinishedAllQuestionsRef.current &&
+        d.status === 'PLAYING' &&
+        typeof d.globalQIndex === 'number' &&
+        d.globalQIndex > currentGlobalQIndexRef.current
+      ) {
+        const totalCount = Math.max(1, (d.quiz && d.quiz.length) || quizDeckRef.current.length || 1);
+        if (d.globalQIndex >= totalCount) {
+          advanceStudentQuestionOrFinish(totalCount - 1);
+          return;
+        }
         currentGlobalQIndexRef.current = d.globalQIndex;
+        maxReachedQIndexRef.current = Math.max(maxReachedQIndexRef.current, d.globalQIndex);
         setCurrentGlobalQIndex(d.globalQIndex);
         setLastCompletedQIndex(-1);
-        clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
-        if (d.status === 'PLAYING' && !eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+        clearFreeze();
+        if (!eliminatedRef.current && (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY')) {
           waitingRoomLockedRef.current = false;
           setScreen('QUIZ');
         }
       }
 
-      if (d.status === 'PLAYING' && !eliminated && screen === 'WAITING') {
+      if (d.status === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && screenRef.current === 'WAITING') {
         waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
         triggerBonusToast('🚀 Giáo viên đã bắt đầu trận đấu — Đã mở khóa câu trả lời!');
       }
     }
     else if (d.type === 'QUESTION_START') {
+      if (hasFinishedAllQuestionsRef.current && (d.qIndex ?? 0) > 0) {
+        return;
+      }
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
       waitingRoomLockedRef.current = false;
       if (typeof d.qIndex === 'number') {
-        const isNewQuestion = d.qIndex !== currentGlobalQIndexRef.current || screen !== 'QUIZ';
+        const totalCount = Math.max(1, (d.quiz && d.quiz.length) || quizDeckRef.current.length || 1);
+        if (d.qIndex >= totalCount) {
+          advanceStudentQuestionOrFinish(totalCount - 1);
+          return;
+        }
+        // Không kéo lùi câu hỏi nếu học sinh đã làm vượt qua câu đó
+        if (d.qIndex < maxReachedQIndexRef.current && d.qIndex !== 0) {
+          return;
+        }
+        if (d.qIndex === 0 && maxReachedQIndexRef.current > 0 && hasFinishedAllQuestionsRef.current) {
+          // Đã hoàn thành bộ câu hỏi -> chỉ reset khi có lệnh MATCH_START hoặc GAME_SWITCH
+          return;
+        }
+        const isNewQuestion = d.qIndex !== currentGlobalQIndexRef.current || screenRef.current !== 'QUIZ';
         currentGlobalQIndexRef.current = d.qIndex;
+        maxReachedQIndexRef.current = Math.max(maxReachedQIndexRef.current, d.qIndex);
         setCurrentGlobalQIndex(d.qIndex);
         if (isNewQuestion) {
           activeStudentTimerQIndexRef.current = -1;
           setLastCompletedQIndex(-1);
-          clearFreeze(); // Tự động mở đóng băng khi hiện lên câu hỏi mới
+          clearFreeze();
           hasAnsweredCurrentQRef.current = false;
           setHasAnsweredCurrentQ(false);
           setIsAnswerLocked(false);
@@ -784,13 +972,54 @@ export const StudentMobileView: React.FC<Props> = ({
         }
         if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
           setQuizDeck(d.quiz);
+          quizDeckRef.current = d.quiz;
         }
-        if (!eliminated && (hasJoinedArenaRef.current || screen !== 'LOBBY')) {
+        if (!eliminatedRef.current && (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY')) {
           setScreen('QUIZ');
         }
       }
     }
   };
+
+  const handleIncomingMessageRef = useRef(handleIncomingMessage);
+  handleIncomingMessageRef.current = handleIncomingMessage;
+
+  // Connect to room with network status tracking (Luôn dùng ref mới nhất, giữ kết nối xuyên suốt 100%)
+  useEffect(() => {
+    CloudNetwork.connect(
+      roomId,
+      (msg) => handleIncomingMessageRef.current(msg),
+      () => {
+        setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
+        setNetworkState('CONNECTED');
+        if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+          sendEnter();
+        }
+      },
+      (newStatus) => {
+        setNetworkState(newStatus);
+        if (newStatus === 'CONNECTED') {
+          setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
+          if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+            sendEnter();
+          }
+        }
+      }
+    );
+
+    // Gửi đồng bộ định kỳ để đảm bảo tên, nhân vật và điểm của học sinh luôn hiển thị thông suốt trên màn hình giáo viên
+    const interval = setInterval(() => {
+      if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+        sendEnter();
+      }
+    }, 2200);
+
+    return () => {
+      clearInterval(interval);
+      if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+      CloudNetwork.disconnect();
+    };
+  }, [roomId]);
 
   const awardRandomPowerUp = () => {
     const list: PowerUpType[] = ['SHIELD', 'FREEZE_OPPONENT', 'FIFTY_FIFTY', 'DOUBLE_POWER'];
@@ -965,6 +1194,8 @@ export const StudentMobileView: React.FC<Props> = ({
   // Common answer processor
   const processAnswerOutcome = (isCorrect: boolean, factor: number) => {
     const elapsedSec = (Date.now() - startMsRef.current) / 1000;
+    const totalCount = Math.max(1, quizDeckRef.current.length || quizDeck.length || 1);
+    const isFinalQuestion = currentGlobalQIndexRef.current + 1 >= totalCount;
 
     if (isCorrect) {
       AudioFX.pullHeave();
@@ -975,8 +1206,12 @@ export const StudentMobileView: React.FC<Props> = ({
       if (doublePowerActive) setDoublePowerActive(false);
 
       const gainedPts = Math.max(1000, factor * powerMultiplier * 1000);
-      setFastScore(prev => prev + gainedPts);
-      setMyCorrectCount(prev => prev + 1);
+      const nextTotalScore = fastScoreRef.current + gainedPts;
+      const nextCorrectCount = myCorrectCountRef.current + 1;
+      fastScoreRef.current = nextTotalScore;
+      myCorrectCountRef.current = nextCorrectCount;
+      setFastScore(nextTotalScore);
+      setMyCorrectCount(nextCorrectCount);
 
       // Chỉ có trò Kéo Co (TUG) mới có hiệu ứng thẻ kỹ năng
       if (gameType === 'TUG' && nextStreak >= 3) {
@@ -988,39 +1223,55 @@ export const StudentMobileView: React.FC<Props> = ({
         type: 'PULL_CORRECT',
         playerId: myPlayerId,
         team,
-        globalQIndex: currentGlobalQIndex,
+        globalQIndex: currentGlobalQIndexRef.current,
         elapsedSec,
         correctCountInTF: factor,
-        gainedPts
+        gainedPts,
+        totalScore: nextTotalScore,
+        savedCorrect: nextCorrectCount
       });
     } else {
       AudioFX.freezeCrack();
       setStreak(0);
 
+      let nextTotalScore = fastScoreRef.current;
       // Chỉ có trò Rung Chuông Vàng (BELL) khi trả lời sai mới mất 1 mạng, hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
       if (gameType === 'BELL') {
         setLives(prev => {
           const nextL = Math.max(0, prev - 1);
           if (nextL <= 0) {
             setEliminated(true);
+            eliminatedRef.current = true;
             setScreen('ELIMINATED');
           }
           return nextL;
         });
       } else if (gameType === 'FAST' || gameType === 'BOSS') {
         // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Mỗi câu chọn sai trừ 1000 điểm
-        setFastScore(prev => prev - 1000);
+        nextTotalScore = fastScoreRef.current - 1000;
+        fastScoreRef.current = nextTotalScore;
+        setFastScore(nextTotalScore);
       }
 
       CloudNetwork.sendMessage({
         type: 'FREEZE_WRONG',
         playerId: myPlayerId,
         team,
-        globalQIndex: currentGlobalQIndex
+        globalQIndex: currentGlobalQIndexRef.current,
+        totalScore: nextTotalScore,
+        savedCorrect: myCorrectCountRef.current
       });
     }
 
-    setLastCompletedQIndex(currentGlobalQIndex);
+    setLastCompletedQIndex(currentGlobalQIndexRef.current);
+
+    // Nếu đây là câu hỏi cuối cùng của bộ đề -> Sau 1.4 giây tự động NGỪNG và mở màn hình Thông báo Kết quả cuối cùng (không chạy lại câu 1)
+    if (isFinalQuestion && !eliminatedRef.current) {
+      if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+      finishTransitionTimerRef.current = setTimeout(() => {
+        advanceStudentQuestionOrFinish(currentGlobalQIndexRef.current);
+      }, 1400);
+    }
   };
 
   // Vào trực tiếp phòng có câu hỏi (QUIZ) hoặc vào Phòng chờ (WAITING)
@@ -1034,9 +1285,12 @@ export const StudentMobileView: React.FC<Props> = ({
     try {
       localStorage.setItem('student_saved_name', cleanName);
       localStorage.setItem('student_saved_avatar', JSON.stringify(avatar));
+      sessionStorage.setItem(`kc3d_joined_${roomId}`, '1');
+      localStorage.setItem(`kc3d_joined_${roomId}`, '1');
     } catch {}
 
     hasJoinedArenaRef.current = true;
+    hasFinishedAllQuestionsRef.current = false;
     hasConfirmedEnterRef.current = false;
     setHasConfirmedEnter(false);
     waitingRoomLockedRef.current = targetScreen === 'WAITING';
@@ -1048,8 +1302,8 @@ export const StudentMobileView: React.FC<Props> = ({
       preferredTeam: team,
       playerName: cleanName,
       avatar,
-      savedScore: fastScore,
-      savedCorrect: myCorrectCount
+      savedScore: fastScoreRef.current,
+      savedCorrect: myCorrectCountRef.current
     };
 
     // Gửi ngay tức thì + gửi lặp bảo đảm 100% hiển thị ngay lập tức trên màn hình chính

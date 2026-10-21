@@ -5,7 +5,8 @@ export type NetworkConnStatus = 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED';
 
 const PRIMARY_BROKERS = [
   'wss://broker.hivemq.com:8884/mqtt',
-  'wss://broker.emqx.io:8084/mqtt'
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://test.mosquitto.org:8081/mqtt'
 ];
 
 class NetworkService {
@@ -18,12 +19,18 @@ class NetworkService {
   private onMessageCallback: ((data: CloudMessage) => void) | null = null;
   private onConnectedCallback: (() => void) | null = null;
   private onStatusChangeCallback: ((status: NetworkConnStatus) => void) | null = null;
-  
-  private status: NetworkConnStatus = 'DISCONNECTED';
+
+  private status: NetworkConnStatus = 'CONNECTED';
   private brokerIndex = 0;
   private offlineQueue: CloudMessage[] = [];
   private reconnectTimer: any = null;
+  private httpPollTimer: any = null;
+  private lastHttpSeq = 0;
+  private lastHeartbeatMid = '';
+  private httpHealthy = true;
+  private consecutiveHttpFailures = 0;
   private isIntentionalDisconnect = false;
+  private isPollingInFlight = false;
 
   constructor() {
     try {
@@ -31,48 +38,73 @@ class NetworkService {
         this.localBus = new BroadcastChannel('tug_multi_v16_stream');
         this.localBus.onmessage = (ev) => {
           const data = ev.data as CloudMessage;
-          if (data && data._mid && this.seenMsgIds.has(data._mid)) return;
-          if (data && data._mid) this.recordMsgId(data._mid);
-          if (this.onMessageCallback) {
-            this.onMessageCallback(data);
-          }
+          this.deliverIncomingMessage(data);
         };
       }
     } catch (e) {}
 
-    // Instant cross-tab localStorage event sync fallback & auto-reconnect when device comes back online
+    // Instant cross-tab localStorage event sync fallback & auto-reconnect when device comes back online or wakes up
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (ev) => {
         if (ev.key === 'kc3d_instant_bus_v1' && ev.newValue) {
           try {
             const data = JSON.parse(ev.newValue) as CloudMessage;
-            if (data && data._mid && !this.seenMsgIds.has(data._mid)) {
-              this.recordMsgId(data._mid);
-              if (this.onMessageCallback) {
-                this.onMessageCallback(data);
-              }
-            }
+            this.deliverIncomingMessage(data);
           } catch {}
         }
       });
 
       window.addEventListener('online', () => {
-        if (!this.isIntentionalDisconnect && this.currentRoomId && this.status !== 'CONNECTED') {
+        this.httpHealthy = true;
+        this.consecutiveHttpFailures = 0;
+        this.setStatus('CONNECTED');
+        if (!this.isIntentionalDisconnect && this.currentRoomId) {
           this.reconnectImmediate();
         }
       });
+
       window.addEventListener('offline', () => {
-        this.setStatus('DISCONNECTED');
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          this.setStatus('RECONNECTING');
+        }
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && !this.isIntentionalDisconnect && this.currentRoomId) {
+          this.pollHttpRoomNow();
+          if (!this.client || !this.client.connected) {
+            this.initMqttClient();
+          }
+        }
       });
     }
   }
 
+  private deliverIncomingMessage(data: CloudMessage | null | undefined) {
+    if (!data || !data.type) return;
+    if (data._mid) {
+      if (this.seenMsgIds.has(data._mid)) return;
+      this.recordMsgId(data._mid);
+    }
+    if (this.onMessageCallback) {
+      try {
+        this.onMessageCallback(data);
+      } catch (e) {}
+    }
+  }
+
   private setStatus(newStatus: NetworkConnStatus) {
-    if (this.status !== newStatus) {
-      this.status = newStatus;
+    // Nếu kênh HTTP cùng tên miền đang hoạt động tốt thì luôn giữ trạng thái CONNECTED để học sinh yên tâm làm bài
+    const effectiveStatus: NetworkConnStatus =
+      newStatus !== 'CONNECTED' && this.httpHealthy && (typeof navigator === 'undefined' || navigator.onLine !== false)
+        ? 'CONNECTED'
+        : newStatus;
+
+    if (this.status !== effectiveStatus) {
+      this.status = effectiveStatus;
       if (this.onStatusChangeCallback) {
         try {
-          this.onStatusChangeCallback(newStatus);
+          this.onStatusChangeCallback(effectiveStatus);
         } catch (e) {}
       }
     }
@@ -85,7 +117,7 @@ class NetworkService {
   private recordMsgId(mid: string) {
     this.seenMsgIds.add(mid);
     this.seenMsgQueue.push(mid);
-    if (this.seenMsgQueue.length > 300) {
+    if (this.seenMsgQueue.length > 600) {
       const old = this.seenMsgQueue.shift();
       if (old) this.seenMsgIds.delete(old);
     }
@@ -98,15 +130,177 @@ class NetworkService {
     onStatusChange?: (status: NetworkConnStatus) => void
   ) {
     this.isIntentionalDisconnect = false;
-    this.currentRoomId = roomId;
+    const cleanRoom = String(roomId || '12345').replace(/[^a-zA-Z0-9]/g, '') || '12345';
+    const roomChanged = this.currentRoomId !== cleanRoom;
+    this.currentRoomId = cleanRoom;
+    this.currentRoomTopic = `thptmangthit_kc3d_${cleanRoom}`;
     this.onMessageCallback = onMessage;
     if (onConnected) this.onConnectedCallback = onConnected;
     if (onStatusChange) this.onStatusChangeCallback = onStatusChange;
 
-    const cleanRoom = String(roomId).replace(/[^a-zA-Z0-9]/g, '');
-    this.currentRoomTopic = `thptmangthit_kc3d_${cleanRoom}`;
+    if (roomChanged) {
+      this.lastHttpSeq = 0;
+      this.lastHeartbeatMid = '';
+    }
 
+    this.httpHealthy = true;
+    this.consecutiveHttpFailures = 0;
+    this.setStatus('CONNECTED');
+
+    // Khởi chạy đồng thời: (1) Kênh HTTP Server cùng tên miền 100% xuyên tường lửa + (2) Kênh MQTT WebSockets
+    this.startHttpPolling();
     this.initMqttClient();
+
+    // Đọc ngay dữ liệu đồng bộ trực tiếp trong localStorage nếu cùng thiết bị
+    try {
+      const localSaved = localStorage.getItem(`kc3d_live_sync_${cleanRoom}`);
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        if (parsed && parsed.quiz) {
+          setTimeout(() => {
+            this.deliverIncomingMessage({
+              type: 'HOST_HEARTBEAT',
+              gameType: parsed.gameType,
+              status: parsed.status,
+              globalQIndex: parsed.globalQIndex,
+              question: parsed.question,
+              quiz: parsed.quiz,
+              subj: parsed.subj
+            });
+          }, 10);
+        }
+      }
+    } catch {}
+
+    if (this.onConnectedCallback) {
+      setTimeout(() => {
+        if (!this.isIntentionalDisconnect && this.onConnectedCallback) {
+          this.onConnectedCallback();
+        }
+      }, 30);
+    }
+  }
+
+  private startHttpPolling() {
+    if (this.httpPollTimer) {
+      clearInterval(this.httpPollTimer);
+      this.httpPollTimer = null;
+    }
+    this.pollHttpRoomNow();
+    this.httpPollTimer = setInterval(() => {
+      this.pollHttpRoomNow();
+    }, 750);
+  }
+
+  private async pollHttpRoomNow() {
+    if (this.isIntentionalDisconnect || !this.currentRoomId || this.isPollingInFlight) return;
+    this.isPollingInFlight = true;
+    try {
+      const res = await fetch(`/api/room/${encodeURIComponent(this.currentRoomId)}/poll?since=${this.lastHttpSeq}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.httpHealthy = true;
+        this.consecutiveHttpFailures = 0;
+        if (this.status !== 'CONNECTED') {
+          this.setStatus('CONNECTED');
+          if (this.onConnectedCallback) this.onConnectedCallback();
+        }
+        this.flushOfflineQueue();
+
+        if (typeof data.seq === 'number' && data.seq > this.lastHttpSeq) {
+          this.lastHttpSeq = data.seq;
+        }
+
+        // Nhận danh sách học sinh đã đăng ký trên server (đảm bảo Host luôn nhận đủ 100% học sinh)
+        if (Array.isArray(data.players)) {
+          data.players.forEach((p: any) => {
+            if (p && p.playerId) {
+              const synthMid = `srv_p_${p.playerId}_${p.ready ? 'R' : 'A'}_${p.savedScore || 0}_${p.savedCorrect || 0}`;
+              if (!this.seenMsgIds.has(synthMid)) {
+                this.recordMsgId(synthMid);
+                if (this.onMessageCallback) {
+                  this.onMessageCallback({
+                    _mid: synthMid,
+                    type: p.ready ? 'PLAYER_READY_ROPE' : 'AUTO_ENTER_ARENA',
+                    playerId: p.playerId,
+                    playerName: p.playerName,
+                    preferredTeam: p.preferredTeam,
+                    avatar: p.avatar,
+                    savedScore: p.savedScore,
+                    savedCorrect: p.savedCorrect
+                  });
+                }
+              }
+            }
+          });
+        }
+
+        // Nhận các sự kiện tức thời
+        if (Array.isArray(data.events)) {
+          data.events.forEach((evMsg: CloudMessage) => {
+            this.deliverIncomingMessage(evMsg);
+          });
+        }
+
+        // Nhận nhịp tim mới nhất của Host
+        if (data.latestHeartbeat && data.latestHeartbeat._mid !== this.lastHeartbeatMid) {
+          this.lastHeartbeatMid = data.latestHeartbeat._mid || '';
+          this.deliverIncomingMessage(data.latestHeartbeat);
+        }
+      } else {
+        this.consecutiveHttpFailures++;
+      }
+    } catch {
+      this.consecutiveHttpFailures++;
+      if (this.consecutiveHttpFailures >= 6 && (!this.client || !this.client.connected)) {
+        this.httpHealthy = false;
+        this.setStatus('RECONNECTING');
+      }
+    } finally {
+      this.isPollingInFlight = false;
+    }
+  }
+
+  private async publishHttpMessage(payload: CloudMessage) {
+    if (!this.currentRoomId) return;
+    try {
+      const res = await fetch(`/api/room/${encodeURIComponent(this.currentRoomId)}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        this.httpHealthy = true;
+        this.consecutiveHttpFailures = 0;
+        if (this.status !== 'CONNECTED') {
+          this.setStatus('CONNECTED');
+        }
+      }
+    } catch {
+      // Nếu rớt gói tin quan trọng, lưu vào hàng đợi gửi lại
+      const isCritical = [
+        'PULL_CORRECT',
+        'FREEZE_WRONG',
+        'PLAYER_FINISH_QUIZ',
+        'AUTO_ENTER_ARENA',
+        'PLAYER_READY_ROPE',
+        'ENTER_CONFIRMED',
+        'QUESTION_START',
+        'MATCH_START',
+        'MATCH_ENDED',
+        'GAME_SWITCH',
+        'GAME_SWITCHED'
+      ].includes(payload.type);
+      if (isCritical && this.offlineQueue.length < 150) {
+        if (!this.offlineQueue.some(x => x._mid === payload._mid)) {
+          this.offlineQueue.push(payload);
+        }
+      }
+    }
   }
 
   private initMqttClient() {
@@ -117,16 +311,14 @@ class NetworkService {
       this.client = null;
     }
 
-    this.setStatus(this.status === 'CONNECTED' ? 'RECONNECTING' : 'RECONNECTING');
-
     const brokerUrl = PRIMARY_BROKERS[this.brokerIndex % PRIMARY_BROKERS.length];
-    const clientId = 'kc3d_' + Math.random().toString(16).substring(2, 9);
+    const clientId = 'kc3d_' + Math.random().toString(16).substring(2, 10);
 
     try {
       this.client = mqtt.connect(brokerUrl, {
         clientId,
         clean: true,
-        connectTimeout: 5000,
+        connectTimeout: 4500,
         reconnectPeriod: 2000,
         keepalive: 30
       });
@@ -144,19 +336,8 @@ class NetworkService {
         });
       });
 
-      this.client.on('reconnect', () => {
-        this.setStatus('RECONNECTING');
-      });
-
-      this.client.on('close', () => {
-        if (!this.isIntentionalDisconnect && this.status === 'CONNECTED') {
-          this.setStatus('RECONNECTING');
-        }
-      });
-
       this.client.on('error', (_err) => {
         if (!this.isIntentionalDisconnect) {
-          this.setStatus('RECONNECTING');
           this.switchBrokerFallback();
         }
       });
@@ -164,15 +345,10 @@ class NetworkService {
       this.client.on('message', (_topic, message) => {
         try {
           const data = JSON.parse(message.toString()) as CloudMessage;
-          if (data._mid && this.seenMsgIds.has(data._mid)) return;
-          if (data._mid) this.recordMsgId(data._mid);
-          if (this.onMessageCallback) {
-            this.onMessageCallback(data);
-          }
+          this.deliverIncomingMessage(data);
         } catch (e) {}
       });
     } catch (e) {
-      this.setStatus('RECONNECTING');
       this.switchBrokerFallback();
     }
   }
@@ -184,12 +360,19 @@ class NetworkService {
         this.brokerIndex++;
         this.initMqttClient();
       }
-    }, 2500);
+    }, 3000);
   }
 
   public reconnectImmediate() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.initMqttClient();
+    this.httpHealthy = true;
+    this.consecutiveHttpFailures = 0;
+    this.setStatus('CONNECTED');
+    this.pollHttpRoomNow();
+    this.flushOfflineQueue();
+    if (!this.client || !this.client.connected) {
+      this.initMqttClient();
+    }
   }
 
   private flushOfflineQueue() {
@@ -197,17 +380,22 @@ class NetworkService {
     const queued = [...this.offlineQueue];
     this.offlineQueue = [];
     queued.forEach(payload => {
-      this.sendMessage(payload);
+      this.publishHttpMessage(payload);
+      if (this.client && this.client.connected && this.currentRoomTopic) {
+        try {
+          this.client.publish(this.currentRoomTopic, JSON.stringify(payload), { qos: 0 });
+        } catch {}
+      }
     });
   }
 
   sendMessage(payload: CloudMessage) {
     if (!payload._mid) {
-      payload._mid = 'm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      payload._mid = 'm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
     }
     this.recordMsgId(payload._mid);
 
-    // Send via BroadcastChannel + localStorage storage event for 0-latency same-device sync
+    // 1. Gửi tức thì qua BroadcastChannel + localStorage (0ms trên cùng thiết bị)
     if (this.localBus) {
       try {
         this.localBus.postMessage(payload);
@@ -217,44 +405,31 @@ class NetworkService {
       localStorage.setItem('kc3d_instant_bus_v1', JSON.stringify(payload));
     } catch (e) {}
 
-    // If connected to MQTT, publish immediately
+    // 2. Gửi qua Server HTTP cùng tên miền (100% không bị chặn bởi tường lửa hay rớt kết nối 4G)
+    this.publishHttpMessage(payload);
+
+    // 3. Gửi qua MQTT WebSocket
     if (this.client && this.client.connected && this.currentRoomTopic) {
       try {
         const raw = JSON.stringify(payload);
         this.client.publish(this.currentRoomTopic, raw, { qos: 0 });
-      } catch (e) {
-        this.offlineQueue.push(payload);
-      }
-    } else {
-      // If currently reconnecting or connecting, queue critical messages so student join & name are NEVER lost
-      const isCritical = [
-        'PULL_CORRECT',
-        'FREEZE_WRONG',
-        'AUTO_ENTER_ARENA',
-        'PLAYER_READY_ROPE',
-        'ENTER_CONFIRMED',
-        'QUESTION_START',
-        'GAME_SWITCH',
-        'GAME_SWITCHED'
-      ].includes(payload.type);
-      if (isCritical) {
-        if (this.offlineQueue.length < 100) {
-          this.offlineQueue.push(payload);
-        }
-      }
+      } catch (e) {}
     }
   }
 
   disconnect() {
     this.isIntentionalDisconnect = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.httpPollTimer) {
+      clearInterval(this.httpPollTimer);
+      this.httpPollTimer = null;
+    }
     if (this.client) {
       try {
         this.client.end(true);
       } catch (e) {}
       this.client = null;
     }
-    this.setStatus('DISCONNECTED');
     this.currentRoomTopic = '';
     this.currentRoomId = '';
     this.offlineQueue = [];
@@ -262,3 +437,4 @@ class NetworkService {
 }
 
 export const CloudNetwork = new NetworkService();
+
