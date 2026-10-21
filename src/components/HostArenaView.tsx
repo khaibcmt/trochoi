@@ -777,21 +777,29 @@ export const HostArenaView: React.FC<Props> = ({
           const isElim = pData.eliminated || (pData.lives !== undefined && pData.lives <= 0);
           const hasDoneQ = answeredIds.includes(pData.id);
 
+          // Trong trò Rung Chuông Vàng (BELL): Khi học sinh bị loại thì ẩn hoàn toàn nhân vật và không chiếu tên ở màn hình chính của giáo viên
+          if (curMode === 'BELL' && isElim) {
+            g.visible = false;
+            return;
+          }
+          g.visible = true;
+
           // Khóa cố định vị trí đứng trên mặt sàn (Tuyệt đối không nhảy nhót lên xuống theo trục Y)
           u.dropY = 0;
           g.position.y = curMode === 'BELL' ? (u.baseBellY || 0.22) : 0;
           if (curMode === 'TUG') {
-            g.position.z = 0.42;
-            const spacing = 1.25;
-            const baseX = isRedTeam
-              ? -1.6 - idx * spacing
-              : 1.6 + idx * spacing;
+            g.position.z = u.tugBaseZ !== undefined ? u.tugBaseZ : 0.45;
+            const col = idx % 10;
+            const spacing = 1.22;
+            const baseX = u.tugBaseX !== undefined
+              ? u.tugBaseX
+              : (isRedTeam ? -1.5 - col * spacing : 1.5 + col * spacing);
             g.position.x = baseX + ropeMesh.position.x;
           }
 
-          // Ice block toggle: Chỉ trò Kéo Co (TUG) mới có hiệu ứng đóng băng, và Rung Chuông Vàng (BELL) khi bị loại
+          // Ice block toggle: Chỉ trò Kéo Co (TUG) mới có hiệu ứng đóng băng
           if (u.ice) {
-            u.ice.visible = curMode === 'TUG' ? (pData.freeze || 0) > Date.now() : (curMode === 'BELL' ? isElim : false);
+            u.ice.visible = curMode === 'TUG' ? (pData.freeze || 0) > Date.now() : false;
           }
 
           // Chuyển động duy nhất: đứng im tại chỗ, chỉ lắc qua lắc lại nhẹ nhàng (trục Z)
@@ -810,27 +818,22 @@ export const HostArenaView: React.FC<Props> = ({
 
             g.rotation.z = swaySideToSide;
 
-            if (!isElim) {
-              if (hasDoneQ) {
-                if (u.boardGroup) {
-                  u.boardGroup.position.set(0, 1.25, 0.2);
-                  u.boardGroup.rotation.x = -0.15;
-                }
-                if (u.head) u.head.rotation.x = -0.1;
-                if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
-                if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
-              } else {
-                if (u.boardGroup) {
-                  u.boardGroup.position.set(0, 0.55, 0.36);
-                  u.boardGroup.rotation.x = 0.1;
-                }
-                if (u.head) u.head.rotation.x = 0;
-                if (u.armL) u.armL.rotation.x = -0.65;
-                if (u.armR) u.armR.rotation.x = -0.65;
+            if (hasDoneQ) {
+              if (u.boardGroup) {
+                u.boardGroup.position.set(0, 1.25, 0.2);
+                u.boardGroup.rotation.x = -0.15;
               }
+              if (u.head) u.head.rotation.x = -0.1;
+              if (u.armL) u.armL.rotation.x = -Math.PI * 0.75;
+              if (u.armR) u.armR.rotation.x = -Math.PI * 0.75;
             } else {
-              if (u.head) u.head.rotation.x = 0.45;
-              if (u.boardGroup) u.boardGroup.position.set(0, 0.22, 0.36);
+              if (u.boardGroup) {
+                u.boardGroup.position.set(0, 0.55, 0.36);
+                u.boardGroup.rotation.x = 0.1;
+              }
+              if (u.head) u.head.rotation.x = 0;
+              if (u.armL) u.armL.rotation.x = -0.65;
+              if (u.armR) u.armR.rotation.x = -0.65;
             }
           } else if (curMode === 'BOSS') {
             if (u.weaponOrb) u.weaponOrb.visible = true;
@@ -956,11 +959,11 @@ export const HostArenaView: React.FC<Props> = ({
     applyRoundAtmosphere(matchState.currentRound || 1);
   }, [matchState.gameType, matchState.currentRound, matchState.status]);
 
-  // Sync 3D Players on Arena (Max 20 rendered in 3D)
+  // Sync 3D Players on Arena (Max 40 rendered in 3D, hides eliminated students in BELL mode)
   useEffect(() => {
     if (!threeRef.current) return;
     const { scene, redPullers3D, bluePullers3D } = threeRef.current;
-    const max3D = matchState.settings?.max3DRenderCount || 20;
+    const max3D = Math.max(40, matchState.settings?.max3DRenderCount || 40);
 
     const isBell = matchState.gameType === 'BELL';
     const isFast = matchState.gameType === 'FAST';
@@ -970,11 +973,14 @@ export const HostArenaView: React.FC<Props> = ({
     let blueToRender: Player[] = [];
 
     if (isBell || isFast || isBoss) {
-      // Individual Modes: Sort all players by score / survival and strictly pick TOP 20
+      // Trong trò Rung Chuông Vàng (BELL): Khi học sinh bị loại thì KHÔNG hiển thị nhân vật ở màn hình chính của giáo viên
       const allP = [...matchState.redPlayers, ...matchState.bluePlayers];
-      const sortedOverall = [...allP].sort((a, b) => {
+      const candidates = isBell
+        ? allP.filter(p => !p.eliminated && (p.lives === undefined || p.lives > 0))
+        : allP;
+
+      const sortedOverall = [...candidates].sort((a, b) => {
         if (isBell) {
-          if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
           if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
           return (b.correct || 0) - (a.correct || 0);
         }
@@ -983,9 +989,9 @@ export const HostArenaView: React.FC<Props> = ({
         return sB - sA;
       });
 
-      const top20 = sortedOverall.slice(0, 20);
-      redToRender = top20.filter(p => p.team === 'RED');
-      blueToRender = top20.filter(p => p.team === 'BLUE');
+      const topRender = sortedOverall.slice(0, max3D);
+      redToRender = topRender.filter(p => p.team === 'RED');
+      blueToRender = topRender.filter(p => p.team === 'BLUE');
 
       // Clear old 3D groups
       redPullers3D.forEach(g => scene.remove(g));
@@ -993,41 +999,53 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position all Top 20 players systematically
-      top20.forEach((p, idx) => {
+      // Position all active players systematically
+      topRender.forEach((p, idx) => {
         const isRed = p.team === 'RED';
         const g = createCartoonCharacter(isRed ? 'RED' : 'BLUE', p);
         g.userData.playerData = p;
 
         if (isBoss) {
-          // Semi-circle combat battle formation facing the Boss
-          const totalHeroes = top20.length;
-          const angle = -Math.PI * 0.72 + (idx / Math.max(1, totalHeroes - 1)) * Math.PI * 1.44;
-          const rad = 6.4;
+          // 2-row semi-circle combat battle formation facing the Boss (supports 40 heroes)
+          const row = idx < 20 ? 0 : 1;
+          const idxInRow = row === 0 ? idx : idx - 20;
+          const countInRow = row === 0 ? Math.min(20, topRender.length) : Math.max(1, topRender.length - 20);
+          const angle = -Math.PI * 0.75 + (idxInRow / Math.max(1, countInRow - 1)) * Math.PI * 1.5;
+          const rad = row === 0 ? 5.8 : 7.4;
           g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
           g.lookAt(0, 2.5, -2.5);
         } else if (isBell) {
-          // Golden Bell: Seated on arena mats in 2 concentric rings
-          let rad = 4.4;
-          let tierY = 0.22;
+          // Golden Bell: Seated on 3-tier stage in 3 concentric rings (up to 40 students)
+          let rad = 2.6;
+          let tierY = 0.88;
           let angle = 0;
           if (idx < 8) {
-            rad = 2.6;
-            tierY = 0.55;
-            angle = (idx / 8) * Math.PI * 2;
+            const count = Math.min(8, topRender.length);
+            rad = 2.4;
+            tierY = 0.88;
+            angle = (idx / Math.max(1, count)) * Math.PI * 2;
+          } else if (idx < 22) {
+            const count = Math.min(14, Math.max(1, topRender.length - 8));
+            rad = 4.6;
+            tierY = 0.53;
+            angle = ((idx - 8) / count) * Math.PI * 2;
           } else {
-            rad = 4.5;
-            tierY = 0.22;
-            angle = ((idx - 8) / 12) * Math.PI * 2;
+            const count = Math.max(1, topRender.length - 22);
+            rad = 7.0;
+            tierY = 0.18;
+            angle = ((idx - 22) / count) * Math.PI * 2;
           }
-          g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.5);
+          g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.8);
           g.userData.baseBellY = tierY;
-          g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.5) * 2 - 1.5);
+          g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
         } else {
-          // Speed racing: 4 rows of 5 racers
-          const row = Math.floor(idx / 5);
-          const col = idx % 5;
-          g.position.set(-4.0 + col * 2.0, 0, 1.8 - row * 2.0);
+          // Speed racing: 4 rows of 10 racers (40 racers)
+          const cols = topRender.length > 20 ? 10 : 5;
+          const spacingX = cols === 10 ? 1.55 : 2.0;
+          const startX = -((cols - 1) * spacingX) / 2;
+          const row = Math.floor(idx / cols);
+          const col = idx % cols;
+          g.position.set(startX + col * spacingX, 0, 2.2 - row * 1.85);
           g.lookAt(0, 1.5, -6);
         }
 
@@ -1036,7 +1054,7 @@ export const HostArenaView: React.FC<Props> = ({
         else bluePullers3D.push(g);
       });
     } else {
-      // Tug of war: Top 10 Red + Top 10 Blue by score
+      // Tug of war: Top 20 Red + Top 20 Blue by score (40 students total in 2 rows per side)
       const sortedRed = [...matchState.redPlayers].sort((a, b) => {
         const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
@@ -1047,8 +1065,8 @@ export const HostArenaView: React.FC<Props> = ({
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
         return sB - sA;
       });
-      redToRender = sortedRed.slice(0, 10);
-      blueToRender = sortedBlue.slice(0, 10);
+      redToRender = sortedRed.slice(0, 20);
+      blueToRender = sortedBlue.slice(0, 20);
 
       // Clear old 3D groups
       redPullers3D.forEach(g => scene.remove(g));
@@ -1056,25 +1074,35 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position Red pullers firmly alongside the rope at z = 0.42
+      // Position Red pullers alongside the rope (2 rows of 10)
       redToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('RED', p);
         g.userData.playerData = p;
-        const spacing = 1.25;
-        const startX = -1.6 - idx * spacing;
-        g.position.set(startX, 0, 0.42);
+        const col = idx % 10;
+        const row = Math.floor(idx / 10);
+        const spacing = 1.22;
+        const startX = -1.5 - col * spacing;
+        const posZ = row === 0 ? 0.45 : -0.55;
+        g.position.set(startX, 0, posZ);
+        g.userData.tugBaseX = startX;
+        g.userData.tugBaseZ = posZ;
         g.rotation.y = Math.PI / 2;
         scene.add(g);
         redPullers3D.push(g);
       });
 
-      // Position Blue pullers firmly alongside the rope at z = 0.42
+      // Position Blue pullers alongside the rope (2 rows of 10)
       blueToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('BLUE', p);
         g.userData.playerData = p;
-        const spacing = 1.25;
-        const startX = 1.6 + idx * spacing;
-        g.position.set(startX, 0, 0.42);
+        const col = idx % 10;
+        const row = Math.floor(idx / 10);
+        const spacing = 1.22;
+        const startX = 1.5 + col * spacing;
+        const posZ = row === 0 ? 0.45 : -0.55;
+        g.position.set(startX, 0, posZ);
+        g.userData.tugBaseX = startX;
+        g.userData.tugBaseZ = posZ;
         g.rotation.y = -Math.PI / 2;
         scene.add(g);
         bluePullers3D.push(g);
@@ -1433,66 +1461,82 @@ export const HostArenaView: React.FC<Props> = ({
     window.speechSynthesis.speak(utter);
   };
 
-  // Toggle National Jury Classroom Simulation (Spawns realistic 3D students & simulates live answering)
+  // Toggle National Jury Classroom Simulation (Spawns 40 realistic 3D students with unique random Vietnamese full names each time)
   const handleToggleDemoBots = () => {
-    const demoRoster = [
-      { id: 'bot_1', label: 'Nguyễn Minh Khôi', team: 'RED' as const, costume: 'superhero' as const, hair: 'crown' as const, color: '#f59e0b' },
-      { id: 'bot_2', label: 'Trần Ngọc Bảo Trâm', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'beret' as const, color: '#ec4899' },
-      { id: 'bot_3', label: 'Lê Hoàng Gia Huy', team: 'RED' as const, costume: 'sport' as const, hair: 'cap' as const, color: '#10b981' },
-      { id: 'bot_4', label: 'Phạm Phương Thảo', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'headband' as const, color: '#0284c7' },
-      { id: 'bot_5', label: 'Võ Quốc Anh', team: 'RED' as const, costume: 'uniform' as const, hair: 'cyber' as const, color: '#8b5cf6' },
-      { id: 'bot_6', label: 'Đặng Khánh Linh', team: 'BLUE' as const, costume: 'uniform' as const, hair: 'crown' as const, color: '#f59e0b' },
-      { id: 'bot_7', label: 'Huỳnh Tuấn Kiệt', team: 'RED' as const, costume: 'sport' as const, hair: 'cap' as const, color: '#ef4444' },
-      { id: 'bot_8', label: 'Bùi Thanh Trúc', team: 'BLUE' as const, costume: 'aodai' as const, hair: 'beret' as const, color: '#10b981' },
-      { id: 'bot_9', label: 'Đỗ Quang Minh', team: 'RED' as const, costume: 'superhero' as const, hair: 'cyber' as const, color: '#0284c7' },
-      { id: 'bot_10', label: 'Ngô Bảo Ngọc', team: 'BLUE' as const, costume: 'uniform' as const, hair: 'headband' as const, color: '#ec4899' },
-      { id: 'bot_11', label: 'Lý Hải Đăng', team: 'RED' as const, costume: 'uniform' as const, hair: 'cap' as const, color: '#f59e0b' },
-      { id: 'bot_12', label: 'Phan Thảo Vy', team: 'BLUE' as const, costume: 'sport' as const, hair: 'crown' as const, color: '#8b5cf6' }
-    ];
+    const familyNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Lý', 'Đinh', 'Lương', 'Mai', 'Trương'];
+    const middleNames = ['Minh', 'Ngọc', 'Hoàng', 'Gia', 'Phương', 'Quốc', 'Khánh', 'Tuấn', 'Thanh', 'Quang', 'Bảo', 'Hải', 'Thảo', 'Đức', 'Anh', 'Thiên', 'Nhật', 'Đình', 'Xuân', 'Hồng', 'Thùy', 'Văn', 'Hữu', 'Mạnh'];
+    const givenNames = ['Khôi', 'Trâm', 'Huy', 'Thảo', 'Anh', 'Linh', 'Kiệt', 'Trúc', 'Minh', 'Ngọc', 'Đăng', 'Vy', 'Phúc', 'Châu', 'Khang', 'An', 'Bách', 'Dương', 'Hà', 'Lâm', 'My', 'Nam', 'Oanh', 'Phát', 'Quân', 'Sơn', 'Tâm', 'Uyên', 'Vinh', 'Yến', 'Tùng', 'Nhi', 'Đạt', 'Trang', 'Long', 'Hân', 'Khoa', 'Thư', 'Hiếu', 'ân'];
+    const costumes: ('uniform' | 'sport' | 'superhero' | 'aodai')[] = ['uniform', 'sport', 'superhero', 'aodai'];
+    const hairs: ('cap' | 'crown' | 'headband' | 'beret' | 'cyber')[] = ['cap', 'crown', 'headband', 'beret', 'cyber'];
+    const colors = ['#f59e0b', '#ec4899', '#10b981', '#0284c7', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316'];
 
     if (!demoBotsActive) {
       AudioFX.spawnPop();
+      const usedNames = new Set<string>();
+      const generateUniqueFullName = (): string => {
+        for (let attempt = 0; attempt < 200; attempt++) {
+          const fam = familyNames[Math.floor(Math.random() * familyNames.length)];
+          const mid = middleNames[Math.floor(Math.random() * middleNames.length)];
+          const giv = givenNames[Math.floor(Math.random() * givenNames.length)];
+          const normalizedGiv = giv.charAt(0).toUpperCase() + giv.slice(1);
+          const full = `${fam} ${mid} ${normalizedGiv}`;
+          if (!usedNames.has(full)) {
+            usedNames.add(full);
+            return full;
+          }
+        }
+        return `Nguyễn Minh Khôi ${usedNames.size + 1}`;
+      };
+
+      const batchSeed = Date.now();
+      const demoRoster = Array.from({ length: 40 }, (_, i) => ({
+        id: `bot_${batchSeed}_${i + 1}`,
+        label: generateUniqueFullName(),
+        team: (i % 2 === 0 ? 'RED' : 'BLUE') as 'RED' | 'BLUE',
+        costume: costumes[i % costumes.length],
+        hair: hairs[i % hairs.length],
+        color: colors[i % colors.length]
+      }));
+
       onUpdateMatchState(prev => {
-        const existingIds = new Set([...prev.redPlayers, ...prev.bluePlayers].map(p => p.id));
-        const newRed = [...prev.redPlayers];
-        const newBlue = [...prev.bluePlayers];
+        // Loại bỏ các bot cũ để mỗi lần bật Demo GK sẽ tạo mới hoàn toàn 40 HS với họ và tên ngẫu nhiên khác nhau
+        const cleanRed = prev.redPlayers.filter(p => !p.id.startsWith('bot_'));
+        const cleanBlue = prev.bluePlayers.filter(p => !p.id.startsWith('bot_'));
 
         demoRoster.forEach(b => {
-          if (!existingIds.has(b.id)) {
-            const pObj: Player = {
-              id: b.id,
-              label: b.label,
-              team: b.team,
-              ready: true,
-              spawned: true,
-              correct: 0,
-              freeze: 0,
-              role: 'PULLER',
-              lives: 3,
-              wrongTotal: 0,
-              streak: 0,
-              eliminated: false,
-              fastScore: 0,
-              avatar: {
-                hairStyle: b.hair,
-                costume: b.costume,
-                accessoryColor: b.color,
-                expression: 'happy'
-              }
-            };
-            if (b.team === 'RED') newRed.push(pObj);
-            else newBlue.push(pObj);
-          }
+          const pObj: Player = {
+            id: b.id,
+            label: b.label,
+            team: b.team,
+            ready: true,
+            spawned: true,
+            correct: 0,
+            freeze: 0,
+            role: 'PULLER',
+            lives: 3,
+            wrongTotal: 0,
+            streak: 0,
+            eliminated: false,
+            fastScore: 0,
+            avatar: {
+              hairStyle: b.hair,
+              costume: b.costume,
+              accessoryColor: b.color,
+              expression: 'happy'
+            }
+          };
+          if (b.team === 'RED') cleanRed.push(pObj);
+          else cleanBlue.push(pObj);
         });
 
         return {
           ...prev,
-          redPlayers: newRed,
-          bluePlayers: newBlue
+          redPlayers: cleanRed,
+          bluePlayers: cleanBlue
         };
       });
       setDemoBotsActive(true);
-      triggerRescueBanner('🤖 ĐÃ BẬT LỚP HỌC GIẢ LẬP (12 HS 3D) PHỤC VỤ THUYẾT TRÌNH GIÁM KHẢO!');
+      triggerRescueBanner('🤖 ĐÃ BẬT LỚP HỌC GIẢ LẬP (40 HS 3D NGẪU NHIÊN) PHỤC VỤ THUYẾT TRÌNH GIÁM KHẢO!');
     } else {
       setDemoBotsActive(false);
     }
@@ -1604,7 +1648,7 @@ export const HostArenaView: React.FC<Props> = ({
           };
         }
       });
-    }, 1150);
+    }, 520);
 
     return () => {
       if (demoBotIntervalRef.current) clearInterval(demoBotIntervalRef.current);
@@ -2073,17 +2117,18 @@ export const HostArenaView: React.FC<Props> = ({
         {/* 3D Label tags container */}
         <div id="labels-container">
           {allPlayers.map(p => {
+            // Trong trò Rung Chuông Vàng (BELL): Khi học sinh bị loại thì không hiển thị nhân vật/nhãn tên trên màn hình chính của giáo viên
+            if (matchState.gameType === 'BELL' && (p.eliminated || (p.lives !== undefined && p.lives <= 0))) {
+              return null;
+            }
             const coord = labelCoords[p.id];
             if (!coord) return null;
             const hasDoneQ = matchState.redAnsweredIds.includes(p.id) || matchState.blueAnsweredIds.includes(p.id);
 
             let labelText = '';
             if (matchState.gameType === 'BELL') {
-              if (p.eliminated) labelText = `📣 ${p.label} (Khán giả)`;
-              else {
-                const hearts = '❤️'.repeat(Math.max(0, p.lives));
-                labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} ${hearts}`;
-              }
+              const hearts = '❤️'.repeat(Math.max(0, p.lives));
+              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} ${hearts}`;
             } else if (matchState.gameType === 'TUG') {
               labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} (${p.correct || 0})`;
             } else {
