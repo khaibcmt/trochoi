@@ -4,6 +4,8 @@ import { AudioFX } from '../services/audio';
 import { CloudNetwork, NetworkConnStatus } from '../services/network';
 import {
   cleanQuestionTitleText,
+  cleanTFStatementText,
+  repairQuizItemIfCorrupted,
   getStableShuffledQuestion,
   FASTEST_Q_DURATION_SEC,
   getPresetQuizBySubject
@@ -892,7 +894,8 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const items = resolvedCurrentQ.tfItems || [];
+    const repairedQ = repairQuizItemIfCorrupted(resolvedCurrentQ);
+    const items = repairedQ.tfItems || [];
 
     let correctCount = 0;
     items.forEach(item => {
@@ -1062,7 +1065,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setScreen(targetScreen);
   };
 
-  const currentQItem = resolvedCurrentQ;
+  const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
 
   // Render Nhân Vật Chibi Dễ Thương (Full-body Kawaii Chibi Nam / Nữ) cho màn hình điện thoại học sinh
   const renderCuteChibiCharacter = (
@@ -1919,9 +1922,9 @@ export const StudentMobileView: React.FC<Props> = ({
             {/* Nếu là Dạng thức II (Đúng/Sai), hiển thị nội dung 4 mệnh đề a, b, c, d ở chế độ chỉ đọc (không có nút bấm) để học sinh đọc đề */}
             {currentQItem.format === 'TRUE_FALSE' && currentQItem.tfItems && currentQItem.tfItems.length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px dashed #334155', paddingTop: '10px' }}>
-                {currentQItem.tfItems.map(item => (
-                  <div key={item.label} style={{ fontSize: '14px', color: '#cbd5e1', background: 'rgba(30, 41, 59, 0.6)', padding: '8px 12px', borderRadius: '10px', border: '1px solid #334155' }}>
-                    <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={item.text} />
+                {currentQItem.tfItems.map((item, idx) => (
+                  <div key={item.label || idx} style={{ fontSize: '14px', color: '#cbd5e1', background: 'rgba(30, 41, 59, 0.6)', padding: '8px 12px', borderRadius: '10px', border: '1px solid #334155' }}>
+                    <b style={{ color: '#38bdf8' }}>{String.fromCharCode(97 + idx)})</b> <MathRenderer text={cleanTFStatementText(item.text)} />
                   </div>
                 ))}
               </div>
@@ -2286,7 +2289,7 @@ export const StudentMobileView: React.FC<Props> = ({
                         }}
                       >
                         <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#f8fafc', flex: 1, lineHeight: 1.35 }}>
-                          <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={item.text} />
+                          <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={cleanTFStatementText(item.text)} />
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                           <button

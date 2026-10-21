@@ -7,6 +7,8 @@ import { AudioFX } from '../services/audio';
 import { CloudNetwork } from '../services/network';
 import {
   cleanQuestionTitleText,
+  cleanTFStatementText,
+  repairQuizItemIfCorrupted,
   calculateFastestPoints,
   getConvertedGradeByRank,
   getTeacherGradebookScore,
@@ -1100,15 +1102,16 @@ export const HostArenaView: React.FC<Props> = ({
     return allPlayers.filter(x => x.eliminated).length;
   }, [allPlayers]);
 
-  // Current Question
+  // Current Question (tự động phục hồi nếu câu hỏi Phần II bị dính mệnh đề hoặc rác CSS Word)
   const currentQIndex = isReviewMode ? reviewQIdx : matchState.globalQIndex;
-  const currentQItem: QuizItem = quizList[currentQIndex % (quizList.length || 1)] || {
+  const rawCurrentQItem: QuizItem = quizList[currentQIndex % (quizList.length || 1)] || {
     qid: 0,
     q: 'Đang tải câu hỏi...',
     opts: ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
     correct: 0,
     format: 'MULTIPLE_CHOICE'
   };
+  const currentQItem: QuizItem = useMemo(() => repairQuizItemIfCorrupted(rawCurrentQItem), [rawCurrentQItem]);
 
   // Keep latest quizList in ref so updating rightCount/wrongCount when students answer NEVER restarts the 30s timer
   const quizListRef = useRef<QuizItem[]>(quizList);
@@ -1769,9 +1772,19 @@ export const HostArenaView: React.FC<Props> = ({
     return `⚔️ HIỆP ${matchState.currentRound || 1}/3: ${matchState.currentRound === 1 ? 'SÁNG' : matchState.currentRound === 2 ? 'HOÀNG HÔN' : 'ĐÊM'}`;
   };
 
-  // Dynamic responsive font size for question text based on length (Never cuts text, ensures 24pt+ readability for judges and back rows)
-  const qTitleLength = (currentQItem.q || '').length;
-  const qTextFontSize = qTitleLength > 200 ? '25px' : qTitleLength > 100 ? '29px' : '34px';
+  // Dynamic responsive font size for question text based on length (Never cuts text, ensures clear readability for judges and back rows)
+  const cleanStemText = cleanQuestionTitleText(currentQItem.q || '');
+  const qTitleLength = cleanStemText.length;
+  const qTextFontSize =
+    qTitleLength > 340
+      ? '19px'
+      : qTitleLength > 240
+      ? '21.5px'
+      : qTitleLength > 160
+      ? '24.5px'
+      : qTitleLength > 95
+      ? '28px'
+      : '32px';
   const partInfo = getQuestionPartInfo(currentQItem.format);
 
   return (
@@ -2470,7 +2483,7 @@ export const HostArenaView: React.FC<Props> = ({
             flexDirection: 'column',
             gap: '6px',
             flexShrink: 0,
-            maxHeight: '22vh',
+            maxHeight: currentQItem.format === 'TRUE_FALSE' ? '23vh' : '22vh',
             overflowY: 'auto'
           }}
         >
@@ -2548,7 +2561,7 @@ export const HostArenaView: React.FC<Props> = ({
             id="hq-q-text"
             style={{
               fontSize: qTextFontSize,
-              lineHeight: 1.35,
+              lineHeight: 1.32,
               fontWeight: 900,
               color: '#ffffff',
               wordBreak: 'break-word',
@@ -2556,7 +2569,7 @@ export const HostArenaView: React.FC<Props> = ({
               whiteSpace: 'normal'
             }}
           >
-            <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
+            <MathRenderer text={cleanStemText} />
           </div>
         </div>
 
@@ -2566,18 +2579,23 @@ export const HostArenaView: React.FC<Props> = ({
           className="hq-opts"
           style={{
             flex: '1 1 auto',
+            minHeight: 0,
+            maxHeight: 'none',
             overflowY: 'auto',
             display: 'grid',
             gridTemplateColumns: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
-            gap: '12px',
-            marginBottom: '8px'
+            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+            gap: '10px',
+            marginBottom: '4px'
           }}
         >
           {currentQItem.format === 'TRUE_FALSE' ? (
             // Dạng thức 2 (Phần II THPT 2018): Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)
             (currentQItem.tfItems || []).map((tf, idx) => {
               const reveal = isReviewMode;
+              const cleanStatement = cleanTFStatementText(tf.text || '');
+              const tfFontSize = cleanStatement.length > 160 ? '16.5px' : cleanStatement.length > 110 ? '18px' : '20px';
+              const badgeColors = ['#0284c7', '#d97706', '#059669', '#7c3aed'];
               return (
                 <div
                   key={idx}
@@ -2585,43 +2603,47 @@ export const HostArenaView: React.FC<Props> = ({
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    gap: '14px',
-                    padding: '12px 18px',
+                    gap: '12px',
+                    padding: '10px 16px',
                     borderRadius: '14px',
                     background: reveal
                       ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)')
                       : 'linear-gradient(135deg, #1e293b, #0f172a)',
                     border: reveal
                       ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171')
-                      : '1.5px solid #334155',
+                      : '1.5px solid #475569',
                     boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
                     wordBreak: 'break-word',
                     overflowWrap: 'break-word',
                     whiteSpace: 'normal',
-                    fontSize: '21px',
+                    fontSize: tfFontSize,
                     fontWeight: 800,
-                    lineHeight: 1.32,
-                    color: '#f8fafc'
+                    lineHeight: 1.3,
+                    color: '#f8fafc',
+                    overflowY: 'auto',
+                    minHeight: 0
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1, minWidth: 0 }}>
                     <span style={{
                       minWidth: '34px',
                       height: '34px',
-                      borderRadius: '8px',
-                      background: '#0284c7',
+                      borderRadius: '9px',
+                      background: badgeColors[idx % 4],
+                      border: '1.5px solid rgba(255,255,255,0.45)',
                       color: '#fef08a',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       fontWeight: 900,
-                      fontSize: '20px',
-                      flexShrink: 0
+                      fontSize: '19px',
+                      flexShrink: 0,
+                      marginTop: '1px'
                     }}>
-                      {tf.label})
+                      {String.fromCharCode(97 + idx)})
                     </span>
-                    <span style={{ flex: 1, paddingTop: '2px' }}>
-                      <MathRenderer text={tf.text} />
+                    <span style={{ flex: 1, paddingTop: '2px', minWidth: 0 }}>
+                      <MathRenderer text={cleanStatement} />
                     </span>
                   </div>
                   <div style={{ flexShrink: 0 }}>
@@ -2629,15 +2651,25 @@ export const HostArenaView: React.FC<Props> = ({
                       <span style={{
                         fontWeight: 900,
                         color: tf.isCorrect ? '#4ade80' : '#fca5a5',
-                        fontSize: '17px',
-                        padding: '4px 10px',
+                        fontSize: '16px',
+                        padding: '5px 11px',
                         borderRadius: '8px',
-                        background: 'rgba(0,0,0,0.35)'
+                        background: 'rgba(0,0,0,0.4)',
+                        border: tf.isCorrect ? '1px solid #4ade80' : '1px solid #f87171'
                       }}>
                         {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
                       </span>
                     ) : (
-                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
+                      <span style={{
+                        fontSize: '12.5px',
+                        fontWeight: 900,
+                        color: '#bae6fd',
+                        background: 'rgba(15, 23, 42, 0.75)',
+                        border: '1px solid #334155',
+                        padding: '4px 9px',
+                        borderRadius: '8px',
+                        whiteSpace: 'nowrap'
+                      }}>
                         Đúng / Sai
                       </span>
                     )}

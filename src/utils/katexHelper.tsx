@@ -1,6 +1,7 @@
 import React from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { stripWordStyleGarbage } from '../data/defaultSubjects';
 
 interface Props {
   text: string;
@@ -13,16 +14,18 @@ interface Props {
  */
 export const MathRenderer: React.FC<Props> = ({ text, className = '' }) => {
   if (!text) return null;
+  const safeText = stripWordStyleGarbage(text);
+  if (!safeText) return null;
 
   // Check if text contains LaTeX delimiters ($...$ or $$...$$ or \frac or \sqrt)
-  const hasLatex = /\$([^\$]+)\$|\\(?:frac|sqrt|alpha|beta|gamma|pi|sum|int|le|ge|ne|pm|cdot)/.test(text);
+  const hasLatex = /\$([^\$]+)\$|\\(?:frac|sqrt|alpha|beta|gamma|pi|sum|int|le|ge|ne|pm|cdot)/.test(safeText);
 
   if (!hasLatex) {
-    return <span className={className} dangerouslySetInnerHTML={{ __html: text }} />;
+    return <span className={className} dangerouslySetInnerHTML={{ __html: safeText }} />;
   }
 
   // Split by $...$
-  const parts = text.split(/(\$\$[^\$]+\$\$|\$[^\$]+\$)/g);
+  const parts = safeText.split(/(\$\$[^\$]+\$\$|\$[^\$]+\$)/g);
 
   return (
     <span className={className}>

@@ -3,6 +3,8 @@ import QRCode from 'qrcode';
 import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings, Player } from '../types';
 import {
   parseHTMLToQuiz,
+  extractNormalizedLines,
+  stripWordStyleGarbage,
   splitQuizTo3FormatHTML,
   cleanQuestionTitleText,
   formatQuizToHTML,
@@ -165,48 +167,30 @@ export const TeacherSetupView: React.FC<Props> = ({
     syncLiveToStorageAndHost(combined);
   };
 
-  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml> của Word nhưng giữ nguyên gạch chân <u> và xuống dòng
+  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml>/font-family của Word, tự tách dòng a) b) c) d) và giữ nguyên gạch chân <u>
   const handleCleanPasteInBox = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const htmlData = e.clipboardData.getData('text/html');
     const textData = e.clipboardData.getData('text/plain');
 
+    const rawSource = htmlData && htmlData.trim() ? htmlData : textData;
     let cleanToInsert = '';
-    if (htmlData && htmlData.trim()) {
-      const stripped = htmlData
-        .replace(/<!--[\s\S]*?-->/g, '')
-        .replace(/<(?:style|script|xml|head|meta|link|title|o:p)[^>]*>[\s\S]*?<\/(?:style|script|xml|head|meta|link|title|o:p)>/gi, '')
-        .replace(/<(?:meta|link|o:p)[^>]*\/?>/gi, '');
-      const temp = document.createElement('div');
-      temp.innerHTML = stripped;
 
-      // Chuyển các phần tử có underline / màu đỏ-xanh-vàng thành thẻ <u> chuẩn để hiển thị rõ trong khung
-      temp.querySelectorAll('*').forEach(el => {
-        const styleAttr = (el.getAttribute('style') || '').toLowerCase();
-        const colorAttr = (el.getAttribute('color') || '').toLowerCase();
-        const isUnderline = /text-decoration(?:-line)?\s*:\s*[^;]*underline/i.test(styleAttr);
-        const isHighlightColor =
-          /(?:^|;|\s)color\s*:\s*(?:red|#ff0000|#f00|#ef4444|#dc2626|#c00000|#e11d48|green|#008000|#00b050|#10b981)/i.test(styleAttr) ||
-          /background(?:-color)?\s*:\s*(?:yellow|#ffff00|#fef08a|#fde047)/i.test(styleAttr) ||
-          /^(?:red|#ff0000|#c00000|green|#008000|#00b050)$/i.test(colorAttr);
-        if ((isUnderline || isHighlightColor) && el.tagName.toLowerCase() !== 'u') {
-          const uTag = document.createElement('u');
-          while (el.firstChild) {
-            uTag.appendChild(el.firstChild);
-          }
-          el.appendChild(uTag);
-        }
-        el.removeAttribute('class');
-        el.removeAttribute('style');
-      });
-      cleanToInsert = temp.innerHTML;
-    } else if (textData) {
-      cleanToInsert = textData
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean)
-        .map(line => `<div>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`)
-        .join('');
+    if (rawSource && rawSource.trim()) {
+      const normalizedLines = extractNormalizedLines(rawSource);
+      if (normalizedLines.length > 0) {
+        cleanToInsert = normalizedLines
+          .map(p => {
+            const safeLine = stripWordStyleGarbage(p.raw)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/⟦U⟧/g, '<u>')
+              .replace(/⟦\/U⟧/g, '</u>');
+            return `<div>${safeLine}</div>`;
+          })
+          .join('');
+      }
     }
 
     if (cleanToInsert) {

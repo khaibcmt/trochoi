@@ -12,24 +12,31 @@ const port = 3000;
 
 app.use(express.json({ limit: '25mb' }));
 
-// Initialize GoogleGenAI SDK
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+// Lazy initialization of GoogleGenAI SDK so server startup never crashes if GEMINI_API_KEY is not set
+function getGenAIClient(customKey?: string) {
+  const apiKey = customKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY chưa được cấu hình');
+  }
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
+  });
+}
 
 // 1. Sinh câu hỏi tự động theo chủ đề & mức độ nhận thức (GDPT 2018)
 app.post('/api/ai/generate-questions', async (req, res) => {
   try {
-    const { topic, subject, level = 'Thông hiểu', count = 5 } = req.body;
+    const { topic, subject, level = 'Thông hiểu', count = 5, apiKey } = req.body;
     if (!topic) {
       return res.status(400).json({ error: 'Topic is required' });
     }
 
+    const ai = getGenAIClient(apiKey);
     const prompt = `Bạn là chuyên gia ra đề thi THPT theo chương trình GDPT 2018 tại Việt Nam.
 Hãy tạo ${count} câu hỏi trắc nghiệm chất lượng cao cho môn "${subject || 'Tổng hợp'}", chủ đề: "${topic}", mức độ nhận thức: "${level}".
 Đa dạng hóa các dạng câu hỏi chuẩn GDPT 2018:
@@ -57,7 +64,7 @@ Trả về định dạng JSON thuần túy (mảng các object):
 Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -76,7 +83,7 @@ Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
 // 2. Bóc tách đề từ văn bản hoặc hình ảnh chụp (OCR & Document Parsing)
 app.post('/api/ai/parse-doc', async (req, res) => {
   try {
-    const { textContent, imageBase64, mimeType = 'image/jpeg' } = req.body;
+    const { textContent, imageBase64, mimeType = 'image/jpeg', apiKey } = req.body;
 
     const parts: any[] = [];
     if (imageBase64) {
@@ -117,8 +124,9 @@ app.post('/api/ai/parse-doc', async (req, res) => {
 ]`,
     });
 
+    const ai = getGenAIClient(apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: { parts },
       config: {
         responseMimeType: 'application/json',
@@ -137,7 +145,7 @@ app.post('/api/ai/parse-doc', async (req, res) => {
 // 3. AI Giải thích đáp án trực tiếp (AI Tutor on-screen)
 app.post('/api/ai/explain', async (req, res) => {
   try {
-    const { question, format, opts, correct, tfItems, shortAnswer, wrongCount = 0, rightCount = 0 } = req.body;
+    const { question, format, opts, correct, tfItems, shortAnswer, wrongCount = 0, rightCount = 0, apiKey } = req.body;
 
     const prompt = `Bạn là giáo viên giàu kinh nghiệm đang giảng bài trực tiếp trên máy chiếu lớp học.
 Hãy giải thích ngắn gọn, súc tích (khoảng 3–5 câu gạch đầu dòng), sinh động cho câu hỏi sau đây:
@@ -153,8 +161,9 @@ Hãy chỉ rõ:
 - Lỗi sai phổ biến mà các bạn học sinh thường mắc phải.
 - Mẹo ghi nhớ nhanh để không bao giờ bị bẫy ở câu này nữa.`;
 
+    const ai = getGenAIClient(apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
     });
 
@@ -168,9 +177,10 @@ Hãy chỉ rõ:
 // Vite middleware in dev or static files in production
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    const distPath = path.resolve(__dirname, 'dist');
+    app.use(express.static(distPath));
+    app.use((_req, res) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
     });
   } else {
     const vite = await createViteServer({
