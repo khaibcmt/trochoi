@@ -117,7 +117,7 @@ class NetworkService {
   private recordMsgId(mid: string) {
     this.seenMsgIds.add(mid);
     this.seenMsgQueue.push(mid);
-    if (this.seenMsgQueue.length > 600) {
+    if (this.seenMsgQueue.length > 5000) {
       const old = this.seenMsgQueue.shift();
       if (old) this.seenMsgIds.delete(old);
     }
@@ -196,11 +196,14 @@ class NetworkService {
     if (this.isIntentionalDisconnect || !this.currentRoomId || this.isPollingInFlight) return;
     this.isPollingInFlight = true;
     try {
-      const res = await fetch(`/api/room/${encodeURIComponent(this.currentRoomId)}/poll?since=${this.lastHttpSeq}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store'
-      });
+      const res = await fetch(
+        `/api/room/${encodeURIComponent(this.currentRoomId)}/poll?since=${this.lastHttpSeq}&hb=${encodeURIComponent(this.lastHeartbeatMid)}`,
+        {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          cache: 'no-store'
+        }
+      );
       if (res.ok) {
         const data = await res.json();
         this.httpHealthy = true;

@@ -588,7 +588,22 @@ export const TeacherSetupView: React.FC<Props> = ({
                 👥 Sĩ số học sinh đã vào phòng: <b style={{ color: '#4ade80', fontSize: '15px' }}>{connectedPlayers.length}</b> / {matchSettings.roomCapacity} HS
               </span>
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#6366f1', color: '#ffffff', borderColor: '#a5b4fc', fontWeight: 900 }}
+                onClick={() => {
+                  const baseUrl = window.location.origin + window.location.pathname;
+                  const studentUrl = `${baseUrl}?r=${activeRoomId}&role=player`;
+                  navigator.clipboard?.writeText(studentUrl).catch(() => {});
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2500);
+                }}
+                title="Sao chép đường dẫn dành cho Học sinh để dán vào nhiều Tab / Chế độ Ẩn danh test tải Server"
+              >
+                {copiedLink ? '✅ Đã Copy Link HS!' : '📋 Copy Link HS (Mở nhiều Tab Ẩn Danh)'}
+              </button>
               <button
                 type="button"
                 className="btn-action-sm"
@@ -772,10 +787,10 @@ export const TeacherSetupView: React.FC<Props> = ({
               <input
                 type="number"
                 min={2}
-                max={200}
+                max={1000}
                 value={matchSettings.roomCapacity}
-                onChange={e => onUpdateSettings({ ...matchSettings, roomCapacity: Math.max(2, parseInt(e.target.value) || 50) })}
-                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, textAlign: 'center' }}
+                onChange={e => onUpdateSettings({ ...matchSettings, roomCapacity: Math.max(2, parseInt(e.target.value) || 200) })}
+                style={{ width: '65px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, textAlign: 'center' }}
               />
             </label>
 

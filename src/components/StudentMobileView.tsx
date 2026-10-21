@@ -30,16 +30,73 @@ export const StudentMobileView: React.FC<Props> = ({
   initialQuizList,
   onExitToSetup
 }) => {
+  // Khóa phiên độc lập cho từng Tab trình duyệt (Cho phép cùng 1 máy tính / cùng IP mạng ở Chế độ Ẩn Danh hoặc Bình thường
+  // mở không giới hạn số lượng Tab, kể cả bấm "Nhân đôi Tab / Duplicate Tab", mỗi Tab tạo 1 nhân vật học sinh độc lập).
+  // Khi học sinh bấm F5 tải lại đúng Tab đang thi thì vẫn khôi phục 100% phiên của chính Tab đó.
+  const [tabSessionId, setTabSessionId] = useState<string>(() => {
+    try {
+      const existingTabId = sessionStorage.getItem('kc3d_tab_session_id');
+      const reloadTs = parseInt(sessionStorage.getItem('kc3d_tab_reload_ts') || '0', 10);
+      sessionStorage.removeItem('kc3d_tab_reload_ts');
+      const isF5ReloadOfSameTab = Boolean(existingTabId && reloadTs > 0 && Date.now() - reloadTs < 25000);
+      if (isF5ReloadOfSameTab && existingTabId) {
+        return existingTabId;
+      }
+      const freshTabId = 'tab_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
+      sessionStorage.setItem('kc3d_tab_session_id', freshTabId);
+      return freshTabId;
+    } catch {
+      return 'tab_' + Math.random().toString(36).substring(2, 8);
+    }
+  });
+
+  // Đánh dấu khi Tab thực sự F5 / Reload để phân biệt với việc mở Tab mới hoặc Nhân đôi Tab (Duplicate Tab)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        sessionStorage.setItem('kc3d_tab_reload_ts', String(Date.now()));
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+    };
+  }, []);
+
   const [roomId, setRoomId] = useState(initialRoomId || '12345');
-  const [studentName, setStudentName] = useState(() => localStorage.getItem('student_saved_name') || '');
+
+  // Nếu mở Tab ở chế độ Ẩn Danh mà chưa truyền ?r= trên URL, tự động hỏi Server để lấy đúng Mã Phòng đang mở của Giáo viên
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('r') && !params.has('room')) {
+      fetch('/api/room/active')
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.roomId && String(data.roomId) !== roomId) {
+            setRoomId(String(data.roomId));
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const [studentName, setStudentName] = useState(() => {
+    try {
+      return sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '';
+    } catch {
+      return '';
+    }
+  });
   const [team, setTeam] = useState<PlayerTeam>(initialTeam || 'RED');
   const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'TUG');
   const [role, setRole] = useState<PlayerRole>('PULLER');
 
-  // Avatar Customization State (Hỗ trợ chọn Nhân vật Nam / Nhân vật Nữ)
+  // Avatar Customization State (Hỗ trợ chọn Nhân vật Nam / Nhân vật Nữ độc lập trên từng Tab)
   const [avatar, setAvatar] = useState<AvatarConfig>(() => {
     try {
-      const saved = localStorage.getItem('student_saved_avatar');
+      const saved = sessionStorage.getItem(`kc3d_avatar_${tabSessionId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -52,7 +109,7 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     } catch {}
     return {
-      gender: 'male',
+      gender: Math.random() > 0.5 ? 'female' : 'male',
       hairStyle: 'cap',
       costume: 'uniform',
       accessoryColor: '#f59e0b',
@@ -77,14 +134,14 @@ export const StudentMobileView: React.FC<Props> = ({
   // Short answer text state
   const [shortAnswerInput, setShortAnswerInput] = useState<string>('');
 
-  // Connection & Screen state (Tự động khôi phục phiên thi đang làm để học sinh KHÔNG BAO GIỜ bị văng ra ngoài)
+  // Connection & Screen state (Khôi phục riêng theo từng Tab khi F5, còn mở Tab mới sẽ vào màn hình tạo nhân vật mới)
   const [connStatus, setConnStatus] = useState('🟢 Đã kết nối thông suốt sân đấu 3D!');
   const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
   const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED' | 'ENDED'>(() => {
     try {
-      const savedName = (localStorage.getItem('student_saved_name') || '').trim();
-      const joined = sessionStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`);
-      const savedScr = sessionStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`);
+      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '').trim();
+      const joined = sessionStorage.getItem(`kc3d_joined_${tabSessionId}`);
+      const savedScr = sessionStorage.getItem(`kc3d_screen_${tabSessionId}`);
       if (savedName && joined === '1') {
         if (savedScr === 'ENDED' || savedScr === 'QUIZ' || savedScr === 'WAITING' || savedScr === 'ELIMINATED') {
           return savedScr;
@@ -96,18 +153,17 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [hasConfirmedEnter, setHasConfirmedEnter] = useState(false);
 
-  // Gameplay state - Persistent student player ID per room to avoid losing score on disconnect/refresh
-  const [myPlayerId] = useState(() => {
+  // Gameplay state - Mỗi Tab có 1 mã học sinh (myPlayerId) riêng biệt 100%, không bao giờ bị trùng giữa các Tab ẩn danh
+  const [myPlayerId, setMyPlayerId] = useState(() => {
     try {
-      const key = `kc3d_pid_${roomId}`;
-      const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
+      const key = `kc3d_pid_${tabSessionId}`;
+      const saved = sessionStorage.getItem(key);
       if (saved) return saved;
-      const newId = 'hs_' + Math.random().toString(36).substring(2, 8);
+      const newId = 'hs_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
       sessionStorage.setItem(key, newId);
-      localStorage.setItem(key, newId);
       return newId;
     } catch {
-      return 'hs_' + Math.random().toString(36).substring(2, 8);
+      return 'hs_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
     }
   });
 
@@ -117,8 +173,8 @@ export const StudentMobileView: React.FC<Props> = ({
   const [matchStatText, setMatchStatText] = useState('Đang kết nối thông suốt...');
   const hasJoinedArenaRef = useRef<boolean>((() => {
     try {
-      const savedName = (localStorage.getItem('student_saved_name') || '').trim();
-      const joined = sessionStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_joined_${initialRoomId || '12345'}`);
+      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '').trim();
+      const joined = sessionStorage.getItem(`kc3d_joined_${tabSessionId}`);
       return Boolean(savedName && joined === '1');
     } catch {
       return false;
@@ -126,7 +182,7 @@ export const StudentMobileView: React.FC<Props> = ({
   })());
   const hasFinishedAllQuestionsRef = useRef<boolean>((() => {
     try {
-      const savedScr = sessionStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_screen_${initialRoomId || '12345'}`);
+      const savedScr = sessionStorage.getItem(`kc3d_screen_${tabSessionId}`);
       return savedScr === 'ENDED';
     } catch {
       return false;
@@ -156,7 +212,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const [currentBroadcastQ, setCurrentBroadcastQ] = useState<QuizItem | null>(null);
   const [currentGlobalQIndex, setCurrentGlobalQIndex] = useState<number>(() => {
     try {
-      const savedQ = sessionStorage.getItem(`kc3d_qidx_${initialRoomId || '12345'}`) || localStorage.getItem(`kc3d_qidx_${initialRoomId || '12345'}`);
+      const savedQ = sessionStorage.getItem(`kc3d_qidx_${tabSessionId}`);
       const parsed = savedQ ? parseInt(savedQ, 10) : 0;
       return !isNaN(parsed) && parsed >= 0 ? parsed : 0;
     } catch {
@@ -205,10 +261,10 @@ export const StudentMobileView: React.FC<Props> = ({
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
   const lastShuffledKeyRef = useRef<string>('');
 
-  // Persistent score & correct count in sessionStorage/localStorage to preserve on reconnect
+  // Persistent score & correct count in sessionStorage scoped to this tab
   const [fastScore, setFastScore] = useState<number>(() => {
     try {
-      const saved = sessionStorage.getItem(`kc3d_score_${roomId}`) || localStorage.getItem(`kc3d_score_${roomId}`);
+      const saved = sessionStorage.getItem(`kc3d_score_${tabSessionId}`);
       return saved ? parseInt(saved, 10) || 0 : 0;
     } catch {
       return 0;
@@ -216,7 +272,7 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [myCorrectCount, setMyCorrectCount] = useState<number>(() => {
     try {
-      const saved = sessionStorage.getItem(`kc3d_correct_${roomId}`) || localStorage.getItem(`kc3d_correct_${roomId}`);
+      const saved = sessionStorage.getItem(`kc3d_correct_${tabSessionId}`);
       return saved ? parseInt(saved, 10) || 0 : 0;
     } catch {
       return 0;
@@ -226,20 +282,18 @@ export const StudentMobileView: React.FC<Props> = ({
   const [fastAnswerFeedback, setFastAnswerFeedback] = useState<string | null>(null);
   const [cheerMessage, setCheerMessage] = useState<string | null>(null);
 
-  // Save score and correct count to storage whenever updated
+  // Save score and correct count to per-tab sessionStorage whenever updated
   useEffect(() => {
     try {
-      sessionStorage.setItem(`kc3d_score_${roomId}`, String(fastScore));
-      localStorage.setItem(`kc3d_score_${roomId}`, String(fastScore));
+      sessionStorage.setItem(`kc3d_score_${tabSessionId}`, String(fastScore));
     } catch {}
-  }, [fastScore, roomId]);
+  }, [fastScore, tabSessionId]);
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(`kc3d_correct_${roomId}`, String(myCorrectCount));
-      localStorage.setItem(`kc3d_correct_${roomId}`, String(myCorrectCount));
+      sessionStorage.setItem(`kc3d_correct_${tabSessionId}`, String(myCorrectCount));
     } catch {}
-  }, [myCorrectCount, roomId]);
+  }, [myCorrectCount, tabSessionId]);
 
   // Boss Mode state
   const [bossHP, setBossHP] = useState<number>(1000);
@@ -290,25 +344,22 @@ export const StudentMobileView: React.FC<Props> = ({
   useEffect(() => {
     screenRef.current = screen;
     try {
-      sessionStorage.setItem(`kc3d_screen_${roomId}`, screen);
-      localStorage.setItem(`kc3d_screen_${roomId}`, screen);
+      sessionStorage.setItem(`kc3d_screen_${tabSessionId}`, screen);
       if (screen !== 'LOBBY') {
         hasJoinedArenaRef.current = true;
-        sessionStorage.setItem(`kc3d_joined_${roomId}`, '1');
-        localStorage.setItem(`kc3d_joined_${roomId}`, '1');
+        sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
       }
     } catch {}
-  }, [screen, roomId]);
+  }, [screen, tabSessionId]);
   useEffect(() => {
     currentGlobalQIndexRef.current = currentGlobalQIndex;
     if (currentGlobalQIndex > maxReachedQIndexRef.current) {
       maxReachedQIndexRef.current = currentGlobalQIndex;
     }
     try {
-      sessionStorage.setItem(`kc3d_qidx_${roomId}`, String(currentGlobalQIndex));
-      localStorage.setItem(`kc3d_qidx_${roomId}`, String(currentGlobalQIndex));
+      sessionStorage.setItem(`kc3d_qidx_${tabSessionId}`, String(currentGlobalQIndex));
     } catch {}
-  }, [currentGlobalQIndex, roomId]);
+  }, [currentGlobalQIndex, tabSessionId]);
   useEffect(() => {
     eliminatedRef.current = eliminated;
   }, [eliminated]);
@@ -319,29 +370,22 @@ export const StudentMobileView: React.FC<Props> = ({
     quizDeckRef.current = quizDeck;
   }, [quizDeck]);
 
-  // Save student name and avatar to localStorage
+  // Lưu tên và nhân vật vào sessionStorage riêng của Tab hiện tại (để các Tab khác trên cùng máy tính/ẩn danh không bị trùng nhân vật)
   const handleSaveProfile = (name: string, av: AvatarConfig) => {
     setStudentName(name);
     studentNameRef.current = name;
     setAvatar(av);
     avatarRef.current = av;
     try {
-      localStorage.setItem('student_saved_name', name);
-      localStorage.setItem('student_saved_avatar', JSON.stringify(av));
+      sessionStorage.setItem(`kc3d_name_${tabSessionId}`, name);
+      sessionStorage.setItem(`kc3d_avatar_${tabSessionId}`, JSON.stringify(av));
     } catch {}
   };
 
-  // Anti-cheat visibility listener
+  const myPlayerIdRef = useRef<string>(myPlayerId);
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && screen === 'QUIZ') {
-        setTabWarning('⚠️ Chú ý: Phát hiện em chuyển tab! Hãy tập trung làm bài để đạt điểm cao!');
-        setTimeout(() => setTabWarning(null), 4000);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [screen]);
+    myPlayerIdRef.current = myPlayerId;
+  }, [myPlayerId]);
 
   const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
     const cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
@@ -356,7 +400,7 @@ export const StudentMobileView: React.FC<Props> = ({
         : hasJoinedArenaRef.current
         ? 'PLAYER_READY_ROPE'
         : 'AUTO_ENTER_ARENA',
-      playerId: myPlayerId,
+      playerId: myPlayerIdRef.current,
       preferredTeam: finalTeam,
       playerName: finalName,
       avatar: avatarRef.current,
@@ -1275,18 +1319,31 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   // Vào trực tiếp phòng có câu hỏi (QUIZ) hoặc vào Phòng chờ (WAITING)
-  const handleReadyInRope = (targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ') => {
-    const cleanName = (studentName || '').trim();
+  const handleReadyInRope = (
+    targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ',
+    overrideName?: string,
+    overrideAvatar?: AvatarConfig,
+    overrideTeam?: PlayerTeam
+  ) => {
+    const cleanName = (overrideName ?? studentName ?? '').trim();
     if (!cleanName) {
       setShowNameAlert(true);
       return;
     }
+    const finalAv = overrideAvatar || avatar;
+    const finalTm = overrideTeam || team;
+
+    setStudentName(cleanName);
     studentNameRef.current = cleanName;
+    setAvatar(finalAv);
+    avatarRef.current = finalAv;
+    setTeam(finalTm);
+    teamRef.current = finalTm;
+
     try {
-      localStorage.setItem('student_saved_name', cleanName);
-      localStorage.setItem('student_saved_avatar', JSON.stringify(avatar));
-      sessionStorage.setItem(`kc3d_joined_${roomId}`, '1');
-      localStorage.setItem(`kc3d_joined_${roomId}`, '1');
+      sessionStorage.setItem(`kc3d_name_${tabSessionId}`, cleanName);
+      sessionStorage.setItem(`kc3d_avatar_${tabSessionId}`, JSON.stringify(finalAv));
+      sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
     } catch {}
 
     hasJoinedArenaRef.current = true;
@@ -1299,9 +1356,9 @@ export const StudentMobileView: React.FC<Props> = ({
     const joinPayload: CloudMessage = {
       type: 'PLAYER_READY_ROPE',
       playerId: myPlayerId,
-      preferredTeam: team,
+      preferredTeam: finalTm,
       playerName: cleanName,
-      avatar,
+      avatar: finalAv,
       savedScore: fastScoreRef.current,
       savedCorrect: myCorrectCountRef.current
     };
@@ -1317,6 +1374,118 @@ export const StudentMobileView: React.FC<Props> = ({
       setRemSec(30);
     }
     setScreen(targetScreen);
+  };
+
+  // Tạo nhanh Nhân vật ngẫu nhiên (Hỗ trợ Giáo viên mở nhiều Tab Ẩn Danh test tải Server siêu tốc)
+  const handleQuickRandomCharacter = (autoEnterQuiz: boolean = false) => {
+    const lastNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương'];
+    const middleMale = ['Văn', 'Minh', 'Quốc', 'Gia', 'Đức', 'Tuấn', 'Hoàng', 'Anh'];
+    const firstMale = ['An', 'Bảo', 'Khôi', 'Đạt', 'Hùng', 'Khang', 'Phúc', 'Quân', 'Tài', 'Thịnh', 'Long', 'Nam'];
+    const middleFemale = ['Thị', 'Ngọc', 'Phương', 'Thanh', 'Bảo', 'Ánh', 'Mỹ', 'Khánh'];
+    const firstFemale = ['Anh', 'Châu', 'Hà', 'Linh', 'Mai', 'My', 'Ngân', 'Nhi', 'Quỳnh', 'Thảo', 'Trang', 'Vy'];
+    const classes = ['10A1', '10A2', '11A1', '11A3', '12A1', '12A2', '12A5'];
+    const hairs: AvatarConfig['hairStyle'][] = ['cap', 'headband', 'crown', 'beret', 'cyber'];
+    const costumes: AvatarConfig['costume'][] = ['uniform', 'aodai', 'superhero', 'sport'];
+    const colors = ['#f59e0b', '#ef4444', '#0284c7', '#10b981', '#8b5cf6', '#ec4899'];
+
+    const isFemale = Math.random() > 0.5;
+    const ln = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const mn = isFemale
+      ? middleFemale[Math.floor(Math.random() * middleFemale.length)]
+      : middleMale[Math.floor(Math.random() * middleMale.length)];
+    const fn = isFemale
+      ? firstFemale[Math.floor(Math.random() * firstFemale.length)]
+      : firstMale[Math.floor(Math.random() * firstMale.length)];
+    const cls = classes[Math.floor(Math.random() * classes.length)];
+    const randNum = Math.floor(10 + Math.random() * 90);
+    const randomName = `${ln} ${mn} ${fn} - ${cls} (#${randNum})`;
+
+    const randomAv: AvatarConfig = {
+      gender: isFemale ? 'female' : 'male',
+      hairStyle: hairs[Math.floor(Math.random() * hairs.length)],
+      costume: costumes[Math.floor(Math.random() * costumes.length)],
+      accessoryColor: colors[Math.floor(Math.random() * colors.length)],
+      expression: 'happy'
+    };
+    const randomTeam: PlayerTeam = Math.random() > 0.5 ? 'RED' : 'BLUE';
+
+    setShowNameAlert(false);
+    handleSaveProfile(randomName, randomAv);
+    setTeam(randomTeam);
+    teamRef.current = randomTeam;
+
+    if (autoEnterQuiz) {
+      handleReadyInRope('QUIZ', randomName, randomAv, randomTeam);
+    }
+  };
+
+  // Tạo nhân vật mới hoàn toàn ngay trên Tab hiện tại (cấp ID mới độc lập)
+  const handleCreateNewCharacterInTab = () => {
+    const freshTabId = 'tab_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
+    const freshPlayerId = 'hs_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
+    try {
+      sessionStorage.setItem('kc3d_tab_session_id', freshTabId);
+      sessionStorage.setItem(`kc3d_pid_${freshTabId}`, freshPlayerId);
+    } catch {}
+    setTabSessionId(freshTabId);
+    setMyPlayerId(freshPlayerId);
+    setStudentName('');
+    studentNameRef.current = '';
+    setFastScore(0);
+    fastScoreRef.current = 0;
+    setMyCorrectCount(0);
+    myCorrectCountRef.current = 0;
+    setCurrentGlobalQIndex(0);
+    currentGlobalQIndexRef.current = 0;
+    maxReachedQIndexRef.current = 0;
+    hasJoinedArenaRef.current = false;
+    hasFinishedAllQuestionsRef.current = false;
+    setHasAnsweredCurrentQ(false);
+    hasAnsweredCurrentQRef.current = false;
+    setIsAnswerLocked(false);
+    setLastLockedResult(null);
+    setEliminated(false);
+    eliminatedRef.current = false;
+    setLives(3);
+    setStreak(0);
+    setScreen('LOBBY');
+    triggerBonusToast(`✨ Đã tạo phiên nhân vật mới (${freshPlayerId}) trên Tab này!`);
+  };
+
+  // Bắn thêm +5 Học Sinh Ảo vào phòng để test độ chịu tải của Server ngay lập tức
+  const handleSpawnLoadTestBots = (count: number = 5) => {
+    const lastNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Đặng'];
+    const firstNames = ['An', 'Bình', 'Châu', 'Dũng', 'Giang', 'Hải', 'Khánh', 'Linh', 'Minh', 'Ngọc', 'Phúc', 'Quân', 'Thảo', 'Trang', 'Vy'];
+    const hairs: AvatarConfig['hairStyle'][] = ['cap', 'headband', 'crown', 'beret', 'cyber'];
+    const costumes: AvatarConfig['costume'][] = ['uniform', 'aodai', 'superhero', 'sport'];
+    const colors = ['#f59e0b', '#ef4444', '#0284c7', '#10b981', '#8b5cf6', '#ec4899'];
+
+    for (let i = 0; i < count; i++) {
+      setTimeout(() => {
+        const isFemale = Math.random() > 0.5;
+        const botId = 'hs_bot_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
+        const botName = `${lastNames[Math.floor(Math.random() * lastNames.length)]} ${firstNames[Math.floor(Math.random() * firstNames.length)]} (Test #${Math.floor(100 + Math.random() * 900)})`;
+        const botTeam: PlayerTeam = i % 2 === 0 ? 'RED' : 'BLUE';
+        const botScore = Math.floor(Math.random() * 4) * 1000;
+        const botCorrect = Math.floor(botScore / 1000);
+        CloudNetwork.sendMessage({
+          type: 'PLAYER_READY_ROPE',
+          playerId: botId,
+          preferredTeam: botTeam,
+          playerName: botName,
+          avatar: {
+            gender: isFemale ? 'female' : 'male',
+            hairStyle: hairs[Math.floor(Math.random() * hairs.length)],
+            costume: costumes[Math.floor(Math.random() * costumes.length)],
+            accessoryColor: colors[Math.floor(Math.random() * colors.length)],
+            expression: 'happy'
+          },
+          savedScore: botScore,
+          savedCorrect: botCorrect
+        });
+      }, i * 90);
+    }
+    triggerBonusToast(`🚀 Đã tạo thêm +${count} Nhân vật Học sinh vào Phòng ${roomId} để test tải Server!`);
   };
 
   const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
@@ -1737,20 +1906,43 @@ export const StudentMobileView: React.FC<Props> = ({
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'linear-gradient(135deg, #b45309, #d97706)',
-            border: '1.5px solid #fef08a',
-            color: '#ffffff',
-            padding: '4px 10px',
-            borderRadius: '999px',
-            fontSize: '11px',
-            fontWeight: 900,
-            whiteSpace: 'nowrap',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.35)'
-          }}
-        >
-          🏫 Trường THPT Mang Thít
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          {screen !== 'LOBBY' && (
+            <button
+              type="button"
+              onClick={handleCreateNewCharacterInTab}
+              style={{
+                background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                border: '1.5px solid #7dd3fc',
+                color: '#ffffff',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.35)'
+              }}
+              title="Tạo một nhân vật học sinh mới độc lập ngay trên Tab này"
+            >
+              ➕ Tạo Nhân Vật Mới
+            </button>
+          )}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #b45309, #d97706)',
+              border: '1.5px solid #fef08a',
+              color: '#ffffff',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: 900,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.35)'
+            }}
+          >
+            🏫 Trường THPT Mang Thít
+          </div>
         </div>
       </header>
 
@@ -1765,6 +1957,21 @@ export const StudentMobileView: React.FC<Props> = ({
               👨‍🏫 Tác giả: Thầy Hồ Tấn Khải • Trường THPT Mang Thít
             </div>
             <span style={{ fontSize: '12.5px', color: '#38bdf8', fontWeight: 800 }}>{connStatus}</span>
+            <div
+              style={{
+                marginTop: '6px',
+                display: 'inline-block',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(52, 211, 153, 0.45)',
+                color: '#6ee7b7',
+                fontSize: '11px',
+                fontWeight: 800
+              }}
+            >
+              🟢 Phiên Tab Độc Lập: <b>{myPlayerId}</b> • Cho phép mở nhiều Tab / Ẩn Danh cùng máy để Test Tải
+            </div>
           </div>
 
           <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '16px', padding: '16px', marginBottom: '14px' }}>
@@ -1778,9 +1985,27 @@ export const StudentMobileView: React.FC<Props> = ({
               style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #475569', background: '#1e293b', color: '#fef08a', fontSize: '16px', fontWeight: 900, textAlign: 'center', boxSizing: 'border-box' }}
             />
 
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 800, margin: '12px 0 6px 0', color: showNameAlert ? '#fca5a5' : '#cbd5e1' }}>
-              Họ và tên học sinh / Số báo danh: {showNameAlert && <span style={{ color: '#ef4444', fontWeight: 900 }}>* (BẮT BUỘC)</span>}
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '12px 0 6px 0', flexWrap: 'wrap', gap: '6px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 800, color: showNameAlert ? '#fca5a5' : '#cbd5e1' }}>
+                Họ và tên học sinh / Số báo danh: {showNameAlert && <span style={{ color: '#ef4444', fontWeight: 900 }}>* (BẮT BUỘC)</span>}
+              </label>
+              <button
+                type="button"
+                onClick={() => handleQuickRandomCharacter(false)}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  color: '#ffffff',
+                  border: '1px solid #a5b4fc',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  cursor: 'pointer'
+                }}
+              >
+                🎲 Tạo Nhanh Tên &amp; Nhân Vật
+              </button>
+            </div>
             <input
               id="student-name-input"
               type="text"
@@ -1807,6 +2032,60 @@ export const StudentMobileView: React.FC<Props> = ({
                 ⚠️ Bạn bắt buộc phải ghi tên trước khi vào phòng thi đấu!
               </div>
             )}
+
+            {/* Thanh công cụ Test Tải Server Đa Tab / Chế Độ Ẩn Danh */}
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '9px 10px',
+                borderRadius: '10px',
+                background: 'rgba(15, 23, 42, 0.9)',
+                border: '1px dashed #475569',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800 }}>
+                ⚡ Công cụ Test Tải Server (Cùng Máy / Ẩn Danh):
+              </span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleQuickRandomCharacter(true)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    color: '#ffffff',
+                    border: '1px solid #6ee7b7',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ Random &amp; Vào Ngay (1 Chạm)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSpawnLoadTestBots(5)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                    color: '#ffffff',
+                    border: '1px solid #7dd3fc',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🚀 +5 HS Ảo Test Tải
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* 3D Chibi Avatar Customization with Live Preview & Male/Female Selector */}

@@ -80,7 +80,7 @@ export const App: React.FC = () => {
 
   // 4 Core Match Settings
   const [matchSettings, setMatchSettings] = useState<MatchSettings>({
-    roomCapacity: 50,
+    roomCapacity: 200,
     max3DRenderCount: 20,
     questionDurationSec: 30,
     bossMaxHP: 1000
@@ -108,7 +108,7 @@ export const App: React.FC = () => {
     bossHP: 1000,
     maxBossHP: 1000,
     settings: {
-      roomCapacity: 50,
+      roomCapacity: 200,
       max3DRenderCount: 20,
       questionDurationSec: 30,
       bossMaxHP: 1000
@@ -482,9 +482,10 @@ export const App: React.FC = () => {
           };
         }
 
-        // Check room capacity limit
+        // Cho phép mở rộng dung lượng phòng lên tới 500+ học sinh để phục vụ test tải đa Tab / Ẩn Danh
         const totalP = prev.redPlayers.length + prev.bluePlayers.length;
-        if (totalP >= (prev.settings?.roomCapacity || 50)) {
+        const maxAllowed = Math.max(500, prev.settings?.roomCapacity || 500);
+        if (totalP >= maxAllowed) {
           return prev;
         }
 
