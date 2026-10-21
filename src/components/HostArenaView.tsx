@@ -959,11 +959,11 @@ export const HostArenaView: React.FC<Props> = ({
     applyRoundAtmosphere(matchState.currentRound || 1);
   }, [matchState.gameType, matchState.currentRound, matchState.status]);
 
-  // Sync 3D Players on Arena (Max 40 rendered in 3D, hides eliminated students in BELL mode)
+  // Sync 3D Players on Arena (Chỉ hiển thị tối đa 10 học sinh trên màn hình chính của giáo viên, ẩn học sinh bị loại trong Rung Chuông Vàng)
   useEffect(() => {
     if (!threeRef.current) return;
     const { scene, redPullers3D, bluePullers3D } = threeRef.current;
-    const max3D = Math.max(40, matchState.settings?.max3DRenderCount || 40);
+    const max3D = Math.min(10, Math.max(2, matchState.settings?.max3DRenderCount || 10));
 
     const isBell = matchState.gameType === 'BELL';
     const isFast = matchState.gameType === 'FAST';
@@ -999,53 +999,45 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position all active players systematically
+      // Position up to 10 active players systematically on the main screen
       topRender.forEach((p, idx) => {
         const isRed = p.team === 'RED';
         const g = createCartoonCharacter(isRed ? 'RED' : 'BLUE', p);
         g.userData.playerData = p;
 
         if (isBoss) {
-          // 2-row semi-circle combat battle formation facing the Boss (supports 40 heroes)
-          const row = idx < 20 ? 0 : 1;
-          const idxInRow = row === 0 ? idx : idx - 20;
-          const countInRow = row === 0 ? Math.min(20, topRender.length) : Math.max(1, topRender.length - 20);
-          const angle = -Math.PI * 0.75 + (idxInRow / Math.max(1, countInRow - 1)) * Math.PI * 1.5;
-          const rad = row === 0 ? 5.8 : 7.4;
+          // Semi-circle combat formation facing the Boss (max 10 heroes)
+          const angle = -Math.PI * 0.68 + (idx / Math.max(1, topRender.length - 1)) * Math.PI * 1.36;
+          const rad = 5.8;
           g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
           g.lookAt(0, 2.5, -2.5);
         } else if (isBell) {
-          // Golden Bell: Seated on 3-tier stage in 3 concentric rings (up to 40 students)
+          // Golden Bell: Seated on stage in 2 neat concentric rings (max 10 students)
           let rad = 2.6;
           let tierY = 0.88;
           let angle = 0;
-          if (idx < 8) {
-            const count = Math.min(8, topRender.length);
-            rad = 2.4;
+          if (idx < 4) {
+            const count = Math.min(4, topRender.length);
+            rad = 2.5;
             tierY = 0.88;
             angle = (idx / Math.max(1, count)) * Math.PI * 2;
-          } else if (idx < 22) {
-            const count = Math.min(14, Math.max(1, topRender.length - 8));
+          } else {
+            const count = Math.max(1, topRender.length - 4);
             rad = 4.6;
             tierY = 0.53;
-            angle = ((idx - 8) / count) * Math.PI * 2;
-          } else {
-            const count = Math.max(1, topRender.length - 22);
-            rad = 7.0;
-            tierY = 0.18;
-            angle = ((idx - 22) / count) * Math.PI * 2;
+            angle = ((idx - 4) / count) * Math.PI * 2;
           }
           g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.8);
           g.userData.baseBellY = tierY;
           g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
         } else {
-          // Speed racing: 4 rows of 10 racers (40 racers)
-          const cols = topRender.length > 20 ? 10 : 5;
-          const spacingX = cols === 10 ? 1.55 : 2.0;
+          // Speed racing: 2 rows of 5 racers (max 10 racers)
+          const cols = 5;
+          const spacingX = 2.1;
           const startX = -((cols - 1) * spacingX) / 2;
           const row = Math.floor(idx / cols);
           const col = idx % cols;
-          g.position.set(startX + col * spacingX, 0, 2.2 - row * 1.85);
+          g.position.set(startX + col * spacingX, 0, 1.8 - row * 2.1);
           g.lookAt(0, 1.5, -6);
         }
 
@@ -1054,7 +1046,8 @@ export const HostArenaView: React.FC<Props> = ({
         else bluePullers3D.push(g);
       });
     } else {
-      // Tug of war: Top 20 Red + Top 20 Blue by score (40 students total in 2 rows per side)
+      // Tug of war: Top 5 Red + Top 5 Blue by score (10 students total on main screen)
+      const perTeamMax = Math.max(1, Math.floor(max3D / 2));
       const sortedRed = [...matchState.redPlayers].sort((a, b) => {
         const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
@@ -1065,8 +1058,8 @@ export const HostArenaView: React.FC<Props> = ({
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
         return sB - sA;
       });
-      redToRender = sortedRed.slice(0, 20);
-      blueToRender = sortedBlue.slice(0, 20);
+      redToRender = sortedRed.slice(0, perTeamMax);
+      blueToRender = sortedBlue.slice(0, perTeamMax);
 
       // Clear old 3D groups
       redPullers3D.forEach(g => scene.remove(g));
@@ -1074,15 +1067,13 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position Red pullers alongside the rope (2 rows of 10)
+      // Position Red pullers alongside the rope (5 students)
       redToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('RED', p);
         g.userData.playerData = p;
-        const col = idx % 10;
-        const row = Math.floor(idx / 10);
-        const spacing = 1.22;
-        const startX = -1.5 - col * spacing;
-        const posZ = row === 0 ? 0.45 : -0.55;
+        const spacing = 1.45;
+        const startX = -1.6 - idx * spacing;
+        const posZ = (idx % 2 === 0 ? 0.35 : -0.35);
         g.position.set(startX, 0, posZ);
         g.userData.tugBaseX = startX;
         g.userData.tugBaseZ = posZ;
@@ -1091,15 +1082,13 @@ export const HostArenaView: React.FC<Props> = ({
         redPullers3D.push(g);
       });
 
-      // Position Blue pullers alongside the rope (2 rows of 10)
+      // Position Blue pullers alongside the rope (5 students)
       blueToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('BLUE', p);
         g.userData.playerData = p;
-        const col = idx % 10;
-        const row = Math.floor(idx / 10);
-        const spacing = 1.22;
-        const startX = 1.5 + col * spacing;
-        const posZ = row === 0 ? 0.45 : -0.55;
+        const spacing = 1.45;
+        const startX = 1.6 + idx * spacing;
+        const posZ = (idx % 2 === 0 ? 0.35 : -0.35);
         g.position.set(startX, 0, posZ);
         g.userData.tugBaseX = startX;
         g.userData.tugBaseZ = posZ;
@@ -2492,7 +2481,7 @@ export const HostArenaView: React.FC<Props> = ({
 
             {allPlayers.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '62px', overflowY: 'auto' }}>
-                {allPlayers.map(p => (
+                {allPlayers.slice(0, 10).map(p => (
                   <span
                     key={p.id}
                     style={{
@@ -2514,6 +2503,23 @@ export const HostArenaView: React.FC<Props> = ({
                     <span>{p.label}</span>
                   </span>
                 ))}
+                {allPlayers.length > 10 && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '3px 9px',
+                      borderRadius: '999px',
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      background: 'rgba(245, 158, 11, 0.25)',
+                      border: '1.5px solid #fbbf24',
+                      color: '#fde047'
+                    }}
+                  >
+                    +{allPlayers.length - 10} HS khác trong phòng
+                  </span>
+                )}
               </div>
             )}
           </div>

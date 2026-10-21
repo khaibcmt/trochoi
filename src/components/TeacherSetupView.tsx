@@ -799,9 +799,9 @@ export const TeacherSetupView: React.FC<Props> = ({
               <input
                 type="number"
                 min={2}
-                max={20}
+                max={10}
                 value={matchSettings.max3DRenderCount}
-                onChange={e => onUpdateSettings({ ...matchSettings, max3DRenderCount: Math.min(20, Math.max(2, parseInt(e.target.value) || 20)) })}
+                onChange={e => onUpdateSettings({ ...matchSettings, max3DRenderCount: Math.min(10, Math.max(2, parseInt(e.target.value) || 10)) })}
                 style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#4ade80', fontWeight: 900, textAlign: 'center' }}
               />
             </label>

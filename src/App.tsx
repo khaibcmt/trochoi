@@ -81,7 +81,7 @@ export const App: React.FC = () => {
   // 4 Core Match Settings
   const [matchSettings, setMatchSettings] = useState<MatchSettings>({
     roomCapacity: 200,
-    max3DRenderCount: 40,
+    max3DRenderCount: 10,
     questionDurationSec: 30,
     bossMaxHP: 1000
   });
@@ -109,7 +109,7 @@ export const App: React.FC = () => {
     maxBossHP: 1000,
     settings: {
       roomCapacity: 200,
-      max3DRenderCount: 40,
+      max3DRenderCount: 10,
       questionDurationSec: 30,
       bossMaxHP: 1000
     }
