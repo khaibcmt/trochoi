@@ -265,9 +265,12 @@ export function printEvidenceColorfulPDF(quizList: QuizItem[], subjectTitle: str
   }
 }
 
-export function exportHonorCertificateHTML(matchState: MatchState, roomId: string) {
+export function exportHonorCertificateHTML(matchState: MatchState, roomId: string, totalQuestions: number = 12) {
   const nowStr = new Date().toLocaleDateString('vi-VN');
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
+  const safeTotalQ = Math.max(1, totalQuestions || 12);
+
+  // BXH 1: Trò chơi (giữ nguyên cấu trúc)
   const rankedByScore = [...allPlayers].sort((a, b) => {
     if (matchState.gameType === 'BELL') {
       if (!a.eliminated && b.eliminated) return -1;
@@ -278,14 +281,16 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
     return (b.correct || 0) - (a.correct || 0);
   });
 
+  // BXH 2: Sổ điểm GV (chuẩn Thông tư 22/BGDĐT - thang điểm 10, làm tròn 1 số lẻ, xếp từ cao xuống thấp)
   const rankedByCorrect = [...allPlayers].sort((a, b) => {
-    if ((b.correct || 0) !== (a.correct || 0)) return (b.correct || 0) - (a.correct || 0);
-    return (b.fastScore || 0) - (a.fastScore || 0);
+    const scoreA = Number((((a.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    const scoreB = Number((((b.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+    return (a.wrongTotal || 0) - (b.wrongTotal || 0);
   });
 
-  const top10 = rankedByScore.slice(0, 10);
-  const top10Correct = rankedByCorrect.slice(0, 15);
-  const champion = top10[0];
+  const champion = rankedByScore[0];
 
   const gameName =
     matchState.gameType === 'BELL'
@@ -296,7 +301,8 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
       ? 'ĐƯỜNG ĐUA TỐC ĐỘ 3D'
       : 'ĐẤU TRƯỜNG KÉO CO 3D';
 
-  const rowsHTML = top10
+  // Lấy hết toàn bộ học sinh tham gia cho cả 2 BXH
+  const rowsHTML = rankedByScore
     .map((p, idx) => {
       const rank = idx + 1;
       const totalPts = p.fastScore || 0;
@@ -315,17 +321,17 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
     })
     .join('');
 
-  const gradebookRowsHTML = top10Correct
+  const gradebookRowsHTML = rankedByCorrect
     .map((p, idx) => {
       const rankCorrect = idx + 1;
-      const gb = getTeacherGradebookScore(p.correct || 0, 12, rankCorrect);
+      const gb = getTeacherGradebookScore(p.correct || 0, safeTotalQ);
       return `
         <tr>
           <td style="padding:10px; font-weight:900; text-align:center;">#${rankCorrect}</td>
           <td style="padding:10px; font-weight:900; color:#1e293b;">${p.label}</td>
-          <td style="padding:10px; text-align:center; font-weight:900; color:#059669;">✅ ${p.correct || 0} câu đúng</td>
-          <td style="padding:10px; text-align:center; font-weight:800; color:#64748b;">${p.fastScore || 0} điểm</td>
-          <td style="padding:10px; text-align:center; font-weight:900; color:#dc2626;">📒 ${gb.grade} điểm (Ghi sổ GV)</td>
+          <td style="padding:10px; text-align:center; font-weight:900; color:#059669;">✅ ${p.correct || 0}/${safeTotalQ} câu</td>
+          <td style="padding:10px; text-align:center; font-weight:900; color:#dc2626;">📒 ${gb.grade.toFixed(1)} điểm</td>
+          <td style="padding:10px; text-align:center; font-weight:800; color:#2563eb;">${gb.classification}</td>
         </tr>
       `;
     })

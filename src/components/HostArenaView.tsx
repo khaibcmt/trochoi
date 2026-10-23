@@ -1953,29 +1953,37 @@ export const HostArenaView: React.FC<Props> = ({
     }));
   };
 
-  // Export CSV (Bao gồm cả Thứ hạng theo Điểm Thi Đấu và Thứ hạng theo Số Câu Đúng + Điểm Ghi Sổ Điểm Giáo Viên)
+  // Export CSV toàn bộ học sinh tham gia (cả 2 BXH: Điểm Trò Chơi & Sổ Điểm Giáo Viên theo Thông tư 22/BGDĐT)
   const handleDownloadCSV = () => {
-    let csv = '\uFEFFHạng (Theo Điểm),Hạng (Theo Câu Đúng),Họ và Tên,Đội,Số Câu Đúng,Số Câu Sai,Tổng Điểm Thi Đấu (-1000đ/sai),Điểm Ghi Sổ Điểm GV (Thang 10),Trạng Thái\n';
+    const totalQ = Math.max(1, quizList.length || 12);
+    let csv = '\uFEFFSTT,Hạng Sổ GV (Từ cao xuống thấp),Hạng Trò Chơi (Điểm),Họ và Tên Học Sinh,Số Câu Đúng,Tổng Số Câu,Điểm Sổ Điểm GV (Thang 10 - TT22),Xếp Loại TT22,Tổng Điểm Thi Đấu,Số Câu Sai,Đội,Trạng Thái\n';
+    
+    // BXH 1: Trò chơi (giữ nguyên cấu trúc)
     const byScore = [...allPlayers].sort((a, b) => {
       if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
       return (b.correct || 0) - (a.correct || 0);
     });
+
+    // BXH 2: Sổ điểm GV (chuẩn Thông tư 22/BGDĐT - xếp thực tế từ cao xuống thấp)
     const byCorrect = [...allPlayers].sort((a, b) => {
-      if ((b.correct || 0) !== (a.correct || 0)) return (b.correct || 0) - (a.correct || 0);
-      return (b.fastScore || 0) - (a.fastScore || 0);
+      const scoreA = Number((((a.correct || 0) / totalQ) * 10).toFixed(1));
+      const scoreB = Number((((b.correct || 0) / totalQ) * 10).toFixed(1));
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+      return (a.wrongTotal || 0) - (b.wrongTotal || 0);
     });
 
     byCorrect.forEach((p, idxCorrect) => {
       const rankByCorrect = idxCorrect + 1;
       const rankByScore = byScore.findIndex(x => x.id === p.id) + 1;
-      const gb = getTeacherGradebookScore(p.correct || 0, quizList.length || 12, rankByCorrect);
-      csv += `"${rankByScore}","${rankByCorrect}","${p.label}","${p.team}","${p.correct || 0}","${p.wrongTotal || 0}","${p.fastScore || 0}","${gb.grade}","${p.eliminated ? 'Khán giả' : 'Trụ sàn'}"\n`;
+      const gb = getTeacherGradebookScore(p.correct || 0, totalQ);
+      csv += `"${idxCorrect + 1}","${rankByCorrect}","${rankByScore}","${p.label}","${p.correct || 0}","${totalQ}","${gb.grade.toFixed(1)}","${gb.classification}","${p.fastScore || 0}","${p.wrongTotal || 0}","${p.team}","${p.eliminated ? 'Khán giả' : 'Trụ sàn'}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `SoDiem_GiaoVien_Phong${activeRoomId}.csv`;
+    link.download = `SoDiem_GiaoVien_TT22_Phong${activeRoomId}.csv`;
     link.click();
   };
 
@@ -2022,15 +2030,21 @@ export const HostArenaView: React.FC<Props> = ({
     });
   }, [allPlayers, matchState.gameType]);
 
-  // 2. Bảng xếp hạng tính theo Số Câu Trả Lời Đúng (Để ghi vào Sổ điểm của Giáo viên - Chơi nhưng vẫn có điểm!)
+  // 2. Bảng xếp hạng Sổ Điểm Giáo Viên (Thông tư 22/BGDĐT - Thang điểm 10, làm tròn 1 số lẻ, xếp thứ tự từ cao đến thấp)
   const top10ByCorrectLeaderboard = useMemo(() => {
+    const totalQ = Math.max(1, quizList.length || 12);
     return [...allPlayers].sort((a, b) => {
-      if ((b.correct || 0) !== (a.correct || 0)) {
-        return (b.correct || 0) - (a.correct || 0);
+      const scoreA = Number((((a.correct || 0) / totalQ) * 10).toFixed(1));
+      const scoreB = Number((((b.correct || 0) / totalQ) * 10).toFixed(1));
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
       }
-      return (b.fastScore || 0) - (a.fastScore || 0);
+      if ((b.fastScore || 0) !== (a.fastScore || 0)) {
+        return (b.fastScore || 0) - (a.fastScore || 0);
+      }
+      return (a.wrongTotal || 0) - (b.wrongTotal || 0);
     });
-  }, [allPlayers]);
+  }, [allPlayers, quizList.length]);
 
   const getRoundTitleText = () => {
     if (matchState.gameType === 'BOSS') {
@@ -2662,9 +2676,9 @@ export const HostArenaView: React.FC<Props> = ({
               {(liveRankMode === 'SCORE' ? top10Leaderboard : top10ByCorrectLeaderboard).slice(0, 10).map((p, idx) => {
                 const rank = idx + 1;
                 const medal = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : `#${rank}`));
-                const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length || 12, rank);
+                const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length || 12);
                 const scoreDisplay = liveRankMode === 'CORRECT'
-                  ? `✅ ${p.correct || 0} đúng • ${gbScore.grade}đ`
+                  ? `✅ ${p.correct || 0}/${quizList.length || 12} • 📒 ${gbScore.grade.toFixed(1)}đ`
                   : matchState.gameType === 'BELL'
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
                   : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;

@@ -1549,32 +1549,34 @@ export function getConvertedGradeByRank(rankNumber: number, totalScore: number) 
   return { grade: 6, label: '6 điểm (Khuyến khích)', css: 'grade-other' };
 }
 
-// Tính điểm ghi vào Sổ điểm của Giáo viên dựa trên Số Câu Trả Lời Đúng (học sinh tham gia chơi có câu đúng luôn có điểm công bằng để ghi sổ)
-export function getTeacherGradebookScore(correctCount: number, totalQuestions: number = 12, rankByCorrect: number = 1) {
+// Tính điểm ghi vào Sổ điểm Giáo viên chuẩn theo Thông tư 22/2021/TT-BGDĐT:
+// Tất cả trả về thang điểm 10, chỉ tính (số câu đúng / tổng số câu) * 10, làm tròn đến 1 chữ số thập phân.
+// Tính điểm thực tế xếp thứ tự từ cao đến thấp để giáo viên ghi trực tiếp vào sổ điểm.
+export function getTeacherGradebookScore(correctCount: number, totalQuestions: number = 12, _rankByCorrect?: number) {
   const safeTotalQ = Math.max(1, totalQuestions || 12);
-  const ratioScore = Math.min(10, Math.round(((correctCount || 0) / safeTotalQ) * 10 * 10) / 10);
+  const safeCorrect = Math.max(0, Math.min(safeTotalQ, correctCount || 0));
+  const exactGrade = Number(((safeCorrect / safeTotalQ) * 10).toFixed(1));
 
-  if (!correctCount || correctCount <= 0) {
-    return {
-      grade: 6.0,
-      ratioScore: 0,
-      label: '6.0đ (Tham gia tích cực)'
-    };
+  let classification = 'Chưa đạt';
+  let badgeColor = '#ef4444';
+  if (exactGrade >= 8.0) {
+    classification = 'Tốt / Giỏi';
+    badgeColor = '#10b981';
+  } else if (exactGrade >= 6.5) {
+    classification = 'Khá';
+    badgeColor = '#0284c7';
+  } else if (exactGrade >= 5.0) {
+    classification = 'Đạt';
+    badgeColor = '#f59e0b';
   }
 
-  let rankBase = 7.0;
-  if (rankByCorrect === 1) rankBase = 10.0;
-  else if (rankByCorrect <= 3) rankBase = 9.5;
-  else if (rankByCorrect <= 6) rankBase = 9.0;
-  else if (rankByCorrect <= 10) rankBase = 8.5;
-  else if (rankByCorrect <= 15) rankBase = 8.0;
-  else rankBase = 7.5;
-
-  const finalGrade = Math.min(10, Math.max(ratioScore, rankBase));
   return {
-    grade: finalGrade,
-    ratioScore,
-    label: `${finalGrade} điểm`
+    grade: exactGrade,
+    correctCount: safeCorrect,
+    totalQuestions: safeTotalQ,
+    classification,
+    badgeColor,
+    label: `${exactGrade.toFixed(1)} điểm (${classification})`
   };
 }
 

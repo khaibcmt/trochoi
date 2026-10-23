@@ -24,11 +24,15 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
   onPrintPDFEvidence
 }) => {
   const [boardViewMode, setBoardViewMode] = useState<'DUAL' | 'SCORE' | 'CORRECT'>('DUAL');
+  // Mặc định hiển thị Top 10 trên màn hình theo yêu cầu, có nút mở rộng xem toàn bộ cả lớp
+  const [showAllStudents, setShowAllStudents] = useState<boolean>(false);
+  const [copiedClipboard, setCopiedClipboard] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
-  // 1. BẢNG XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU (fastScore)
-  // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Chọn đúng +1000đ, chọn sai trừ -1000đ
+  const safeTotalQ = Math.max(1, totalQuestions || 12);
+
+  // 1. BẢNG XẾP HẠNG TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC: fastScore, streak, cược, phạt -1000đ khi sai)
   const scoreLeaderboard = [...allPlayers].sort((a, b) => {
     if (gameType === 'BELL') {
       if (!a.eliminated && b.eliminated) return -1;
@@ -44,11 +48,14 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
     return (a.wrongTotal || 0) - (b.wrongTotal || 0);
   });
 
-  // 2. BẢNG XẾP HẠNG THEO SỐ CÂU ĐÚNG (GHI SỔ ĐIỂM CỦA GIÁO VIÊN)
-  // Tính theo số câu trả lời đúng (correct) để học sinh tham gia chơi có câu đúng vẫn có điểm ghi vào sổ điểm của giáo viên!
+  // 2. BẢNG XẾP HẠNG GHI ĐIỂM GIÁO VIÊN (CHUẨN THÔNG TƯ 22/BGDĐT)
+  // - Trả về thang điểm 10: Chỉ tính (Số câu đúng / Tổng số câu) * 10 rồi làm tròn 1 chữ số thập phân.
+  // - Sắp xếp thực tế từ cao đến thấp để giáo viên ghi trực tiếp vào sổ điểm.
   const correctLeaderboard = [...allPlayers].sort((a, b) => {
-    if ((b.correct || 0) !== (a.correct || 0)) {
-      return (b.correct || 0) - (a.correct || 0);
+    const scoreA = Number((((a.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    const scoreB = Number((((b.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    if (scoreB !== scoreA) {
+      return scoreB - scoreA;
     }
     if ((b.fastScore || 0) !== (a.fastScore || 0)) {
       return (b.fastScore || 0) - (a.fastScore || 0);
@@ -56,8 +63,9 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
     return (a.wrongTotal || 0) - (b.wrongTotal || 0);
   });
 
-  const topScoreList = scoreLeaderboard.slice(0, 15);
-  const topCorrectList = correctLeaderboard.slice(0, 15);
+  // Lấy Top 10 hiển thị trên màn hình (hoặc toàn bộ nếu giáo viên bấm mở rộng)
+  const displayedScoreList = showAllStudents ? scoreLeaderboard : scoreLeaderboard.slice(0, 10);
+  const displayedCorrectList = showAllStudents ? correctLeaderboard : correctLeaderboard.slice(0, 10);
 
   const getRankBadge = (rank: number) => {
     if (rank === 1) return { medal: '🥇', label: 'Quán Quân', bg: 'linear-gradient(135deg, #fbbf24, #d97706)', text: '#78350f' };
@@ -66,15 +74,31 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
     return { medal: `#${rank}`, label: `Hạng ${rank}`, bg: '#1e293b', text: '#94a3b8' };
   };
 
+  // Sao chép nhanh toàn bộ danh sách điểm Thông tư 22/BGDĐT để dán vào Excel / phần mềm vnEdu, SMAS
+  const handleCopyTeacherGradebook = () => {
+    if (correctLeaderboard.length === 0) return;
+    let tsv = 'STT\tHọ và tên\tSố câu đúng\tTổng số câu\tĐiểm TT22 (Thang 10)\tXếp loại\tĐiểm trò chơi\n';
+    correctLeaderboard.forEach((p, idx) => {
+      const gb = getTeacherGradebookScore(p.correct || 0, safeTotalQ);
+      tsv += `${idx + 1}\t${p.label}\t${p.correct || 0}\t${safeTotalQ}\t${gb.grade.toFixed(1)}\t${gb.classification}\t${p.fastScore || 0}\n`;
+    });
+    navigator.clipboard?.writeText(tsv).then(() => {
+      setCopiedClipboard(true);
+      setTimeout(() => setCopiedClipboard(false), 2500);
+    }).catch(() => {});
+  };
+
+  // BẢNG 1: BXH TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC)
   const renderScoreBoardSection = () => (
     <div style={{
-      background: 'rgba(15, 23, 42, 0.92)',
+      background: 'rgba(15, 23, 42, 0.94)',
       border: '2px solid #f59e0b',
       borderRadius: '18px',
       padding: '14px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px'
+      gap: '8px',
+      boxShadow: '0 8px 24px rgba(245, 158, 11, 0.2)'
     }}>
       <div style={{
         display: 'flex',
@@ -87,32 +111,34 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
       }}>
         <div>
           <div style={{ fontSize: '15px', fontWeight: 900, color: '#fde047' }}>
-            🏆 BẢNG 1: XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU
+            🎮 BẢNG 1: BXH TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC ĐIỂM THI ĐẤU)
           </div>
           <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700 }}>
-            Đúng <b style={{ color: '#4ade80' }}>+1000 điểm</b> • Chọn sai ở Ai Nhanh Hơn & Đánh Boss <b style={{ color: '#f87171' }}>trừ -1000 điểm</b>
+            Tính theo tốc độ, combo chuỗi, cược bản lĩnh • Chọn sai ở Đua tốc độ & Diệt Boss <b style={{ color: '#f87171' }}>trừ -1000đ</b>
           </div>
         </div>
-        <span style={{
-          padding: '4px 10px',
-          borderRadius: '999px',
-          background: 'rgba(245, 158, 11, 0.2)',
-          border: '1px solid #f59e0b',
-          color: '#fef08a',
-          fontSize: '11.5px',
-          fontWeight: 900
-        }}>
-          Tính theo Tổng Điểm
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{
+            padding: '3px 9px',
+            borderRadius: '999px',
+            background: 'rgba(245, 158, 11, 0.2)',
+            border: '1px solid #f59e0b',
+            color: '#fef08a',
+            fontSize: '11px',
+            fontWeight: 900
+          }}>
+            {showAllStudents ? `Hiện tất cả ${scoreLeaderboard.length} HS` : `Top 10 / ${scoreLeaderboard.length} HS`}
+          </span>
+        </div>
       </div>
 
-      {topScoreList.length === 0 ? (
+      {displayedScoreList.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 12px', color: '#94a3b8', fontWeight: 800 }}>
           Chưa có học sinh tham gia phòng {activeRoomId}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-          {topScoreList.map((player, idx) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', maxHeight: '480px', overflowY: 'auto' }}>
+          {displayedScoreList.map((player, idx) => {
             const rank = idx + 1;
             const badge = getRankBadge(rank);
             const scoreVal = player.fastScore || 0;
@@ -186,15 +212,17 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
     </div>
   );
 
+  // BẢNG 2: BXH GHI ĐIỂM GIÁO VIÊN (THÔNG TƯ 22/BGDĐT - THANG ĐIỂM 10, LÀM TRÒN 1 SỐ LẺ)
   const renderTeacherGradebookSection = () => (
     <div style={{
-      background: 'rgba(15, 23, 42, 0.92)',
-      border: '2px solid #10b981',
+      background: 'rgba(15, 23, 42, 0.94)',
+      border: '2.5px solid #10b981',
       borderRadius: '18px',
       padding: '14px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px'
+      gap: '8px',
+      boxShadow: '0 8px 24px rgba(16, 185, 129, 0.25)'
     }}>
       <div style={{
         display: 'flex',
@@ -206,36 +234,55 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
         gap: '6px'
       }}>
         <div>
-          <div style={{ fontSize: '15px', fontWeight: 900, color: '#6ee7b7' }}>
-            📒 BẢNG 2: XẾP HẠNG THEO SỐ CÂU ĐÚNG (GHI SỔ ĐIỂM GV)
+          <div style={{ fontSize: '15px', fontWeight: 900, color: '#6ee7b7', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>📒 BẢNG 2: SỔ GHI ĐIỂM GV (CHUẨN THÔNG TƯ 22/BGDĐT)</span>
           </div>
-          <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700 }}>
-            Tính theo <b style={{ color: '#4ade80' }}>Số câu trả lời đúng</b> — Học sinh chơi nhưng vẫn có điểm ghi vào Sổ điểm Giáo viên!
+          <div style={{ fontSize: '11.5px', color: '#e2e8f0', fontWeight: 700 }}>
+            Thang điểm 10 • Chỉ tính <b style={{ color: '#4ade80' }}>(Số câu đúng / {safeTotalQ}) × 10</b> • Làm tròn 1 số lẻ • Xếp từ cao xuống thấp
           </div>
         </div>
-        <span style={{
-          padding: '4px 10px',
-          borderRadius: '999px',
-          background: 'rgba(16, 185, 129, 0.2)',
-          border: '1px solid #10b981',
-          color: '#6ee7b7',
-          fontSize: '11.5px',
-          fontWeight: 900
-        }}>
-          Sổ Điểm Giáo Viên
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            type="button"
+            onClick={handleCopyTeacherGradebook}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '8px',
+              background: copiedClipboard ? '#059669' : '#065f46',
+              border: '1px solid #34d399',
+              color: '#ffffff',
+              fontSize: '11px',
+              fontWeight: 900,
+              cursor: 'pointer'
+            }}
+            title="Sao chép toàn bộ danh sách điểm lớp để dán vào Excel/vnEdu"
+          >
+            {copiedClipboard ? '✅ Đã Copy Điểm!' : '📋 Copy Sổ Điểm'}
+          </button>
+          <span style={{
+            padding: '3px 9px',
+            borderRadius: '999px',
+            background: 'rgba(16, 185, 129, 0.2)',
+            border: '1px solid #10b981',
+            color: '#6ee7b7',
+            fontSize: '11px',
+            fontWeight: 900
+          }}>
+            {showAllStudents ? `Hiện tất cả ${correctLeaderboard.length} HS` : `Top 10 / ${correctLeaderboard.length} HS`}
+          </span>
+        </div>
       </div>
 
-      {topCorrectList.length === 0 ? (
+      {displayedCorrectList.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 12px', color: '#94a3b8', fontWeight: 800 }}>
           Chưa có học sinh tham gia phòng {activeRoomId}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-          {topCorrectList.map((player, idx) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', maxHeight: '480px', overflowY: 'auto' }}>
+          {displayedCorrectList.map((player, idx) => {
             const rankByCorrect = idx + 1;
             const badge = getRankBadge(rankByCorrect);
-            const gbInfo = getTeacherGradebookScore(player.correct || 0, totalQuestions, rankByCorrect);
+            const gb = getTeacherGradebookScore(player.correct || 0, safeTotalQ);
 
             return (
               <div
@@ -248,8 +295,8 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   padding: '9px 12px',
                   borderRadius: '12px',
                   background: rankByCorrect <= 3
-                    ? 'linear-gradient(90deg, rgba(6, 78, 59, 0.65), rgba(15, 23, 42, 0.92))'
-                    : 'rgba(15, 23, 42, 0.78)',
+                    ? 'linear-gradient(90deg, rgba(6, 78, 59, 0.75), rgba(15, 23, 42, 0.94))'
+                    : 'rgba(15, 23, 42, 0.82)',
                   border: rankByCorrect === 1 ? '1.5px solid #10b981' : '1px solid #334155'
                 }}
               >
@@ -274,26 +321,32 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                       {player.label}
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#a7f3d0', fontWeight: 800, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      <span>✅ Đúng: <b>{player.correct || 0}/{totalQuestions} câu</b></span>
-                      <span style={{ color: '#94a3b8' }}>• Điểm trò chơi: {player.fastScore || 0}đ</span>
+                      <span>✅ Đúng: <b>{player.correct || 0}/{safeTotalQ} câu</b></span>
+                      <span style={{ color: gb.badgeColor, fontWeight: 900 }}>• Xếp loại: {gb.classification}</span>
                     </div>
                   </div>
                 </div>
 
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{
-                    padding: '4px 10px',
+                    padding: '4px 12px',
                     borderRadius: '999px',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    background: gb.grade >= 8.0
+                      ? 'linear-gradient(135deg, #10b981, #059669)'
+                      : gb.grade >= 6.5
+                      ? 'linear-gradient(135deg, #0284c7, #0369a1)'
+                      : gb.grade >= 5.0
+                      ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                      : 'linear-gradient(135deg, #ef4444, #dc2626)',
                     color: '#ffffff',
-                    fontSize: '13.5px',
+                    fontSize: '14px',
                     fontWeight: 900,
-                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)'
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
                   }}>
-                    📒 {gbInfo.grade} điểm
+                    📒 {gb.grade.toFixed(1)} điểm
                   </div>
-                  <div style={{ fontSize: '10.5px', color: '#6ee7b7', fontWeight: 800, marginTop: '2px' }}>
-                    Ghi sổ điểm GV
+                  <div style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700, marginTop: '2px' }}>
+                    Thứ hạng #{rankByCorrect} ghi sổ
                   </div>
                 </div>
               </div>
@@ -322,7 +375,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
         boxShadow: '0 25px 60px rgba(0,0,0,0.85), 0 0 35px rgba(245, 158, 11, 0.35)',
         borderRadius: '24px',
         width: '100%',
-        maxWidth: '1120px',
+        maxWidth: '1160px',
         maxHeight: '92vh',
         display: 'flex',
         flexDirection: 'column',
@@ -343,31 +396,52 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '30px' }}>🏆</span>
             <div>
-              <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 900, color: '#fef08a', letterSpacing: '0.4px' }}>
-                HỆ THỐNG KÉP 2 BẢNG XẾP HẠNG: TỔNG ĐIỂM THI ĐẤU & SỔ ĐIỂM GIÁO VIÊN
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#fef08a', letterSpacing: '0.4px' }}>
+                HỆ THỐNG KÉP 2 BẢNG XẾP HẠNG: ĐIỂM TRÒ CHƠI & SỔ GHI ĐIỂM GV (THÔNG TƯ 22)
               </h2>
               <div style={{ fontSize: '12px', color: '#fed7aa', fontWeight: 700 }}>
-                Phòng: <b>{activeRoomId}</b> • Tổng số: <b>{allPlayers.length} Học sinh</b> • Chơi vui kịch tính (-1000đ/câu sai) nhưng vẫn có Điểm Sổ Điểm Giáo Viên theo Số Câu Đúng!
+                Phòng: <b>{activeRoomId}</b> • Sĩ số tham gia: <b>{allPlayers.length} Học sinh</b> • Thang điểm 10 Thông tư 22/BGDĐT làm tròn 1 số lẻ!
               </div>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              background: 'rgba(0,0,0,0.35)',
-              border: '1.5px solid #fde047',
-              color: '#ffffff',
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              fontSize: '16px',
-              fontWeight: 900,
-              cursor: 'pointer'
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Nút chuyển đổi: Chỉ hiện Top 10 trên màn hình vs Mở rộng toàn bộ cả lớp */}
+            <button
+              type="button"
+              onClick={() => setShowAllStudents(!showAllStudents)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '10px',
+                background: showAllStudents ? '#3b82f6' : 'rgba(0,0,0,0.4)',
+                border: '1.5px solid #60a5fa',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+              title="Chuyển đổi giữa chế độ Top 10 và xem toàn bộ cả lớp"
+            >
+              {showAllStudents ? `👥 Đang hiện cả lớp (${allPlayers.length} HS) • Bấm để về Top 10` : `⭐ Chỉ hiện Top 10 trên màn hình • Bấm để xem hết ${allPlayers.length} HS`}
+            </button>
+
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(0,0,0,0.35)',
+                border: '1.5px solid #fde047',
+                color: '#ffffff',
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                fontSize: '16px',
+                fontWeight: 900,
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Mode Switcher Tabs */}
@@ -393,7 +467,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
               cursor: 'pointer'
             }}
           >
-            📊 XEM SONG SONG CẢ 2 BẢNG XẾP HẠNG
+            📊 SONG SONG 2 BẢNG XẾP HẠNG
           </button>
 
           <button
@@ -410,7 +484,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
               cursor: 'pointer'
             }}
           >
-            🏆 BẢNG 1: XẾP HẠNG THEO TỔNG ĐIỂM (-1000Đ/SAI)
+            🎮 BẢNG 1: BXH TRÒ CHƠI (ĐIỂM THI ĐẤU)
           </button>
 
           <button
@@ -427,7 +501,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
               cursor: 'pointer'
             }}
           >
-            📒 BẢNG 2: XẾP HẠNG THEO SỐ CÂU ĐÚNG (GHI SỔ ĐIỂM GV)
+            📒 BẢNG 2: SỔ GHI ĐIỂM GV (THÔNG TƯ 22)
           </button>
         </div>
 
@@ -436,7 +510,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
           {boardViewMode === 'DUAL' ? (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))',
               gap: '14px'
             }}>
               {renderScoreBoardSection()}
@@ -460,8 +534,8 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
           flexWrap: 'wrap',
           gap: '10px'
         }}>
-          <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 700 }}>
-            💡 Bảng điểm CSV tải về có đầy đủ cả 2 cột: <b>Tổng Điểm Thi Đấu</b> và <b>Số Câu Đúng + Điểm Ghi Sổ Điểm Giáo Viên</b>.
+          <div style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 700 }}>
+            💡 File CSV tải về & In PDF lấy <b>100% tất cả {allPlayers.length} học sinh tham gia</b> (Điểm trò chơi & Điểm Thông tư 22/BGDĐT làm tròn 1 số lẻ).
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -495,7 +569,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                 cursor: 'pointer'
               }}
             >
-              📥 TẢI SỔ ĐIỂM GIÁO VIÊN (.CSV)
+              📥 TẢI SỔ ĐIỂM LỚP (CSV - ĐỦ {allPlayers.length} HS)
             </button>
 
             <button
