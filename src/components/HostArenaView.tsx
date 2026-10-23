@@ -1873,9 +1873,26 @@ export const HostArenaView: React.FC<Props> = ({
       question: firstQ,
       quiz: quizList
     });
+    CloudNetwork.sendMessage({
+      type: 'FORCE_START_MATCH',
+      status: 'PLAYING',
+      qIndex: 0,
+      question: firstQ,
+      quiz: quizList
+    });
     setTimeout(() => {
       CloudNetwork.sendMessage(startPayload);
-    }, 250);
+      CloudNetwork.sendMessage({
+        type: 'FORCE_START_MATCH',
+        status: 'PLAYING',
+        qIndex: 0,
+        question: firstQ,
+        quiz: quizList
+      });
+    }, 200);
+    setTimeout(() => {
+      CloudNetwork.sendMessage(startPayload);
+    }, 500);
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',

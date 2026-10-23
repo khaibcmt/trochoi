@@ -467,9 +467,13 @@ app.post('/api/room/:roomId/publish', (req, res) => {
       room.latestHeartbeat = payload;
       primaryActiveRoomId = room.roomId;
     } else {
-      // Nếu là gói đồng bộ câu hỏi mới (QUIZ_SYNC / GAME_SWITCHED / MATCH_START), cập nhật ngay vào latestHeartbeat
+      // Nếu là gói đồng bộ câu hỏi mới (QUIZ_SYNC / GAME_SWITCHED / MATCH_START / FORCE_START_MATCH / QUESTION_START), cập nhật ngay vào latestHeartbeat
       if (
-        (payload.type === 'QUIZ_SYNC' || payload.type === 'GAME_SWITCHED' || payload.type === 'MATCH_START') &&
+        (payload.type === 'QUIZ_SYNC' ||
+          payload.type === 'GAME_SWITCHED' ||
+          payload.type === 'MATCH_START' ||
+          payload.type === 'FORCE_START_MATCH' ||
+          payload.type === 'QUESTION_START') &&
         Array.isArray(payload.quiz) &&
         payload.quiz.length > 0
       ) {
@@ -478,10 +482,10 @@ app.post('/api/room/:roomId/publish', (req, res) => {
           type: 'HOST_HEARTBEAT',
           _mid: payload._mid || 'hb_' + Date.now(),
           gameType: payload.gameType || room.latestHeartbeat?.gameType || 'TUG',
-          status: payload.status || room.latestHeartbeat?.status || 'LOBBY',
+          status: payload.status || (payload.type === 'FORCE_START_MATCH' || payload.type === 'MATCH_START' ? 'PLAYING' : room.latestHeartbeat?.status || 'LOBBY'),
           globalQIndex: typeof payload.qIndex === 'number' ? payload.qIndex : (payload.globalQIndex ?? 0),
           quiz: payload.quiz,
-          question: payload.question || payload.quiz[0]
+          question: payload.question || payload.quiz[payload.qIndex || 0] || payload.quiz[0]
         };
       }
 
@@ -557,7 +561,7 @@ app.post('/api/room/:roomId/publish', (req, res) => {
         }
       }
 
-      if (payload.type === 'MATCH_START' || payload.type === 'GAME_SWITCH' || payload.type === 'GAME_SWITCHED') {
+      if (payload.type === 'MATCH_START' || payload.type === 'FORCE_START_MATCH' || payload.type === 'GAME_SWITCH' || payload.type === 'GAME_SWITCHED') {
         Object.keys(room.players).forEach(pid => {
           if (room.players[pid]) {
             room.players[pid].savedScore = 0;

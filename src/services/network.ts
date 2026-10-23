@@ -300,6 +300,7 @@ class NetworkService {
         'PLAYER_READY_ROPE',
         'PLAYER_UPDATE_NAME',
         'FORCE_PULL_TO_WAITING',
+        'FORCE_START_MATCH',
         'ENTER_CONFIRMED',
         'QUESTION_START',
         'MATCH_START',

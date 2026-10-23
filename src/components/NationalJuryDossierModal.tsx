@@ -566,14 +566,14 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                 {/* 3. Điều Khiển Sân Đấu & Nút Kéo Học Sinh */}
                 <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '16px', padding: '18px 22px' }}>
                   <div style={{ fontSize: '17px', fontWeight: 900, color: '#6ee7b7', marginBottom: '8px' }}>
-                    3️⃣ Bảng Điều Khiển Sân Đấu &amp; Nút &ldquo;🧲 Kéo Học Sinh Vào Phòng Chờ&rdquo;
+                    3️⃣ Đồng Bộ 100% Câu Hỏi • Nút Kéo Học Sinh &amp; Khóa/Mở Đáp Án Đồng Loạt
                   </div>
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
-                    • <b>🧲 Nút &ldquo;Kéo HS Vào Chờ&rdquo; (1-Click):</b> Nằm ngay trên thanh điều khiển phòng đấu và thanh sảnh chờ. Khi học sinh đã vào sảnh hoặc quét mã, giáo viên chỉ cần bấm nút này để kéo 100% học sinh vào thẳng phòng chờ (WAITING) sẵn sàng thi đấu, xóa bỏ hoàn toàn tình trạng học sinh phân vân ở sảnh.<br />
-                    • <b>Tối ưu hiển thị 10 nhân vật 3D:</b> Màn hình máy chiếu chỉ hiển thị 10 nhân vật đại diện tiêu biểu để sân khấu thoáng đãng, không che khuất câu hỏi.<br />
-                    • <b>🔊 Đọc Đề Tự Động:</b> Giọng MC chuyên nghiệp đọc to câu hỏi và các phương án cho cả lớp cùng nghe.<br />
-                    • <b>💡 AI Giải Thích:</b> Khi hết giờ, giáo viên bấm để AI hiện tóm tắt bản chất kiến thức và mẹo nhớ nhanh cho học sinh.<br />
-                    • <b>🌟 Vòng Quay Định Mệnh:</b> Bấm <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để kích hoạt các tình huống cứu sinh, nhân đôi điểm toàn sân.
+                    • <b>🔒 Tự động che &amp; khóa đáp án khi chưa bắt đầu:</b> Khi Giáo viên chưa nhấn <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b>, toàn bộ đáp án trên điện thoại của học sinh đều được che và khóa an toàn tuyệt đối (đã xóa bỏ hoàn toàn nút tự ý vào mở đáp án trước giờ thi).<br />
+                    • <b>🚀 Bấm Bắt Đầu kéo 100% học sinh đồng loạt:</b> Ngay khi Giáo viên nhấn nút <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b>, hệ thống tự động kéo 100% học sinh từ Sảnh và Phòng chờ vào phòng thi, mở khóa đáp án và đồng bộ cùng 1 câu hỏi tại cùng 1 thời điểm.<br />
+                    • <b>🔄 Đồng bộ câu hỏi tuyệt đối giữa Giáo viên &amp; Học sinh:</b> Học sinh sau khi chốt đáp án sẽ đợi Thầy/Cô chuyển câu để cả lớp luôn làm cùng 1 câu hỏi với màn hình máy chiếu, không bao giờ xảy ra lệch câu hỏi.<br />
+                    • <b>🧲 Nút &ldquo;Kéo HS Vào Chờ&rdquo; (1-Click):</b> Nằm ngay trên thanh điều khiển phòng đấu giúp kéo toàn bộ học sinh vào phòng chờ chuẩn bị sẵn sàng trước giờ G.<br />
+                    • <b>🔊 Đọc Đề Tự Động &amp; 💡 AI Giải Thích:</b> Giọng MC đọc to câu hỏi và AI giải thích bản chất kiến thức kèm mẹo nhớ nhanh sau mỗi câu.
                   </div>
                 </div>
 
@@ -641,13 +641,13 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '16px' }}>
                 <div style={{ background: '#111827', border: '2px solid #38bdf8', borderRadius: '16px', padding: '18px' }}>
                   <div style={{ fontSize: '16px', fontWeight: 900, color: '#38bdf8', marginBottom: '8px' }}>
-                    1. Quét Mã Vào Ngay Phòng Chờ (Không Lo Bị Chặn)
+                    1. Quét Mã Vào Phòng Chờ &amp; Bắt Buộc Điền Tên Lưu Lại Mới Được Chơi
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
-                    • <b>Quét mã QR là vào ngay:</b> Dùng Zalo, Camera hoặc trình duyệt quét mã là vào thẳng <b>Phòng Chờ (WAITING ROOM)</b> ngay lập tức, không bị chặn bởi bất kỳ form hay thông báo nào.<br />
-                    • <b>Tự động cấp tên tạm:</b> Hệ thống tự cấp tên dạng <code>Thí sinh #...</code>, câu trả lời tự động khóa an toàn để bạn không bấm nhầm trước giờ thi đấu.<br />
-                    • <b>Đổi tên trực tiếp trong phòng chờ:</b> Có sẵn ô nhập Họ Tên chính thức kèm nút <b>&ldquo;💾 Lưu Tên Của Bạn&rdquo;</b> ngay trong phòng chờ.<br />
-                    • <b>Nút tại sảnh:</b> Tại màn hình sảnh có nút bấm to nổi bật <b>&ldquo;🚪 VÀO TRỰC TIẾP PHÒNG CHỜ (KHÓA ĐÁP ÁN - NHẬP TÊN SAU)&rdquo;</b>.
+                    • <b>Quét mã QR vào thẳng Phòng Chờ:</b> Dùng Zalo hoặc Camera quét mã là vào ngay <b>Phòng Chờ (WAITING ROOM)</b>.<br />
+                    • <b>⚠️ Bắt buộc điền Họ &amp; Tên thật và bấm Lưu lại:</b> Học sinh bắt buộc phải nhập Họ Tên thật và nhấn nút <b>&ldquo;💾 LƯU TÊN&rdquo;</b> mới được phép mở khóa trả lời câu hỏi.<br />
+                    • <b>🔒 Che &amp; khóa đáp án khi GV chưa bắt đầu:</b> Khi Thầy/Cô chưa nhấn Bắt đầu, toàn bộ các đáp án đều bị che và khóa lại để đảm bảo công bằng.<br />
+                    • <b>🚀 Tự động mở khóa 100% khi GV nhấn Bắt đầu:</b> Ngay khi Thầy/Cô bấm nút Bắt đầu, 100% học sinh được kéo tự động vào câu hỏi, mở đáp án và đồng bộ toàn diện với màn hình Giáo viên.
                   </div>
                 </div>
 
