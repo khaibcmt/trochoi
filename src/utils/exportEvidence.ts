@@ -220,6 +220,16 @@ export function buildColorfulEvidenceHTMLDocument(
     </div>
 
     ${cardsHTML}
+
+    <div style="margin-top:40px; padding:22px; border:2.5px solid #38bdf8; border-radius:16px; background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#ffffff; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+      <div style="font-size:11.5px; font-weight:900; letter-spacing:1px; color:#ef4444; text-transform:uppercase;">TÁC GIẢ SÁNG KIẾN KỸ THUẬT &amp; LẬP TRÌNH PHẦN MỀM</div>
+      <div style="font-size:20px; font-weight:900; color:#fde047; margin:6px 0;">THẦY HỒ TẤN KHẢI</div>
+      <div style="font-size:15px; font-weight:800; color:#38bdf8;">TRƯỜNG THPT MANG THÍT • TỈNH VĨNH LONG</div>
+      <div style="font-size:12.5px; color:#cbd5e1; margin-top:8px; line-height:1.6;">
+        Hệ Thống Đấu Trường 3D Tri Thức Đa Năng • Chuẩn Đánh Giá Năng Lực Học Sinh GDPT 2018<br/>
+        Ứng Dụng Đổi Mới Phương Pháp Dạy Học, Sinh Hoạt Dưới Cờ &amp; Ngoại Khóa Chuyên Môn
+      </div>
+    </div>
   </div>
   ${isAutoPrint ? '<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 500); };</script>' : ''}
 </body>

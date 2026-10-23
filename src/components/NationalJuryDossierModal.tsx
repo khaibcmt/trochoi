@@ -870,6 +870,214 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
               </div>
             </div>
           )}
+
+          {/* =========================================================================
+              PHẦN TÁC GIẢ BẢN QUYỀN & ĐƠN VỊ CÔNG TÁC - XUẤT HIỆN Ở CUỐI CÁC TRANG HƯỚNG DẪN
+              ========================================================================= */}
+          <div
+            style={{
+              marginTop: '36px',
+              padding: '24px 28px',
+              background: 'linear-gradient(135deg, #0b0f19 0%, #1e1b4b 40%, #0f172a 100%)',
+              border: '2.5px solid #f59e0b',
+              borderRadius: '20px',
+              boxShadow: '0 15px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(245, 158, 11, 0.25)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Vệt sáng trang trí */}
+            <div
+              style={{
+                position: 'absolute',
+                top: '-40px',
+                right: '-40px',
+                width: '130px',
+                height: '130px',
+                background: 'radial-gradient(circle, rgba(245,158,11,0.25) 0%, rgba(245,158,11,0) 70%)',
+                borderRadius: '50%',
+                pointerEvents: 'none'
+              }}
+            />
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '16px',
+                borderBottom: '1.5px solid rgba(245, 158, 11, 0.35)',
+                paddingBottom: '16px',
+                marginBottom: '16px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '18px',
+                    background: 'linear-gradient(135deg, #f59e0b, #b45309)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '32px',
+                    boxShadow: '0 8px 24px rgba(245, 158, 11, 0.45)',
+                    border: '2.5px solid #fef08a',
+                    flexShrink: 0
+                  }}
+                >
+                  👨‍🏫
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                    <span
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                        color: '#ffffff',
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        fontSize: '11.5px',
+                        fontWeight: 900,
+                        letterSpacing: '0.4px',
+                        boxShadow: '0 2px 8px rgba(239,68,68,0.4)'
+                      }}
+                    >
+                      TÁC GIẢ SÁNG KIẾN & LẬP TRÌNH
+                    </span>
+                    <span
+                      style={{
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        color: '#38bdf8',
+                        border: '1px solid #38bdf8',
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        fontSize: '11.5px',
+                        fontWeight: 800
+                      }}
+                    >
+                      Bản Quyền Trí Tuệ Sư Phạm
+                    </span>
+                  </div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: '22px',
+                      fontWeight: 900,
+                      color: '#fef08a',
+                      letterSpacing: '0.3px',
+                      textShadow: '0 2px 10px rgba(0,0,0,0.7)'
+                    }}
+                  >
+                    HỒ TẤN KHẢI
+                  </h3>
+                  <div style={{ fontSize: '15px', color: '#38bdf8', fontWeight: 800, marginTop: '2px' }}>
+                    🏫 TRƯỜNG THPT MANG THÍT • TỈNH VĨNH LONG
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: '1.5px solid #334155',
+                  borderRadius: '12px',
+                  padding: '10px 16px',
+                  textAlign: 'right'
+                }}
+              >
+                <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800 }}>DỰ ÁN PHẦN MỀM GIÁO DỤC</div>
+                <div style={{ fontSize: '13.5px', color: '#4ade80', fontWeight: 900, marginTop: '2px' }}>
+                  ĐẤU TRƯỜNG 3D TRI THỨC ĐA NĂNG
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700 }}>
+                  Chuẩn 3 Dạng Thức Đánh Giá GDPT 2018
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '14px',
+                color: '#e2e8f0',
+                fontSize: '13px',
+                lineHeight: '1.6'
+              }}
+            >
+              <div
+                style={{
+                  background: 'rgba(2, 6, 23, 0.6)',
+                  border: '1px solid #1e293b',
+                  borderRadius: '12px',
+                  padding: '12px 16px'
+                }}
+              >
+                <div style={{ color: '#fde047', fontWeight: 900, marginBottom: '4px', fontSize: '13.5px' }}>
+                  🎯 Sứ Mệnh Chuyển Đổi Số Giảng Dạy:
+                </div>
+                <div>
+                  Hệ thống được thầy <b>Hồ Tấn Khải (Trường THPT Mang Thít)</b> nghiên cứu và phát triển nhằm đổi mới sinh hoạt chuyên môn, tạo không khí học tập sôi nổi, kịch tính, giúp học sinh hào hứng ôn tập và rèn luyện kỹ năng làm bài thi tốt nghiệp THPT.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(2, 6, 23, 0.6)',
+                  border: '1px solid #1e293b',
+                  borderRadius: '12px',
+                  padding: '12px 16px'
+                }}
+              >
+                <div style={{ color: '#38bdf8', fontWeight: 900, marginBottom: '4px', fontSize: '13.5px' }}>
+                  ☁️ Tối Ưu Hóa & Đồng Bộ Cho Giáo Viên:
+                </div>
+                <div>
+                  Tích hợp đồng bộ đám mây liên máy qua tài khoản Google hoặc Mật khẩu cá nhân, giúp quý Thầy/Cô soạn giáo án, câu hỏi tại nhà và mang lên lớp trình chiếu tức thì trên màn hình tương tác hoặc máy chiếu mà không lo mất dữ liệu.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(2, 6, 23, 0.6)',
+                  border: '1px solid #1e293b',
+                  borderRadius: '12px',
+                  padding: '12px 16px'
+                }}
+              >
+                <div style={{ color: '#4ade80', fontWeight: 900, marginBottom: '4px', fontSize: '13.5px' }}>
+                  📬 Hỗ Trợ Kỹ Thuật & Đóng Góp Ý Kiến:
+                </div>
+                <div>
+                  Quý Thầy/Cô và các em học sinh có đóng góp về ngân hàng câu hỏi 12 môn học hoặc tính năng vui lòng liên hệ <b>Thầy Hồ Tấn Khải - Trường THPT Mang Thít</b> để cùng hoàn thiện học liệu số dùng chung cho ngành giáo dục.
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: '16px',
+                paddingTop: '12px',
+                borderTop: '1px dashed rgba(245, 158, 11, 0.3)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
+                fontSize: '12px',
+                color: '#94a3b8'
+              }}
+            >
+              <span>
+                🌾 <b>Tác giả: Thầy Hồ Tấn Khải</b> • Đơn vị: <b>Trường THPT Mang Thít</b> (Vĩnh Long)
+              </span>
+              <span style={{ color: '#fde047', fontWeight: 800 }}>
+                ⭐ Chúc quý Thầy/Cô và các em học sinh có những giờ học bổ ích & đầy hứng khởi!
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Footer Actions: Đầy Đủ & Nổi Bật */}
@@ -961,22 +1169,27 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
             )}
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              padding: '11px 24px',
-              borderRadius: '12px',
-              background: '#374151',
-              color: '#ffffff',
-              border: '1.5px solid #9ca3af',
-              fontWeight: 900,
-              fontSize: '14.5px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            Đóng Hướng Dẫn
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12.5px', color: '#93c5fd', fontWeight: 800, background: 'rgba(30, 41, 59, 0.8)', padding: '6px 12px', borderRadius: '8px', border: '1px solid #3b82f6' }}>
+              🌾 Tác giả: <b style={{ color: '#fde047' }}>Hồ Tấn Khải</b> • <b style={{ color: '#67e8f9' }}>Trường THPT Mang Thít</b>
+            </span>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '11px 24px',
+                borderRadius: '12px',
+                background: '#374151',
+                color: '#ffffff',
+                border: '1.5px solid #9ca3af',
+                fontWeight: 900,
+                fontSize: '14.5px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              Đóng Hướng Dẫn
+            </button>
+          </div>
         </div>
       </div>
     </div>

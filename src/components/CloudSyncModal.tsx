@@ -655,8 +655,10 @@ export const CloudSyncModal: React.FC<Props> = ({
 
         {/* Footer */}
         <div className="px-6 py-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
-          <span className="text-xs text-slate-400">
-            Hỗ trợ đa nền tảng • Hoạt động 100% trên GitHub Pages &amp; Máy Chiếu Trường Học
+          <span className="text-xs text-slate-400 flex items-center gap-2">
+            <span>🌾 Tác giả: <b className="text-amber-300">Hồ Tấn Khải</b> • <b className="text-sky-300">Trường THPT Mang Thít</b></span>
+            <span className="text-slate-600">|</span>
+            <span className="hidden sm:inline">Hoạt động 100% trên GitHub Pages &amp; Máy Chiếu Trường Học</span>
           </span>
           <button
             onClick={onClose}
