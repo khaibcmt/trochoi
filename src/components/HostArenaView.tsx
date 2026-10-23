@@ -2230,11 +2230,20 @@ export const HostArenaView: React.FC<Props> = ({
           {onOpenNationalDossier && (
             <button
               className="b3d-btn"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', border: '1px solid #fef08a', padding: '5px 10px', fontSize: '11.5px', fontWeight: 900 }}
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                color: '#0f172a',
+                border: '2px solid #fef08a',
+                padding: '6px 12px',
+                fontSize: '12.5px',
+                fontWeight: 900,
+                boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)',
+                cursor: 'pointer'
+              }}
               onClick={onOpenNationalDossier}
-              title="Mở Hướng Dẫn Sử Dụng Chi Tiết Dành Cho Giáo Viên & Học Sinh"
+              title="Mở toàn bộ hướng dẫn sử dụng chi tiết (chữ to rõ, màu sắc bắt mắt)"
             >
-              📖 Hướng Dẫn Sử Dụng
+              📖 HƯỚNG DẪN SỬ DỤNG
             </button>
           )}
 

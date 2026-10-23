@@ -38,6 +38,8 @@ interface Props {
   onExportJSON: () => void;
   onImportJSON: (items: QuizItem[]) => void;
   onOpenKeyModal?: () => void;
+  onOpenCloudSync?: (tab?: 'GOOGLE' | 'PASSWORD') => void;
+  onOpenNationalDossier?: () => void;
   activeRoomId?: string;
   connectedStudentCount?: number;
   connectedPlayers?: Player[];
@@ -66,6 +68,8 @@ export const TeacherSetupView: React.FC<Props> = ({
   onExportJSON,
   onImportJSON,
   onOpenKeyModal,
+  onOpenCloudSync,
+  onOpenNationalDossier,
   activeRoomId,
   connectedStudentCount = 0,
   connectedPlayers = []
@@ -602,6 +606,39 @@ export const TeacherSetupView: React.FC<Props> = ({
         <div className="flex-between">
           <h2 style={{ margin: 0 }}>🌾 Hệ Thống 12 Môn THPT (GDPT 2018) – Đấu Trường 3D Pro</h2>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {onOpenNationalDossier && (
+              <button
+                className="btn-action-sm"
+                style={{
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: '2px solid #fef08a',
+                  color: '#0f172a',
+                  fontWeight: 900,
+                  boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)',
+                  fontSize: '13px'
+                }}
+                onClick={onOpenNationalDossier}
+                title="Mở toàn bộ hướng dẫn sử dụng chi tiết của trò chơi (chữ to rõ, màu sắc bắt mắt)"
+              >
+                📖 HƯỚNG DẪN SỬ DỤNG
+              </button>
+            )}
+            <button
+              className="btn-action-sm"
+              style={{ background: '#dbeafe', borderColor: '#2563eb', color: '#1e40af', fontWeight: 900, boxShadow: '0 1px 3px rgba(37,99,235,0.2)' }}
+              onClick={() => onOpenCloudSync?.('GOOGLE')}
+              title="Sao lưu toàn bộ dữ liệu trên tài khoản Google (ở nhà sang máy trường học tự động đồng bộ)"
+            >
+              ☁️ Đồng Bộ Google
+            </button>
+            <button
+              className="btn-action-sm"
+              style={{ background: '#fef3c7', borderColor: '#d97706', color: '#b45309', fontWeight: 900, boxShadow: '0 1px 3px rgba(217,119,6,0.2)' }}
+              onClick={() => onOpenCloudSync?.('PASSWORD')}
+              title="Nhập mật khẩu để tự động đồng bộ dữ liệu nếu dùng tab ẩn danh hoặc máy trường học không đăng nhập Google"
+            >
+              🔑 Nhập Mật Khẩu Đồng Bộ (Ẩn Danh)
+            </button>
             <button
               className="btn-action-sm"
               style={{ background: '#dcfce7', borderColor: '#10b981', color: '#065f46' }}
@@ -956,6 +993,14 @@ export const TeacherSetupView: React.FC<Props> = ({
             </div>
 
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                className="btn-action-sm"
+                style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 900 }}
+                onClick={() => onOpenCloudSync?.('GOOGLE')}
+                title="Mở Trung tâm Sao lưu & Đồng bộ Đám mây (Google / Mật khẩu)"
+              >
+                ☁️ Đám Mây Đa Thiết Bị
+              </button>
               <button
                 className="btn-action-sm"
                 style={{ background: '#dcfce7', borderColor: '#86efac', color: '#166534' }}

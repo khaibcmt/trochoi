@@ -194,4 +194,29 @@ export interface CloudMessage {
   dramaAnnouncement?: string;
 }
 
+export interface CloudBackupData {
+  version: number;
+  lastUpdated: number;
+  deviceLabel?: string;
+  subjectsDB: Record<string, SubjectData>;
+  currentSubjectKey: string;
+  matchSettings: MatchSettings;
+  activeQuizList?: QuizItem[];
+  stats?: {
+    totalSubjects: number;
+    totalQuestions: number;
+  };
+}
+
+export interface CloudSyncProfile {
+  type: 'GOOGLE' | 'PASSWORD' | 'NONE';
+  googleEmail?: string;
+  googleName?: string;
+  googleAvatar?: string;
+  passwordKey?: string;
+  lastSyncedAt?: number;
+  autoSyncEnabled?: boolean;
+}
+
+
 

@@ -4,9 +4,10 @@ interface Props {
   onToggleFullScreen: () => void;
   onOpenKeyModal?: () => void;
   onOpenNationalDossier?: () => void;
+  onOpenCloudSync?: () => void;
 }
 
-export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier }) => {
+export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier, onOpenCloudSync }) => {
   return (
     <header id="top-author-banner">
       <div className="brand-left">
@@ -42,6 +43,24 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
             }}
           >
             📖 Hướng Dẫn Sử Dụng
+          </button>
+        )}
+        {onOpenCloudSync && (
+          <button
+            className="btn-fullscreen-top"
+            onClick={onOpenCloudSync}
+            title="Đồng bộ & Sao lưu đám mây qua Google hoặc Mật khẩu"
+            style={{
+              background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+              color: '#ffffff',
+              borderColor: '#38bdf8',
+              fontWeight: 900,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            ☁️ Sao Lưu & Đồng Bộ
           </button>
         )}
         <button

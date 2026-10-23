@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { QuizItem, MatchState, Player } from '../types';
-import { cleanQuestionTitleText, getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
+import { cleanQuestionTitleText, getTeacherGradebookScore } from '../data/defaultSubjects';
 import { exportHonorCertificateHTML } from '../utils/exportEvidence';
 
 interface Props {
@@ -26,7 +26,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
   onPrintPDFEvidence,
   onTriggerDemoBots
 }) => {
-  const [activeTab, setActiveTab] = useState<'GUIDE' | 'MATRIX' | 'ANALYTICS' | 'DOSSIER'>('GUIDE');
+  const [activeTab, setActiveTab] = useState<'ALL_IN_ONE' | 'TEACHER' | 'STUDENT' | 'GAME_MODES' | 'SYNC_BACKUP' | 'GRADEBOOK'>('ALL_IN_ONE');
 
   if (!isOpen) return null;
 
@@ -41,7 +41,6 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
     return (b.correct || 0) - (a.correct || 0);
   });
 
-  // Phân loại phổ điểm quy đổi Thông tư 22
   let tierExcellent = 0; // >= 9.0
   let tierGood = 0; // 8.0 - 8.9
   let tierFair = 0; // 6.5 - 7.9
@@ -60,590 +59,865 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(2, 6, 23, 0.85)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(2, 6, 23, 0.90)',
+        backdropFilter: 'blur(10px)',
         zIndex: 100005,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px'
+        padding: '16px',
+        animation: 'fadeIn 0.25s ease-out'
       }}
     >
       <div
         style={{
-          background: 'linear-gradient(180deg, #0f172a 0%, #090d16 100%)',
-          border: '2.5px solid #f59e0b',
-          borderRadius: '22px',
-          maxWidth: '1080px',
+          background: 'linear-gradient(180deg, #090d16 0%, #030712 100%)',
+          border: '3px solid #f59e0b',
+          borderRadius: '26px',
+          maxWidth: '1160px',
           width: '100%',
-          maxHeight: '90vh',
+          maxHeight: '94vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 25px 60px rgba(0, 0, 0, 0.75)',
+          boxShadow: '0 30px 80px rgba(0, 0, 0, 0.85), 0 0 35px rgba(245, 158, 11, 0.25)',
           color: '#ffffff',
           overflow: 'hidden'
         }}
       >
-        {/* Header Hướng Dẫn Sử Dụng */}
+        {/* Header Rực Rỡ & Bắt Mắt */}
         <div
           style={{
-            padding: '16px 22px',
-            background: 'linear-gradient(90deg, #1e1b4b 0%, #0f172a 50%, #1e1b4b 100%)',
-            borderBottom: '2px solid #f59e0b',
+            padding: '18px 26px',
+            background: 'linear-gradient(90deg, #1e1b4b 0%, #1e293b 45%, #0f172a 100%)',
+            borderBottom: '2.5px solid #f59e0b',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '12px',
+            gap: '14px',
             flexWrap: 'wrap'
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '16px',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '30px',
+                boxShadow: '0 6px 18px rgba(245, 158, 11, 0.45)',
+                border: '2px solid #fef08a'
+              }}
+            >
+              📖
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    color: '#ffffff',
+                    padding: '4px 12px',
+                    borderRadius: '999px',
+                    fontSize: '13px',
+                    fontWeight: 900,
+                    letterSpacing: '0.5px'
+                  }}
+                >
+                  CẨM NANG TOÀN DIỆN
+                </span>
+                <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 800 }}>
+                  🌾 Trường THPT Mang Thít • Tác giả: Hồ Tấn Khải
+                </span>
+                <span
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.2)',
+                    color: '#6ee7b7',
+                    border: '1px solid #10b981',
+                    padding: '2px 9px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 800
+                  }}
+                >
+                  Chuẩn GDPT 2018
+                </span>
+              </div>
+              <h2
                 style={{
-                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                  color: '#0f172a',
-                  padding: '3px 10px',
-                  borderRadius: '999px',
-                  fontSize: '11.5px',
-                  fontWeight: 900
+                  margin: '6px 0 0 0',
+                  fontSize: '23px',
+                  fontWeight: 900,
+                  color: '#fef08a',
+                  letterSpacing: '0.3px',
+                  textShadow: '0 2px 10px rgba(0,0,0,0.6)'
                 }}
               >
-                📖 HƯỚNG DẪN SỬ DỤNG CHI TIẾT
-              </span>
-              <span style={{ fontSize: '12.5px', color: '#7dd3fc', fontWeight: 800 }}>
-                👨‍🏫 Tác giả: Thầy Hồ Tấn Khải • Trường THPT Mang Thít
-              </span>
+                HƯỚNG DẪN SỬ DỤNG ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • TỐC ĐỘ • DIỆT BOSS
+              </h2>
             </div>
-            <h2 style={{ margin: '5px 0 0 0', fontSize: '20px', fontWeight: 900, color: '#fef08a' }}>
-              CẨM NANG HƯỚNG DẪN SỬ DỤNG ĐẤU TRƯỜNG 3D DÀNH CHO GIÁO VIÊN & HỌC SINH
-            </h2>
           </div>
 
           <button
             onClick={onClose}
             style={{
-              background: '#ef4444',
-              border: 'none',
+              background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+              border: '2px solid #fca5a5',
               color: '#ffffff',
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              fontSize: '18px',
+              width: '42px',
+              height: '42px',
+              borderRadius: '14px',
+              fontSize: '20px',
               fontWeight: 900,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)',
+              transition: 'transform 0.15s ease'
             }}
-            title="Đóng cửa sổ"
+            title="Đóng cửa sổ hướng dẫn"
           >
             ✕
           </button>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Thanh Chọn Mục Hướng Dẫn Chữ To Rõ, Màu Sắc Nổi Bật */}
         <div
           style={{
             display: 'flex',
             gap: '8px',
-            padding: '10px 22px',
-            background: '#0b1120',
-            borderBottom: '1px solid #1e293b',
-            flexWrap: 'wrap'
+            padding: '12px 24px',
+            background: '#030712',
+            borderBottom: '2px solid #1f2937',
+            overflowX: 'auto',
+            whiteSpace: 'nowrap'
           }}
         >
           <button
-            onClick={() => setActiveTab('GUIDE')}
+            onClick={() => setActiveTab('ALL_IN_ONE')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
-              border: activeTab === 'GUIDE' ? '2px solid #fde047' : '1px solid #334155',
-              background: activeTab === 'GUIDE' ? 'linear-gradient(135deg, #d97706, #b45309)' : '#1e293b',
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'ALL_IN_ONE' ? '2.5px solid #fde047' : '1.5px solid #374151',
+              background: activeTab === 'ALL_IN_ONE' ? 'linear-gradient(135deg, #d97706, #b45309)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '13px',
-              cursor: 'pointer'
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'ALL_IN_ONE' ? '0 4px 14px rgba(217, 119, 6, 0.45)' : 'none'
             }}
           >
-            📖 1. Hướng Dẫn Sử Dụng (GV & HS)
+            🌟 1. Toàn Bộ Quy Trình Nhanh (Tổng Quan)
           </button>
 
           <button
-            onClick={() => setActiveTab('MATRIX')}
+            onClick={() => setActiveTab('TEACHER')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
-              border: activeTab === 'MATRIX' ? '2px solid #38bdf8' : '1px solid #334155',
-              background: activeTab === 'MATRIX' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'TEACHER' ? '2.5px solid #38bdf8' : '1.5px solid #374151',
+              background: activeTab === 'TEACHER' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '13px',
-              cursor: 'pointer'
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'TEACHER' ? '0 4px 14px rgba(2, 132, 199, 0.45)' : 'none'
             }}
           >
-            📊 2. Ma Trận 3 Dạng Thức & Thống Kê Câu Hỏi
+            👨‍🏫 2. Dành Cho Giáo Viên (Soạn Đề & Điều Khiển)
           </button>
 
           <button
-            onClick={() => setActiveTab('ANALYTICS')}
+            onClick={() => setActiveTab('STUDENT')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
-              border: activeTab === 'ANALYTICS' ? '2px solid #4ade80' : '1px solid #334155',
-              background: activeTab === 'ANALYTICS' ? 'linear-gradient(135deg, #059669, #047857)' : '#1e293b',
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'STUDENT' ? '2.5px solid #4ade80' : '1.5px solid #374151',
+              background: activeTab === 'STUDENT' ? 'linear-gradient(135deg, #059669, #047857)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '13px',
-              cursor: 'pointer'
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'STUDENT' ? '0 4px 14px rgba(5, 150, 105, 0.45)' : 'none'
             }}
           >
-            📈 3. Phổ Điểm & Sổ Điểm Giáo Viên ({allPlayers.length} HS)
+            📱 3. Dành Cho Học Sinh (Điện Thoại & Cược Điểm)
           </button>
 
           <button
-            onClick={() => setActiveTab('DOSSIER')}
+            onClick={() => setActiveTab('GAME_MODES')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
-              border: activeTab === 'DOSSIER' ? '2px solid #c084fc' : '1px solid #334155',
-              background: activeTab === 'DOSSIER' ? 'linear-gradient(135deg, #7c3aed, #5b21b6)' : '#1e293b',
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'GAME_MODES' ? '2.5px solid #f472b6' : '1.5px solid #374151',
+              background: activeTab === 'GAME_MODES' ? 'linear-gradient(135deg, #db2777, #9d174d)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '13px',
-              cursor: 'pointer'
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'GAME_MODES' ? '0 4px 14px rgba(219, 39, 119, 0.45)' : 'none'
             }}
           >
-            🏅 4. Giới Thiệu Sư Phạm & Tính Năng
+            🎮 4. Thể Lệ 4 Trò Chơi & Yếu Tố May Rủi
+          </button>
+
+          <button
+            onClick={() => setActiveTab('SYNC_BACKUP')}
+            style={{
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'SYNC_BACKUP' ? '2.5px solid #a78bfa' : '1.5px solid #374151',
+              background: activeTab === 'SYNC_BACKUP' ? 'linear-gradient(135deg, #7c3aed, #5b21b6)' : '#111827',
+              color: '#ffffff',
+              fontWeight: 900,
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'SYNC_BACKUP' ? '0 4px 14px rgba(124, 58, 237, 0.45)' : 'none'
+            }}
+          >
+            ☁️ 5. Đồng Bộ Google & Mật Khẩu Ẩn Danh
+          </button>
+
+          <button
+            onClick={() => setActiveTab('GRADEBOOK')}
+            style={{
+              padding: '10px 18px',
+              borderRadius: '12px',
+              border: activeTab === 'GRADEBOOK' ? '2.5px solid #fb923c' : '1.5px solid #374151',
+              background: activeTab === 'GRADEBOOK' ? 'linear-gradient(135deg, #ea580c, #c2410c)' : '#111827',
+              color: '#ffffff',
+              fontWeight: 900,
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'GRADEBOOK' ? '0 4px 14px rgba(234, 88, 12, 0.45)' : 'none'
+            }}
+          >
+            📊 6. 2 Bảng Xếp Hạng & Sổ Điểm GV
           </button>
         </div>
 
-        {/* Content Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
-          {activeTab === 'GUIDE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Phần 1: Hướng dẫn dành cho Giáo viên */}
+        {/* Nội Dung Hướng Dẫn Chi Tiết (Chữ To Rõ, Màu Sắc Bắt Mắt) */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', background: '#090d16' }}>
+          
+          {/* TAB 1: TỔNG QUAN TOÀN BỘ QUY TRÌNH (ALL IN ONE) */}
+          {activeTab === 'ALL_IN_ONE' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              {/* Banner Giới Thiệu Cực Đẹp */}
               <div
                 style={{
-                  background: 'rgba(15, 23, 42, 0.9)',
-                  border: '2px solid #38bdf8',
-                  borderRadius: '16px',
-                  padding: '16px 20px'
+                  background: 'linear-gradient(135deg, rgba(30, 27, 75, 0.85), rgba(15, 23, 42, 0.95))',
+                  border: '2.5px solid #818cf8',
+                  borderRadius: '20px',
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(99, 102, 241, 0.2)'
                 }}
               >
-                <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#38bdf8', fontWeight: 900 }}>
-                  👨‍🏫 PHẦN I — HƯỚNG DẪN DÀNH CHO GIÁO VIÊN (3 BƯỚC TỔ CHỨC TRÊN LỚP)
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '12px' }}>
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fde047', marginBottom: '6px' }}>
-                      Bước 1: Chuẩn bị Bộ Câu Hỏi (3 Dạng Thức)
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • Chọn môn học có sẵn hoặc bấm tab <b>&ldquo;📋 Dán Nhanh Theo Khung 3 Dạng Thức&rdquo;</b> để copy-paste câu hỏi từ Word/PDF vào 3 khung riêng biệt:<br />
-                      &nbsp;&nbsp;1️⃣ <b>Dạng thức I</b>: Trắc nghiệm 4 phương án A, B, C, D.<br />
-                      &nbsp;&nbsp;2️⃣ <b>Dạng thức II</b>: Đúng/Sai 4 mệnh đề a, b, c, d.<br />
-                      &nbsp;&nbsp;3️⃣ <b>Dạng thức III</b>: Trả lời ngắn (điền đáp số).<br />
-                      • Có thể sửa trực tiếp từng câu hỏi hoặc dùng <b>AI Soạn Đề</b>.
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#4ade80', marginBottom: '6px' }}>
-                      Bước 2: Chọn Trò Chơi & Mở Sân Đấu 3D
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • Chọn 1 trong 4 trò chơi: <b>⚔️ Kéo Co 3D</b>, <b>🔔 Rung Chuông Vàng</b>, <b>⚡ Ai Nhanh Hơn</b>, hoặc <b>🐉 Đánh Boss</b>.<br />
-                      • Bấm <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b> để mở Sân Đấu 3D.<br />
-                      • Bấm vào <b>Mã QR</b> ở góc màn hình để phóng to cho học sinh quét mã vào phòng, hoặc bấm <b>&ldquo;🤖 Demo GK&rdquo;</b> để tạo 12 học sinh 3D giả lập.
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#f472b6', marginBottom: '6px' }}>
-                      Bước 3: Điều Khiển & Xuất Sổ Điểm Giáo Viên
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • Bấm <b>&ldquo;🔊 Đọc Đề&rdquo;</b> để giọng MC đọc câu hỏi tự động.<br />
-                      • Bấm <b>&ldquo;🏆 2 BXH &amp; Sổ Điểm&rdquo;</b> hoặc <b>&ldquo;⏹ Kết Thúc&rdquo;</b> để xem song song <b>2 Bảng Xếp Hạng</b> (Bảng Tổng Điểm Thi Đấu &amp; Bảng Số Câu Đúng Ghi Sổ Điểm GV) và tải file Excel <b>.CSV</b>.
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '28px' }}>🚀</span>
+                  <h3 style={{ margin: 0, fontSize: '20px', color: '#fef08a', fontWeight: 900 }}>
+                    QUY TRÌNH 3 BƯỚC VẬN HÀNH TIẾT HỌC HOÀN HẢO (CHỈ MẤT 30 GIÂY CHUẨN BỊ)
+                  </h3>
                 </div>
-              </div>
-
-              {/* Phần 2: Hướng dẫn dành cho Học sinh */}
-              <div
-                style={{
-                  background: 'rgba(15, 23, 42, 0.9)',
-                  border: '2px solid #10b981',
-                  borderRadius: '16px',
-                  padding: '16px 20px'
-                }}
-              >
-                <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#6ee7b7', fontWeight: 900 }}>
-                  📱 PHẦN II — HƯỚNG DẪN DÀNH CHO HỌC SINH TRÊN ĐIỆN THOẠI
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '12px' }}>
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', marginBottom: '6px' }}>
-                      1. Nhập Tên & Chọn Nhân Vật Nam / Nữ
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • Học sinh quét mã QR trên màn hình máy chiếu (hoặc nhập Mã phòng).<br />
-                      • <b>Nhập Họ và tên / Lớp</b> (bắt buộc để ghi sổ điểm).<br />
-                      • Bấm chọn <b>👦 Nhân vật Nam</b> hoặc <b>👧 Nhân vật Nữ</b>, chọn kiểu mũ, trang phục yêu thích. Ngay cả khi đang làm bài vẫn có nút đổi nhanh <b>👦 Nam / 👧 Nữ</b>!
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#38bdf8', marginBottom: '6px' }}>
-                      2. Hai Chế Độ Vào Phòng Thi
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • <b>🚀 Vào Trực Tiếp Phòng Có Câu Hỏi</b>: Vào thẳng câu hỏi hiện tại và chọn đáp án trả lời ngay.<br />
-                      • <b>🚪 Bấm Vào Phòng Chờ</b>: Học sinh chỉ nhìn thấy nội dung câu hỏi để đọc trước nhưng <b>chưa được trả lời</b>; ngay khi Giáo viên bấm <b>&ldquo;Bắt đầu&rdquo;</b> sẽ tự động mở khóa đáp án!
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '14px' }}>
-                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#4ade80', marginBottom: '6px' }}>
-                      3. Thời Gian 30 Giây & Bảo Lưu Điểm
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.55 }}>
-                      • Mỗi câu hỏi có <b>30 giây</b> suy nghĩ. Khi trả lời xong, học sinh chờ hết 30s để cả lớp cùng chuyển sang câu mới (hết 30s không chọn coi như sai).<br />
-                      • Nếu mạng yếu, bấm nút <b>&ldquo;🔄 Kết nối lại&rdquo;</b> để thi tiếp mà không mất điểm!
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Phần 3: Luật chơi & Cách tính điểm 4 trò chơi */}
-              <div
-                style={{
-                  background: 'rgba(15, 23, 42, 0.9)',
-                  border: '2px solid #f59e0b',
-                  borderRadius: '16px',
-                  padding: '16px 20px'
-                }}
-              >
-                <h3 style={{ margin: '0 0 10px 0', fontSize: '17px', color: '#fde047', fontWeight: 900 }}>
-                  🎮 PHẦN III — LUẬT CHƠI 4 CHẾ ĐỘ & CƠ CHẾ 2 BẢNG XẾP HẠNG
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '10px' }}>
-                  <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px', border: '1px solid #334155' }}>
-                    <div style={{ fontWeight: 900, color: '#38bdf8', fontSize: '14px', marginBottom: '4px' }}>
-                      ⚔️ 1. Kéo Co 3D (Chia Đội)
-                    </div>
-                    <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                      Chia 2 đội Đỏ &amp; Xanh. Trả lời đúng kéo dây về phía đội mình; đúng 3 câu liên tiếp nhận <b>Thẻ Kỹ Năng</b> (Khiên, Băng giá, 50/50, x2 Kéo).
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px', border: '1px solid #334155' }}>
-                    <div style={{ fontWeight: 900, color: '#fde047', fontSize: '14px', marginBottom: '4px' }}>
-                      🔔 2. Rung Chuông Vàng (3 ❤️)
-                    </div>
-                    <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                      Mỗi học sinh có <b>3 mạng ❤️</b>. Chọn sai mất 1 mạng; hết 3 mạng thành Khán giả cổ vũ và chờ Giáo viên tung <b>Phao Cứu Trợ</b> hồi sinh!
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px', border: '1px solid #334155' }}>
-                    <div style={{ fontWeight: 900, color: '#a855f7', fontSize: '14px', marginBottom: '4px' }}>
-                      ⚡ 3. Ai Nhanh Hơn (-1000đ/sai)
-                    </div>
-                    <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                      Đua điểm cá nhân: Mỗi câu đúng <b>+1000 điểm</b>, mỗi câu chọn sai bị <b>trừ -1000 điểm</b> vào Tổng điểm xếp hạng!
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px', border: '1px solid #334155' }}>
-                    <div style={{ fontWeight: 900, color: '#f87171', fontSize: '14px', marginBottom: '4px' }}>
-                      🐉 4. Đánh Boss (-1000đ/sai)
-                    </div>
-                    <div style={{ fontSize: '12.5px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                      Cả lớp hợp sức trừ HP Rồng Hắc Ám. Câu đúng <b>+1000 điểm</b> và gây sát thương Boss; câu chọn sai bị <b>trừ -1000 điểm</b> cá nhân!
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(16, 185, 129, 0.14)', border: '1.5px solid #10b981', borderRadius: '12px', fontSize: '13px', color: '#d1fae5', fontWeight: 800 }}>
-                  💡 <b>Đặc biệt — Hệ thống 2 Bảng Xếp Hạng song song:</b> Bên cạnh <b>🏆 Bảng Xếp Hạng Tổng Điểm Thi Đấu</b> (có trừ -1000đ câu sai để tăng kịch tính), hệ thống luôn có <b>📒 Bảng Xếp Hạng Theo Số Câu Đúng</b> quy đổi ra thang điểm 10 để Giáo viên ghi vào sổ điểm (học sinh tham gia chơi có câu đúng luôn có điểm!).
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'DOSSIER' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div
-                style={{
-                  background: 'rgba(30, 27, 75, 0.65)',
-                  border: '1.5px solid #818cf8',
-                  borderRadius: '16px',
-                  padding: '16px 20px'
-                }}
-              >
-                <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', color: '#fde047', fontWeight: 900 }}>
-                  🎯 I. MỤC TIÊU SƯ PHẠM & ĐỔI MỚI PHƯƠNG PHÁP DẠY HỌC (GDPT 2018)
-                </h3>
-                <p style={{ margin: 0, fontSize: '14px', color: '#e2e8f0', lineHeight: 1.6 }}>
-                  Giải pháp chuyển hóa các tiết ôn tập, kiểm tra đánh giá thường xuyên (theo <b>Thông tư 22/2021/TT-BGDĐT</b>) và cấu trúc đề thi tốt nghiệp THPT mới (<b>3 Dạng thức câu hỏi</b> theo Quyết định 764/QĐ-BGDĐT) thành một <b>Đấu trường 3D tương tác thời gian thực</b>. Học sinh sử dụng điện thoại thông minh quét mã QR để hóa thân thành các nhân vật Chibi 3D Nam/Nữ trực tiếp tranh tài trên màn hình lớn của lớp học.
+                <p style={{ margin: 0, fontSize: '15.5px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Hệ thống Đấu Trường 3D giải quyết trọn vẹn việc biến bài kiểm tra 15 phút, ôn tập giữa kỳ/cuối kỳ thành Game Show truyền hình trực tiếp sôi động. <b>Học sinh không cần cài app</b>, chỉ cần quét mã QR bằng Zalo, Camera hoặc trình duyệt web là lập tức hòa mình vào sàn đấu 3D.
                 </p>
               </div>
 
+              {/* 3 Thẻ Bước Vận Hành To Rõ, Màu Bắt Mắt */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '18px' }}>
+                {/* Bước 1 */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+                    border: '2px solid #38bdf8',
+                    borderRadius: '18px',
+                    padding: '20px',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.4)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                    <span
+                      style={{
+                        background: '#0284c7',
+                        color: '#ffffff',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: '18px'
+                      }}
+                    >
+                      1
+                    </span>
+                    <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#38bdf8' }}>
+                      BƯỚC 1: CHỌN HOẶC NẠP ĐỀ THI
+                    </h4>
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      <b style={{ color: '#fde047' }}>• Cách 1:</b> Bấm chọn ngay <b>12 Môn THPT có sẵn</b> (Sinh học, Công nghệ, Toán, Lý, Hóa, Văn, Anh, Sử, Địa, GDCD, Tin học, GDQP).
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <b style={{ color: '#4ade80' }}>• Cách 2:</b> Dán đề từ Word/PDF vào <b>3 Khung Dạng Thức Chia Sẵn</b> (Dạng I: 4 lựa chọn, Dạng II: Đúng/Sai chùm, Dạng III: Điền đáp số).
+                    </div>
+                    <div>
+                      <b style={{ color: '#f472b6' }}>• Cách 3:</b> Bấm nút <b>&ldquo;🤖 AI Soạn Đề&rdquo;</b> hoặc <b>&ldquo;📸 AI Quét Đề Từ Ảnh&rdquo;</b> để máy tự tạo đề thi trong 5 giây!
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bước 2 */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+                    border: '2px solid #10b981',
+                    borderRadius: '18px',
+                    padding: '20px',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.4)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                    <span
+                      style={{
+                        background: '#059669',
+                        color: '#ffffff',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: '18px'
+                      }}
+                    >
+                      2
+                    </span>
+                    <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#4ade80' }}>
+                      BƯỚC 2: CHỌN TRÒ CHƠI & MỞ SÀN ĐẤU
+                    </h4>
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      <b style={{ color: '#f87171' }}>• Chế độ 1:</b> ⚔️ <b>Kéo Co 3D</b> (Chia 2 đội Đỏ - Xanh đối kháng tranh tài).
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <b style={{ color: '#fde047' }}>• Chế độ 2:</b> 🔔 <b>Rung Chuông Vàng 3D</b> (Mỗi HS có 3 Tim ❤️, sống sót đến câu cuối).
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <b style={{ color: '#38bdf8' }}>• Chế độ 3:</b> ⚡ <b>Ai Nhanh Nhất</b> (Đua tốc độ cá nhân, phản xạ cực nhanh).
+                    </div>
+                    <div>
+                      <b style={{ color: '#c084fc' }}>• Chế độ 4:</b> 🐉 <b>Diệt Boss Kiến Thức</b> (Cả lớp hợp sức giải toán trừ máu Rồng).
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bước 3 */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+                    border: '2px solid #f59e0b',
+                    borderRadius: '18px',
+                    padding: '20px',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.4)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                    <span
+                      style={{
+                        background: '#d97706',
+                        color: '#ffffff',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: '18px'
+                      }}
+                    >
+                      3
+                    </span>
+                    <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#fde047' }}>
+                      BƯỚC 3: HS QUÉT QR & THI ĐẤU
+                    </h4>
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      • Bấm <b>&ldquo;📱 Hiện Mã QR&rdquo;</b> trên màn hình lớn máy chiếu cho học sinh quét vào phòng trong 10 giây.
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      • Bấm <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b>: Đếm ngược 30 giây, tự động đọc đề bằng giọng MC, hiển thị kết quả trực quan.
+                    </div>
+                    <div>
+                      • Khi kết thúc: Tự động mở <b>Vinh Danh Top 10</b> và <b>Sổ Điểm Giáo Viên</b>, có thể bấm <b>&ldquo;💾 Tải Excel (.CSV)&rdquo;</b> để nộp nhà trường!
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hộp Điểm Nhấn Công Nghệ Mới (Nhanh - Bất Ngờ - May Rủi) */}
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
-                  gap: '12px'
+                  background: 'linear-gradient(90deg, #831843 0%, #311042 50%, #1e1b4b 100%)',
+                  border: '2px solid #f43f5e',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
                 }}
               >
-                <div style={{ background: '#111827', border: '1.5px solid #ef4444', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#fca5a5', marginBottom: '6px' }}>
-                    ⚔️ 1. Kéo Co 3D Chiến Thuật
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Phát triển <b>năng lực hợp tác nhóm</b> (Đội Đỏ vs Đội Xanh). Tích hợp chuỗi thắng 3 câu nhận Thẻ Kỹ Năng (Khiên bảo vệ, Băng giá, 50/50, Nhân đôi lực kéo).
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '26px' }}>🎲</span>
+                  <h3 style={{ margin: 0, fontSize: '19px', color: '#fecdd3', fontWeight: 900 }}>
+                    TÍNH NĂNG ĐỈNH CAO: YẾU TỐ NHANH • BẤT NGỜ • MAY RỦI TOÀN CẦU
+                  </h3>
                 </div>
-
-                <div style={{ background: '#111827', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#fde047', marginBottom: '6px' }}>
-                    🔔 2. Rung Chuông Vàng 3D
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', fontSize: '14.5px', color: '#ffe4e6', lineHeight: 1.6 }}>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
+                    <b style={{ color: '#fef08a' }}>⚡ Tia Chớp Đầu Tiên (+500đ):</b> HS trả lời đúng nhanh nhất lớp nhận vinh danh Tia Chớp và cộng nóng +500 điểm.
                   </div>
-                  <div style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Mô phỏng sàn thi đấu 100 thí sinh với <b>cơ chế 3 mạng (3 ❤️)</b> nhân văn. Hết 3 mạng học sinh trở thành Khán giả cổ vũ và được Giáo viên tung <b>Phao Cứu Trợ</b> hồi sinh.
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
+                    <b style={{ color: '#67e8f9' }}>🎲 Cược Bản Lĩnh:</b> HS tự chọn mức cược trước khi chốt đáp án: <b>An Toàn (x1)</b> • <b>Liều Lĩnh (x1.5)</b> • <b>Tất Tay (x2.5)</b>.
                   </div>
-                </div>
-
-                <div style={{ background: '#111827', border: '1.5px solid #38bdf8', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#7dd3fc', marginBottom: '6px' }}>
-                    ⚡ 3. Đường Đua Tốc Độ 3D
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
+                    <b style={{ color: '#a7f3d0' }}>🎁 3 Rương Bí Ẩn:</b> Khi trả lời đúng được chọn 1 trong 3 rương: Nổ Hũ +1500đ, Đạo chích cướp 500đ của Top 1, Tim hồi sinh, Khiên bất tử!
                   </div>
-                  <div style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Rèn luyện <b>phản xạ tư duy nhanh</b>. Mỗi câu đúng +1000 điểm, chọn sai trừ -1000 điểm, kết hợp bảng xếp hạng Số Câu Đúng để ghi sổ điểm giáo viên.
-                  </div>
-                </div>
-
-                <div style={{ background: '#111827', border: '1.5px solid #a855f7', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#e879f9', marginBottom: '6px' }}>
-                    🐉 4. Dũng Sĩ Diệt Boss Kiến Thức
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Cả lớp đoàn kết hợp lực giải các câu hỏi vận dụng để tiêu diệt Quái vật Rồng Hắc Ám 3D (Co-op Raid), không bỏ lại học sinh nào phía sau.
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
+                    <b style={{ color: '#fed7aa' }}>🌪️ Vòng Quay Bất Ngờ:</b> Giáo viên có thể bấm nút <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để kích hoạt Câu hỏi vàng x2, Phép màu cứu trợ, Bão đảo chiều!
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'MATRIX' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* TAB 2: HƯỚNG DẪN DÀNH CHO GIÁO VIÊN */}
+          {activeTab === 'TEACHER' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: '12px'
+                  background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(15, 23, 42, 0.9))',
+                  border: '2.5px solid #0284c7',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
                 }}
               >
-                <div style={{ background: '#111827', border: '2px solid #0284c7', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#38bdf8' }}>PHẦN I • DẠNG THỨC 1</div>
-                  <div style={{ fontSize: '22px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {countF1} câu ({Math.round((countF1 / totalQ) * 100)}%)
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    Trắc nghiệm 4 phương án A, B, C, D • Đánh giá mức độ Nhận biết & Thông hiểu
-                  </div>
-                </div>
-
-                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#fde047' }}>PHẦN II • DẠNG THỨC 2</div>
-                  <div style={{ fontSize: '22px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {countF2} câu ({Math.round((countF2 / totalQ) * 100)}%)
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    Trắc nghiệm Đúng/Sai 4 mệnh đề a, b, c, d • Đánh giá tư duy Phân tích & Vận dụng
-                  </div>
-                </div>
-
-                <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#4ade80' }}>PHẦN III • DẠNG THỨC 3</div>
-                  <div style={{ fontSize: '22px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {countF3} câu ({Math.round((countF3 / totalQ) * 100)}%)
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    Trắc nghiệm Trả lời ngắn • Đánh giá năng lực Giải quyết vấn đề & Vận dụng cao
-                  </div>
-                </div>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#38bdf8', fontWeight: 900 }}>
+                  👨‍🏫 HƯỚNG DẪN ĐẦY ĐỦ DÀNH CHO GIÁO VIÊN SOẠN BÀI & DẠY HỌC
+                </h3>
+                <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Giao diện Giáo viên được thiết kế chuyên biệt để hỗ trợ cấu trúc đề thi <b>3 Dạng thức chuẩn GDPT 2018</b> (Quyết định 764/QĐ-BGDĐT) và lưu điểm theo <b>Thông tư 22/2021/TT-BGDĐT</b>.
+                </p>
               </div>
 
-              <div
-                style={{
-                  background: '#111827',
-                  border: '1.5px solid #334155',
-                  borderRadius: '16px',
-                  padding: '14px',
-                  overflowX: 'auto'
-                }}
-              >
-                <div style={{ fontSize: '15px', fontWeight: 900, color: '#fde047', marginBottom: '10px' }}>
-                  📋 BẢNG PHÂN TÍCH ĐỘ KHÓ THỰC NGHIỆM TỪNG CÂU HỎI (ITEM ANALYSIS):
+              {/* Chi Tiết Từng Tính Năng Giáo Viên */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* 1. Bộ 3 Khung Dạng Thức */}
+                <div style={{ background: '#111827', border: '2px solid #334155', borderRadius: '16px', padding: '18px 22px' }}>
+                  <div style={{ fontSize: '17px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
+                    1️⃣ Bộ 3 Khung Soạn Đề Riêng Biệt (Không Bao Giờ Bị Lẫn Câu)
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • <b>Khung Dạng thức I (4 lựa chọn):</b> Dành cho câu hỏi trắc nghiệm truyền thống A, B, C, D có 1 đáp án đúng duy nhất. Giáo viên gạch chân <u>A</u> hoặc tô đậm <b>A</b> để hệ thống tự nhận diện đáp án đúng.<br />
+                    • <b>Khung Dạng thức II (Đúng/Sai chùm):</b> Mỗi câu gồm 4 mệnh đề a, b, c, d. Giáo viên ghi chú <code>(Đúng)</code> hoặc <code>(Sai)</code> ở cuối dòng mệnh đề.<br />
+                    • <b>Khung Dạng thức III (Trả lời ngắn):</b> Học sinh tự điền số hoặc từ khóa (ví dụ: <code>Đáp án: 12.5</code>).<br />
+                    • <b>Lọc sạch rác Word/PDF:</b> Khi copy từ Word hoặc Zalo, hệ thống tự động bóc sạch các mã rác như <code>font-family, mso-, span</code> và tự ngắt dòng A. B. C. D. thông minh.
+                  </div>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ background: '#1e293b', color: '#7dd3fc', textAlign: 'left' }}>
-                      <th style={{ padding: '8px 10px' }}>CÂU</th>
-                      <th style={{ padding: '8px 10px' }}>NỘI DUNG CÂU HỎI</th>
-                      <th style={{ padding: '8px 10px' }}>DẠNG THỨC GDPT 2018</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center' }}>LƯỢT ĐÚNG / SAI</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center' }}>ĐÁNH GIÁ ĐỘ KHÓ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {quizList.map((item, idx) => {
-                      const r = item.rightCount || 0;
-                      const w = item.wrongCount || 0;
-                      const tot = r + w;
-                      const pct = tot > 0 ? Math.round((r / tot) * 100) : null;
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid #1e293b' }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 900, color: '#fde047' }}>Câu {idx + 1}</td>
-                          <td style={{ padding: '8px 10px', color: '#f8fafc', maxWidth: '380px' }}>
-                            {cleanQuestionTitleText(item.q)}
-                          </td>
-                          <td style={{ padding: '8px 10px', fontWeight: 800, color: '#38bdf8' }}>
-                            {item.format === 'TRUE_FALSE'
-                              ? 'Dạng II: Đúng/Sai (4 ý)'
-                              : item.format === 'SHORT_ANSWER'
-                              ? 'Dạng III: Trả lời ngắn'
-                              : 'Dạng I: 4 phương án'}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800 }}>
-                            <span style={{ color: '#4ade80' }}>✅ {r}</span> / <span style={{ color: '#f87171' }}>❌ {w}</span>
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 900 }}>
-                            {pct === null ? (
-                              <span style={{ color: '#94a3b8' }}>Chưa thống kê</span>
-                            ) : pct >= 75 ? (
-                              <span style={{ color: '#4ade80' }}>{pct}% (Nhận biết/Dễ)</span>
-                            ) : pct >= 45 ? (
-                              <span style={{ color: '#fde047' }}>{pct}% (Thông hiểu/Vừa)</span>
-                            ) : (
-                              <span style={{ color: '#f87171' }}>{pct}% (Vận dụng cao/Khó)</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+
+                {/* 2. Soạn Đề Bằng AI */}
+                <div style={{ background: '#111827', border: '2px solid #818cf8', borderRadius: '16px', padding: '18px 22px' }}>
+                  <div style={{ fontSize: '17px', fontWeight: 900, color: '#a5b4fc', marginBottom: '8px' }}>
+                    2️⃣ AI Soạn Đề Tự Động & Quét Đề Từ Ảnh (OCR Document)
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • Bấm <b>&ldquo;🤖 AI Soạn Đề 3 Dạng Thức&rdquo;</b>: Chỉ cần nhập chủ đề (ví dụ: <i>&ldquo;Quang hợp ở thực vật C3, C4, CAM&rdquo;</i>) và chọn mức độ nhận thức (Nhận biết, Thông hiểu, Vận dụng). AI sẽ tự tạo bộ câu hỏi chất lượng cao.<br />
+                    • Bấm <b>&ldquo;📸 AI Quét Đề Từ Ảnh / Văn Bản&rdquo;</b>: Tải ảnh chụp trang sách giáo khoa hoặc đề thi in trên giấy, AI sẽ tự động đọc chữ (OCR) và nạp vào 3 khung.<br />
+                    • Có sẵn ngân hàng chuẩn 12 môn THPT để dùng ngay cả khi không có kết nối Internet.
+                  </div>
+                </div>
+
+                {/* 3. Điều Khiển Sân Đấu 3D */}
+                <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '16px', padding: '18px 22px' }}>
+                  <div style={{ fontSize: '17px', fontWeight: 900, color: '#6ee7b7', marginBottom: '8px' }}>
+                    3️⃣ Bảng Điều Khiển Trên Màn Hình Máy Chiếu Lớp Học
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • <b>Tối ưu hiển thị 10 nhân vật 3D:</b> Dù lớp có 40 đến 100 học sinh, màn hình chính chỉ hiển thị 10 nhân vật đại diện tiêu biểu để sân khấu thoáng đãng, không bị che khuất câu hỏi.<br />
+                    • <b>🔊 Đọc Đề Tự Động:</b> Giọng MC chuyên nghiệp đọc to câu hỏi và các phương án cho cả lớp cùng nghe.<br />
+                    • <b>💡 AI Giải Thích:</b> Khi hết giờ, giáo viên có thể bấm để AI hiện tóm tắt bản chất kiến thức và mẹo nhớ nhanh cho học sinh.<br />
+                    • <b>🌟 Vòng Quay Định Mệnh:</b> Bấm <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để tạo bất ngờ toàn sân (Nhân đôi điểm, Tiếp sức đội yếu, Cứu sinh học sinh bị loại).
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'ANALYTICS' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* TAB 3: HƯỚNG DẪN DÀNH CHO HỌC SINH */}
+          {activeTab === 'STUDENT' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-                  gap: '12px'
+                  background: 'linear-gradient(135deg, rgba(5, 150, 105, 0.25), rgba(15, 23, 42, 0.9))',
+                  border: '2.5px solid #10b981',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
                 }}
               >
-                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12px', color: '#fde047', fontWeight: 900 }}>🌟 MỨC TỐT (9.0 - 10 ĐIỂM)</div>
-                  <div style={{ fontSize: '26px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {tierExcellent} học sinh
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#6ee7b7', fontWeight: 900 }}>
+                  📱 HƯỚNG DẪN DÀNH CHO HỌC SINH THI ĐẤU TRÊN ĐIỆN THOẠI
+                </h3>
+                <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Giao diện học sinh được tối ưu cho mọi kích thước màn hình điện thoại (iOS, Android, máy tính bảng), hỗ trợ phím bấm to, phản hồi rung âm thanh và đồ họa 3D sống động.
+                </p>
+              </div>
+
+              {/* Các Bước Dành Cho Học Sinh */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '16px' }}>
+                <div style={{ background: '#111827', border: '1.5px solid #334155', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
+                    1. Quét Mã QR & Vào Phòng Nhanh
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>Nắm vững kiến thức & phản xạ xuất sắc</div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Mở Camera, Zalo hoặc trình duyệt quét mã QR trên máy chiếu.<br />
+                    • Hoặc truy cập đường link và nhập <b>Mã phòng 5 chữ số</b> do Thầy/Cô cung cấp.<br />
+                    • Kết nối qua cùng máy chủ nội bộ giúp đường truyền mượt mà 100%, <b>không bao giờ bị văng</b> kể cả khi dùng mạng 3G/4G yếu.
+                  </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12px', color: '#4ade80', fontWeight: 900 }}>✅ MỨC KHÁ (8.0 - 8.9 ĐIỂM)</div>
-                  <div style={{ fontSize: '26px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {tierGood} học sinh
+                <div style={{ background: '#111827', border: '1.5px solid #334155', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#38bdf8', marginBottom: '8px' }}>
+                    2. Đặt Họ Tên & Tạo Nhân Vật Nam / Nữ
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>Hoàn thành tốt yêu cầu cần đạt</div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Nhập đúng <b>Họ và tên học sinh</b> (để thầy cô lưu điểm chính xác vào sổ).<br />
+                    • Chọn giới tính <b>👦 Nam</b> hoặc <b>👧 Nữ</b>, chọn kiểu mũ (Mũ cử nhân, Vương miện, Băng đô) và trang phục yêu thích.<br />
+                    • Nhân vật 3D của bạn sẽ xuất hiện trên sân khấu chính của lớp học!
+                  </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '2px solid #38bdf8', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12px', color: '#7dd3fc', fontWeight: 900 }}>📘 MỨC ĐẠT (6.5 - 7.9 ĐIỂM)</div>
-                  <div style={{ fontSize: '26px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {tierFair} học sinh
+                <div style={{ background: '#111827', border: '1.5px solid #f43f5e', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fda4af', marginBottom: '8px' }}>
+                    3. Cơ Chế Cược Bản Lĩnh Trước Khi Chốt
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>Đạt chuẩn kiến thức cơ bản</div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    Trước khi bấm chọn đáp án, học sinh có thể chọn mức cược:<br />
+                    • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm.<br />
+                    • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm, sai bị trừ -300đ.<br />
+                    • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm, sai bị trừ -800đ (dành cho bạn tự tin 100% để lật kèo)!
+                  </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '2px solid #f43f5e', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ fontSize: '12px', color: '#fda4af', fontWeight: 900 }}>💪 KHUYẾN KHÍCH (&lt; 6.5 ĐIỂM)</div>
-                  <div style={{ fontSize: '26px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
-                    {tierPass} học sinh
+                <div style={{ background: '#111827', border: '1.5px solid #f59e0b', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
+                    4. Mở Rương Bí Ẩn Định Mệnh
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>Cần ôn luyện thêm các câu vận dụng</div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    Khi trả lời đúng, màn hình xuất hiện <b>3 Rương Kho Báu</b>. Bạn có 4 giây để chọn mở 1 rương ngẫu nhiên:<br />
+                    • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
+                    • 🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của bạn đang dẫn đầu Top 1.<br />
+                    • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
+                    • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị phạt nếu câu sau sai!
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: THỂ LỆ 4 TRÒ CHƠI & YẾU TỐ KỊCH TÍNH */}
+          {activeTab === 'GAME_MODES' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(219, 39, 119, 0.25), rgba(15, 23, 42, 0.9))',
+                  border: '2.5px solid #db2777',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#f472b6', fontWeight: 900 }}>
+                  🎮 THỂ LỆ CHI TIẾT 4 CHẾ ĐỘ CHƠI & CƠ CHẾ ĐẤU TRƯỜNG QUỐC TẾ
+                </h3>
+                <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Mỗi chế độ mang một triết lý sư phạm riêng biệt, từ tinh thần đồng đội hợp tác đến bản lĩnh cá nhân và tư duy tốc độ.
+                </p>
+              </div>
+
+              {/* 4 Chế Độ Chơi Thẻ Chi Tiết */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                {/* Mode 1: TUG */}
+                <div style={{ background: '#111827', border: '2px solid #ef4444', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#f87171', marginBottom: '8px' }}>
+                    ⚔️ 1. KÉO CO 3D (ĐỐI KHÁNG ĐỒNG ĐỘI)
+                  </div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Học sinh được chia vào <b>Đội Đỏ</b> và <b>Đội Xanh</b>.<br />
+                    • Mỗi câu trả lời đúng của từng thành viên sẽ tạo lực kéo sợi dây về phía đội mình.<br />
+                    • Đội nào kéo dây qua vạch quy định sẽ giành chiến thắng hiệp đấu.<br />
+                    • Chuỗi đúng 3 câu mở khóa <b>Thẻ Kỹ Năng</b>: Đóng băng đối thủ, Khiên chắn, Nhân đôi lực kéo!
+                  </div>
+                </div>
+
+                {/* Mode 2: BELL */}
+                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
+                    🔔 2. RUNG CHUÔNG VÀNG (SỐNG SÓT ĐẾN CÙNG)
+                  </div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Mỗi thí sinh bắt đầu với <b>3 Trái Tim Sinh Mệnh (3 ❤️)</b>.<br />
+                    • Trả lời sai trừ 1 ❤️. Khi mất hết 3 ❤️, nhân vật sẽ <b>tự động ẩn khỏi sân khấu 3D</b> để nhường chỗ cho các bạn còn lại và chuyển sang ghế Khán giả.<br />
+                    • Giáo viên có thể bấm <b>&ldquo;🆘 Phao Cứu Trợ&rdquo;</b> hoặc quay <b>Phép Màu</b> để hồi sinh toàn bộ thí sinh quay lại sàn đấu!
+                  </div>
+                </div>
+
+                {/* Mode 3: FAST */}
+                <div style={{ background: '#111827', border: '2px solid #0284c7', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#38bdf8', marginBottom: '8px' }}>
+                    ⚡ 3. ĐƯỜNG ĐUA TỐC ĐỘ (PHẢN XẠ CÁ NHÂN)
+                  </div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Đua điểm cá nhân toàn diện trên bảng xếp hạng trực tiếp.<br />
+                    • Đúng trong <b>≤ 5 giây:</b> Thưởng nóng <b>+300đ</b>.<br />
+                    • Đúng trong <b>≤ 10 giây:</b> Thưởng nóng <b>+150đ</b>.<br />
+                    • Trả lời đúng đầu tiên toàn phòng nhận danh hiệu <b>⚡ Tia Chớp Đầu Tiên (+500đ)</b>.<br />
+                    • Trả lời sai bị trừ điểm nếu chọn cược Liều Lĩnh / Tất Tay.
+                  </div>
+                </div>
+
+                {/* Mode 4: BOSS */}
+                <div style={{ background: '#111827', border: '2px solid #a855f7', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#c084fc', marginBottom: '8px' }}>
+                    🐉 4. DIỆT BOSS HẮC ÁM (CO-OP RAID)
+                  </div>
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
+                    • Cả lớp cùng đoàn kết đánh bại <b>Quái Vật Rồng Hắc Ám 3D</b>.<br />
+                    • Mỗi câu trả lời đúng bắn một luồng năng lượng trừ máu Boss.<br />
+                    • Boss có các pha cuồng nộ và triệu hồi khiên chắn khi máu xuống dưới 50%.<br />
+                    • Thúc đẩy tinh thần &ldquo;Không bỏ lại bất kỳ học sinh nào phía sau&rdquo;!
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: ĐỒNG BỘ GOOGLE & MẬT KHẨU ẨN DANH */}
+          {activeTab === 'SYNC_BACKUP' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(15, 23, 42, 0.9))',
+                  border: '2.5px solid #7c3aed',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#c4b5fd', fontWeight: 900 }}>
+                  ☁️ TÍNH NĂNG ĐỒNG BỘ ĐÁM MÂY ĐA THIẾT BỊ (SOẠN Ở NHÀ – DẠY Ở TRƯỜNG)
+                </h3>
+                <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Giúp giáo viên chuẩn bị bài giảng, ngân hàng câu hỏi tùy chỉnh ở nhà trên máy tính cá nhân. Khi mang laptop đến trường hoặc dùng máy tính của phòng máy/máy chiếu, chỉ cần 1 thao tác là toàn bộ dữ liệu tự động đồng bộ ngay lập tức!
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '18px' }}>
+                {/* Cách 1: Google Sync */}
+                <div style={{ background: '#111827', border: '2px solid #3b82f6', borderRadius: '18px', padding: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '28px' }}>🌐</span>
+                    <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#60a5fa' }}>
+                      CÁCH 1: ĐỒNG BỘ TÀI KHOẢN GOOGLE
+                    </h4>
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • Bấm nút <b>&ldquo;☁️ Đồng Bộ Google&rdquo;</b> ở đầu trang.<br />
+                    • Nhập email Google của Thầy/Cô (ví dụ: <code>khaibcmt@gmail.com</code>).<br />
+                    • <b>Tại máy ở nhà:</b> Bấm <b>&ldquo;☁️ Sao Lưu Lên Google&rdquo;</b>.<br />
+                    • <b>Tại máy ở trường:</b> Bấm <b>&ldquo;🔄 Tải &amp; Đồng Bộ Về Máy Này&rdquo;</b>.<br />
+                    • Bật tùy chọn <b>&ldquo;⚡ Tự động sao lưu&rdquo;</b> để mỗi khi sửa câu hỏi, dữ liệu sẽ tự động đẩy lên đám mây mà không cần nhớ sao lưu thủ công.
+                  </div>
+                </div>
+
+                {/* Cách 2: Password Sync */}
+                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '18px', padding: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '28px' }}>🔑</span>
+                    <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#fde047' }}>
+                      CÁCH 2: NHẬP MẬT KHẨU ĐỒNG BỘ (ẨN DANH)
+                    </h4>
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • <b>Dành cho máy lạ ở trường hoặc Tab Ẩn Danh:</b> Thầy/Cô không muốn đăng nhập tài khoản Google cá nhân vì sợ lộ mật khẩu.<br />
+                    • Bấm nút <b>&ldquo;🔑 Nhập Mật Khẩu Đồng Bộ (Ẩn Danh)&rdquo;</b>.<br />
+                    • <b>Tại máy ở nhà:</b> Đặt một mật khẩu cá nhân dễ nhớ (ví dụ: <code>thpt-sinh12</code>) rồi bấm <b>&ldquo;🔒 Sao Lưu Bằng Mật Khẩu&rdquo;</b>.<br />
+                    • <b>Tại máy trường:</b> Chỉ cần nhập đúng mật khẩu đó và bấm <b>&ldquo;⚡ Nhập Mật Khẩu &amp; Đồng Bộ&rdquo;</b> là xong ngay trong 1 giây!
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: 2 BẢNG XẾP HẠNG & SỔ ĐIỂM GIÁO VIÊN */}
+          {activeTab === 'GRADEBOOK' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.25), rgba(15, 23, 42, 0.9))',
+                  border: '2.5px solid #ea580c',
+                  borderRadius: '20px',
+                  padding: '20px 24px'
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#fed7aa', fontWeight: 900 }}>
+                  📊 HỆ THỐNG 2 BẢNG XẾP HẠNG & QUY ĐỔI ĐIỂM SỐ GHI SỔ (THÔNG TƯ 22)
+                </h3>
+                <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
+                  Một sáng kiến sư phạm độc đáo: Tách biệt rạch ròi giữa <b>Điểm Thi Đấu Game Show</b> (có trừ điểm câu sai để tăng kịch tính) và <b>Điểm Số Thực Học Để Ghi Sổ Điểm</b> (học sinh tích cực tham gia và có câu đúng luôn được bảo vệ quyền lợi!).
+                </p>
+              </div>
+
+              {/* 2 Bảng Xếp Hạng So Sánh */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '18px' }}>
+                <div style={{ background: '#111827', border: '2px solid #e11d48', borderRadius: '18px', padding: '20px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#fb7185', marginBottom: '8px' }}>
+                    🏆 BẢNG 1: TỔNG ĐIỂM THI ĐẤU (GAME SHOW)
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • Tính điểm dựa trên: Câu đúng, tốc độ trả lời (Reflex Speed Bonus), hệ số Cược Bản Lĩnh (x1, x1.5, x2.5), Tia Chớp Đầu Tiên (+500đ) và Rương Kho Báu.<br />
+                    • Có trừ điểm khi cược sai để kích thích tính toán chiến thuật và hồi hộp.<br />
+                    • Dùng để <b>Vinh danh trao thưởng</b> (Huy chương Vàng, Bạc, Đồng) và tạo không khí bùng nổ trong lớp học!
+                  </div>
+                </div>
+
+                <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '18px', padding: '20px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#4ade80', marginBottom: '8px' }}>
+                    📒 BẢNG 2: SỐ CÂU ĐÚNG GHI SỔ ĐIỂM GV
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • <b>Tuyệt đối không bị trừ điểm câu sai:</b> Đánh giá công bằng dựa trên tổng số câu học sinh làm đúng.<br />
+                    • <b>Quy đổi thang điểm 10 theo chuẩn Thông tư 22:</b><br />
+                    &nbsp;&nbsp;⭐ Top 1: 10.0 điểm<br />
+                    &nbsp;&nbsp;⭐ Top 2 - 3: 9.5 điểm<br />
+                    &nbsp;&nbsp;⭐ Top 4 - 6: 9.0 điểm<br />
+                    &nbsp;&nbsp;⭐ Top 7 - 10: 8.5 điểm<br />
+                    &nbsp;&nbsp;⭐ Các em có câu đúng đều đạt từ 7.5 - 8.0 điểm trở lên.<br />
+                    • Bấm <b>&ldquo;💾 Xuất File Excel (.CSV)&rdquo;</b> để nộp hồ sơ kiểm tra đánh giá thường xuyên.
+                  </div>
+                </div>
+              </div>
+
+              {/* Bảng Thống Kê Phổ Điểm Thực Tế Của Lớp */}
+              <div style={{ background: '#111827', border: '1.5px solid #374151', borderRadius: '18px', padding: '20px' }}>
+                <div style={{ fontSize: '17px', fontWeight: 900, color: '#fef08a', marginBottom: '12px' }}>
+                  📈 PHỔ ĐIỂM HIỆN TẠI CỦA PHÒNG THI ({allPlayers.length} HỌC SINH ĐÃ THAM GIA):
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+                  <div style={{ background: '#1e293b', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ fontSize: '12.5px', color: '#fde047', fontWeight: 900 }}>🌟 MỨC TỐT (9.0 - 10đ)</div>
+                    <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
+                      {tierExcellent} học sinh
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Xuất sắc, tư duy vững vàng</div>
+                  </div>
+
+                  <div style={{ background: '#1e293b', border: '1.5px solid #10b981', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ fontSize: '12.5px', color: '#4ade80', fontWeight: 900 }}>✅ MỨC KHÁ (8.0 - 8.9đ)</div>
+                    <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
+                      {tierGood} học sinh
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Đạt chuẩn kiến thức nâng cao</div>
+                  </div>
+
+                  <div style={{ background: '#1e293b', border: '1.5px solid #38bdf8', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ fontSize: '12.5px', color: '#7dd3fc', fontWeight: 900 }}>📘 MỨC ĐẠT (6.5 - 7.9đ)</div>
+                    <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
+                      {tierFair} học sinh
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Nắm kiến thức cơ bản</div>
+                  </div>
+
+                  <div style={{ background: '#1e293b', border: '1.5px solid #f43f5e', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ fontSize: '12.5px', color: '#fda4af', fontWeight: 900 }}>💪 KHUYẾN KHÍCH (&lt; 6.5đ)</div>
+                    <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffffff', margin: '4px 0' }}>
+                      {tierPass} học sinh
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Cần động viên ôn tập thêm</div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer Actions */}
+        {/* Footer Actions: Đầy Đủ & Nổi Bật */}
         <div
           style={{
-            padding: '14px 22px',
-            background: '#0b1120',
-            borderTop: '1.5px solid #1e293b',
+            padding: '16px 26px',
+            background: 'linear-gradient(90deg, #030712 0%, #0f172a 100%)',
+            borderTop: '2px solid #1f2937',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '10px'
+            gap: '12px'
           }}
         >
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={onExportHTMLSlide}
               style={{
-                padding: '9px 14px',
-                borderRadius: '10px',
+                padding: '10px 16px',
+                borderRadius: '12px',
                 background: 'linear-gradient(135deg, #0284c7, #0369a1)',
                 color: '#ffffff',
-                border: '1px solid #7dd3fc',
+                border: '1.5px solid #7dd3fc',
                 fontWeight: 900,
-                fontSize: '12.5px',
-                cursor: 'pointer'
+                fontSize: '13.5px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'
               }}
             >
-              🌐 Xuất Học Liệu Số (.HTML)
+              🎨 Xuất Slide Học Liệu Màu (.HTML)
             </button>
 
             <button
               onClick={onPrintPDFEvidence}
               style={{
-                padding: '9px 14px',
-                borderRadius: '10px',
+                padding: '10px 16px',
+                borderRadius: '12px',
                 background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                 color: '#ffffff',
-                border: '1px solid #a5b4fc',
+                border: '1.5px solid #a5b4fc',
                 fontWeight: 900,
-                fontSize: '12.5px',
-                cursor: 'pointer'
+                fontSize: '13.5px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
               }}
             >
-              🖨️ In Hồ Sơ Ma Trận Đề Thi (PDF)
+              🖨️ In / Lưu PDF Minh Chứng
             </button>
 
             <button
               onClick={() => exportHonorCertificateHTML(matchState, activeRoomId)}
               style={{
-                padding: '9px 14px',
-                borderRadius: '10px',
+                padding: '10px 16px',
+                borderRadius: '12px',
                 background: 'linear-gradient(135deg, #d97706, #b45309)',
                 color: '#ffffff',
-                border: '1px solid #fde047',
+                border: '1.5px solid #fde047',
                 fontWeight: 900,
-                fontSize: '12.5px',
-                cursor: 'pointer'
+                fontSize: '13.5px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(217, 119, 6, 0.3)'
               }}
             >
-              📜 Xuất Bằng Vinh Danh & Sổ Điểm
+              📜 Bằng Vinh Danh & Sổ Điểm
             </button>
 
             {onTriggerDemoBots && (
@@ -653,17 +927,18 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   onClose();
                 }}
                 style={{
-                  padding: '9px 14px',
-                  borderRadius: '10px',
+                  padding: '10px 16px',
+                  borderRadius: '12px',
                   background: 'linear-gradient(135deg, #10b981, #059669)',
                   color: '#ffffff',
-                  border: '1px solid #6ee7b7',
+                  border: '1.5px solid #6ee7b7',
                   fontWeight: 900,
-                  fontSize: '12.5px',
-                  cursor: 'pointer'
+                  fontSize: '13.5px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
                 }}
               >
-                🤖 Bật Giả Lập Lớp Học 3D (Demo)
+                🤖 Test Tải 40 HS Giả Lập
               </button>
             )}
           </div>
@@ -671,14 +946,15 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
           <button
             onClick={onClose}
             style={{
-              padding: '9px 18px',
-              borderRadius: '10px',
-              background: '#334155',
+              padding: '11px 24px',
+              borderRadius: '12px',
+              background: '#374151',
               color: '#ffffff',
-              border: '1px solid #64748b',
+              border: '1.5px solid #9ca3af',
               fontWeight: 900,
-              fontSize: '13px',
-              cursor: 'pointer'
+              fontSize: '14.5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
             }}
           >
             Đóng Hướng Dẫn

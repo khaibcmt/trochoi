@@ -3,6 +3,8 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -171,6 +173,197 @@ Hãy chỉ rõ:
   } catch (error: any) {
     console.error('Error explaining answer:', error);
     return res.status(500).json({ error: error.message || 'Failed to generate explanation' });
+  }
+});
+
+// ============================================================================
+// 3.5. HỆ THỐNG SAO LƯU & ĐỒNG BỘ ĐÁM MÂY (GOOGLE ACCOUNT & MẬT KHẨU ĐỒNG BỘ)
+// Giúp giáo viên soạn bài ở nhà, sang máy tính ở trường học chỉ cần đăng nhập Google hoặc nhập Mật khẩu là dữ liệu đồng bộ ngay lập tức
+// ============================================================================
+const SYNC_DATA_DIR = path.join(__dirname, 'data');
+const SYNC_DB_FILE = path.join(SYNC_DATA_DIR, 'cloud_sync_db.json');
+
+interface CloudSyncRecord {
+  identifier: string;
+  hint?: string;
+  lastUpdated: number;
+  backup: any;
+}
+
+interface CloudSyncStore {
+  google: Record<string, CloudSyncRecord>;
+  passwords: Record<string, CloudSyncRecord>;
+}
+
+function loadSyncStore(): CloudSyncStore {
+  try {
+    if (!fs.existsSync(SYNC_DATA_DIR)) {
+      fs.mkdirSync(SYNC_DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(SYNC_DB_FILE)) {
+      const raw = fs.readFileSync(SYNC_DB_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return {
+        google: parsed.google || {},
+        passwords: parsed.passwords || {}
+      };
+    }
+  } catch (err) {
+    console.error('Lỗi khi đọc tệp cloud_sync_db.json:', err);
+  }
+  return { google: {}, passwords: {} };
+}
+
+function saveSyncStore(store: CloudSyncStore) {
+  try {
+    if (!fs.existsSync(SYNC_DATA_DIR)) {
+      fs.mkdirSync(SYNC_DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(SYNC_DB_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Lỗi khi ghi tệp cloud_sync_db.json:', err);
+  }
+}
+
+// 1. Lưu bản sao lưu lên Đám mây (theo Google Account hoặc Mật khẩu)
+app.post('/api/sync/save', (req, res) => {
+  try {
+    const { syncType, identifier, backup, hint } = req.body;
+    if (!syncType || !identifier || !backup) {
+      return res.status(400).json({ error: 'Thiếu thông tin sao lưu bắt buộc' });
+    }
+
+    const store = loadSyncStore();
+    const now = Date.now();
+
+    if (syncType === 'GOOGLE') {
+      const cleanEmail = String(identifier).trim().toLowerCase();
+      if (!cleanEmail.includes('@')) {
+        return res.status(400).json({ error: 'Địa chỉ email Google không hợp lệ' });
+      }
+      store.google[cleanEmail] = {
+        identifier: cleanEmail,
+        lastUpdated: now,
+        backup
+      };
+      saveSyncStore(store);
+      return res.json({
+        ok: true,
+        syncType: 'GOOGLE',
+        identifier: cleanEmail,
+        lastUpdated: now,
+        stats: backup.stats
+      });
+    } else if (syncType === 'PASSWORD') {
+      const cleanPass = String(identifier).trim();
+      if (cleanPass.length < 3) {
+        return res.status(400).json({ error: 'Mật khẩu đồng bộ phải có ít nhất 3 ký tự' });
+      }
+      // Dùng SHA-256 để định danh mật khẩu bảo mật
+      const passHash = crypto.createHash('sha256').update(cleanPass).digest('hex');
+      store.passwords[passHash] = {
+        identifier: passHash,
+        hint: hint || (cleanPass.length > 2 ? cleanPass.slice(0, 2) + '***' : '***'),
+        lastUpdated: now,
+        backup
+      };
+      saveSyncStore(store);
+      return res.json({
+        ok: true,
+        syncType: 'PASSWORD',
+        lastUpdated: now,
+        stats: backup.stats
+      });
+    } else {
+      return res.status(400).json({ error: 'Loại đồng bộ không được hỗ trợ' });
+    }
+  } catch (err: any) {
+    console.error('Lỗi API /api/sync/save:', err);
+    return res.status(500).json({ error: err.message || 'Lỗi lưu bản sao lưu' });
+  }
+});
+
+// 2. Tải & Đồng bộ bản sao lưu từ Đám mây về máy hiện tại
+app.post('/api/sync/load', (req, res) => {
+  try {
+    const { syncType, identifier } = req.body;
+    if (!syncType || !identifier) {
+      return res.status(400).json({ error: 'Thiếu thông tin định danh đồng bộ' });
+    }
+
+    const store = loadSyncStore();
+
+    if (syncType === 'GOOGLE') {
+      const cleanEmail = String(identifier).trim().toLowerCase();
+      const record = store.google[cleanEmail];
+      if (!record || !record.backup) {
+        return res.status(404).json({
+          error: `Chưa tìm thấy bản sao lưu nào gắn với tài khoản Google [${cleanEmail}]. Hãy đảm bảo Thầy/Cô đã nhấn "Sao Lưu Lên Google" ở máy soạn bài trước đó.`
+        });
+      }
+      return res.json({
+        ok: true,
+        syncType: 'GOOGLE',
+        identifier: cleanEmail,
+        lastUpdated: record.lastUpdated,
+        backup: record.backup
+      });
+    } else if (syncType === 'PASSWORD') {
+      const cleanPass = String(identifier).trim();
+      const passHash = crypto.createHash('sha256').update(cleanPass).digest('hex');
+      const record = store.passwords[passHash];
+      if (!record || !record.backup) {
+        return res.status(404).json({
+          error: 'Mật khẩu đồng bộ không chính xác hoặc chưa có dữ liệu nào được sao lưu với mật khẩu này. Vui lòng kiểm tra lại mật khẩu.'
+        });
+      }
+      return res.json({
+        ok: true,
+        syncType: 'PASSWORD',
+        lastUpdated: record.lastUpdated,
+        backup: record.backup
+      });
+    } else {
+      return res.status(400).json({ error: 'Loại đồng bộ không hợp lệ' });
+    }
+  } catch (err: any) {
+    console.error('Lỗi API /api/sync/load:', err);
+    return res.status(500).json({ error: err.message || 'Lỗi tải bản sao lưu' });
+  }
+});
+
+// 3. Kiểm tra trạng thái bản sao lưu (không tải toàn bộ khối dữ liệu nặng)
+app.post('/api/sync/status', (req, res) => {
+  try {
+    const { syncType, identifier } = req.body;
+    if (!syncType || !identifier) {
+      return res.json({ exists: false });
+    }
+    const store = loadSyncStore();
+    if (syncType === 'GOOGLE') {
+      const cleanEmail = String(identifier).trim().toLowerCase();
+      const record = store.google[cleanEmail];
+      if (record) {
+        return res.json({
+          exists: true,
+          lastUpdated: record.lastUpdated,
+          stats: record.backup?.stats
+        });
+      }
+    } else if (syncType === 'PASSWORD') {
+      const passHash = crypto.createHash('sha256').update(String(identifier).trim()).digest('hex');
+      const record = store.passwords[passHash];
+      if (record) {
+        return res.json({
+          exists: true,
+          lastUpdated: record.lastUpdated,
+          stats: record.backup?.stats
+        });
+      }
+    }
+    return res.json({ exists: false });
+  } catch (err: any) {
+    return res.json({ exists: false });
   }
 });
 

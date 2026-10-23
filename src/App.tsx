@@ -27,6 +27,9 @@ import { HostArenaView } from './components/HostArenaView';
 import { StudentMobileView } from './components/StudentMobileView';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { NationalJuryDossierModal } from './components/NationalJuryDossierModal';
+import { CloudSyncModal } from './components/CloudSyncModal';
+import { CloudBackupData } from './types';
+import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 export const App: React.FC = () => {
@@ -90,6 +93,62 @@ export const App: React.FC = () => {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showNationalDossier, setShowNationalDossier] = useState(false);
 
+  // Cloud Sync & Backup Modal
+  const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
+  const [cloudSyncInitialTab, setCloudSyncInitialTab] = useState<'GOOGLE' | 'PASSWORD'>('GOOGLE');
+
+  const handleOpenCloudSync = (tab: 'GOOGLE' | 'PASSWORD' = 'GOOGLE') => {
+    setCloudSyncInitialTab(tab);
+    setShowCloudSyncModal(true);
+  };
+
+  const triggerAutoCloudSync = (newDB: Record<string, SubjectData>, currentKey: string, activeQuiz?: QuizItem[]) => {
+    try {
+      const prof = getStoredSyncProfile();
+      if (prof.autoSyncEnabled && (prof.googleEmail || prof.passwordKey)) {
+        const payload = prepareBackupPayload(newDB, currentKey, matchSettings, activeQuiz);
+        saveBackupToCloud(prof, payload).catch(() => {});
+      }
+    } catch {}
+  };
+
+  const handleApplyBackup = (backup: CloudBackupData) => {
+    if (backup.subjectsDB && Object.keys(backup.subjectsDB).length > 0) {
+      setSubjectsDB(backup.subjectsDB);
+      try {
+        localStorage.setItem('thpt_mangthit_subjects_v10', JSON.stringify(backup.subjectsDB));
+      } catch (e) {}
+    }
+    if (backup.currentSubjectKey && backup.subjectsDB && backup.subjectsDB[backup.currentSubjectKey]) {
+      setCurrentSubjectKey(backup.currentSubjectKey);
+      currentSubjectKeyRef.current = backup.currentSubjectKey;
+    }
+    if (backup.matchSettings) {
+      setMatchSettings(backup.matchSettings);
+    }
+    if (backup.activeQuizList && backup.activeQuizList.length > 0) {
+      const normalized = backup.activeQuizList.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
+      setQuizList(normalized);
+      quizListRef.current = normalized;
+      try {
+        localStorage.setItem('custom_Active_Quiz_V31', JSON.stringify(normalized));
+      } catch {}
+      setTimeout(() => {
+        broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
+      }, 50);
+    } else if (backup.currentSubjectKey && backup.subjectsDB && backup.subjectsDB[backup.currentSubjectKey]) {
+      const parsed = parseHTMLToQuiz(backup.subjectsDB[backup.currentSubjectKey].html);
+      if (parsed.length > 0) {
+        const normalized = parsed.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
+        setQuizList(normalized);
+        quizListRef.current = normalized;
+        setTimeout(() => {
+          broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
+        }, 50);
+      }
+    }
+  };
+
   const [matchState, setMatchState] = useState<MatchState>({
     gameType: 'TUG',
     status: 'LOBBY',
@@ -117,12 +176,13 @@ export const App: React.FC = () => {
 
   const heartbeatRef = useRef<any>(null);
 
-  // Save subjects database changes to localStorage
+  // Save subjects database changes to localStorage & sync to cloud
   const saveSubjects = (newDB: Record<string, SubjectData>) => {
     setSubjectsDB(newDB);
     try {
       localStorage.setItem('thpt_mangthit_subjects_v10', JSON.stringify(newDB));
     } catch (e) {}
+    triggerAutoCloudSync(newDB, currentSubjectKeyRef.current, quizListRef.current);
   };
 
   const handleSelectSubject = (key: string) => {
@@ -1081,6 +1141,7 @@ export const App: React.FC = () => {
           onToggleFullScreen={handleToggleFullScreen}
           onOpenKeyModal={() => setShowKeyModal(true)}
           onOpenNationalDossier={() => setShowNationalDossier(true)}
+          onOpenCloudSync={() => handleOpenCloudSync('GOOGLE')}
         />
       )}
 
@@ -1108,6 +1169,8 @@ export const App: React.FC = () => {
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
           onOpenKeyModal={() => setShowKeyModal(true)}
+          onOpenCloudSync={handleOpenCloudSync}
+          onOpenNationalDossier={() => setShowNationalDossier(true)}
           activeRoomId={activeRoomId}
           connectedStudentCount={matchState.redPlayers.length + matchState.bluePlayers.length}
           connectedPlayers={[...matchState.redPlayers, ...matchState.bluePlayers]}
@@ -1158,6 +1221,18 @@ export const App: React.FC = () => {
         activeRoomId={activeRoomId}
         onExportHTMLSlide={handleExportHTMLSlide}
         onPrintPDFEvidence={handlePrintPDFEvidence}
+      />
+
+      {/* Trung Tâm Đồng Bộ & Sao Lưu Đám Mây (Google Account & Mật Khẩu Ẩn Danh) */}
+      <CloudSyncModal
+        isOpen={showCloudSyncModal}
+        onClose={() => setShowCloudSyncModal(false)}
+        subjectsDB={subjectsDB}
+        currentSubjectKey={currentSubjectKey}
+        matchSettings={matchSettings}
+        activeQuizList={quizList}
+        onApplyBackup={handleApplyBackup}
+        initialTab={cloudSyncInitialTab}
       />
     </div>
   );
