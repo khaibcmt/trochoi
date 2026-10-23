@@ -82,9 +82,12 @@ export interface Player {
   avatar?: AvatarConfig;
   inventory?: PowerUpType[];
   activeShield?: boolean;
+  hasImmunityShield?: boolean;
   doublePowerActive?: boolean;
   tabSwitchCount?: number;
   firstBloodCount?: number;
+  hasUsedSpecialWager?: boolean;
+  hasOpenedMysteryChest?: boolean;
 }
 
 export interface MatchSettings {
@@ -192,6 +195,11 @@ export interface CloudMessage {
   worldEvent?: WorldEventType;
   worldEventTitle?: string;
   dramaAnnouncement?: string;
+  hasUsedSpecialWager?: boolean;
+  hasOpenedMysteryChest?: boolean;
+  hasImmunityShield?: boolean;
+  victimPlayerId?: string;
+  victimScoreDeduction?: number;
 }
 
 export interface CloudBackupData {

@@ -137,7 +137,28 @@ export const StudentMobileView: React.FC<Props> = ({
   const [wagerLevel, setWagerLevel] = useState<WagerLevel>(1);
   const [activeWorldEvent, setActiveWorldEvent] = useState<WorldEventType>('NONE');
   const [worldEventTitle, setWorldEventTitle] = useState<string>('');
+
+  // Cơ chế Cược Bản Lĩnh chỉ dùng 1 lần duy nhất trong tất cả các trò chơi
+  const [hasUsedSpecialWager, setHasUsedSpecialWager] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(`kc3d_wager_used_${tabSessionId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Cơ chế Mở Rương Bí Ẩn Định Mệnh (Bắt buộc đúng 5 câu liên tiếp, 4 giây chọn 1 rương, dùng 1 lần duy nhất)
+  const [hasOpenedMysteryChest, setHasOpenedMysteryChest] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(`kc3d_chest_opened_${tabSessionId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [hasImmunityShield, setHasImmunityShield] = useState<boolean>(false);
   const [mysteryChestsAvailable, setMysteryChestsAvailable] = useState<boolean>(false);
+  const [chestCountdown, setChestCountdown] = useState<number>(4);
+  const chestTimerRef = useRef<any>(null);
   const [claimedChestResult, setClaimedChestResult] = useState<{ icon: string; title: string; desc: string } | null>(null);
 
   // True/False answers state for current question: { a: boolean, b: boolean, c: boolean, d: boolean }
@@ -516,6 +537,10 @@ export const StudentMobileView: React.FC<Props> = ({
       setWagerLevel(1);
       setMysteryChestsAvailable(false);
       setClaimedChestResult(null);
+      if (chestTimerRef.current) {
+        clearInterval(chestTimerRef.current);
+        chestTimerRef.current = null;
+      }
       startMsRef.current = Date.now();
     }
 
@@ -1276,61 +1301,64 @@ export const StudentMobileView: React.FC<Props> = ({
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0, `Kết quả "${shortAnswerInput.trim()}"`);
   };
 
-  // Mở Rương Bí Ẩn Định Mệnh (Mystery Lucky Chest - Yếu tố Bất Ngờ & May Rủi)
+  // Mở Rương Bí Ẩn Định Mệnh (Bắt buộc trả lời đúng liên tiếp 5 câu - Dùng 1 lần duy nhất cả trận)
   const handleOpenMysteryChest = (chestIndex: number) => {
     if (!mysteryChestsAvailable || claimedChestResult) return;
+    if (chestTimerRef.current) {
+      clearInterval(chestTimerRef.current);
+      chestTimerRef.current = null;
+    }
+    setHasOpenedMysteryChest(true);
+    try {
+      sessionStorage.setItem(`kc3d_chest_opened_${tabSessionId}`, 'true');
+    } catch {}
+
     AudioFX.jackpotSpin();
 
     const roll = Math.random();
     let icon = '💎';
-    let title = 'NỔ HŨ KIM CƯƠNG (+1500Đ)!';
-    let desc = 'Chúc mừng! Bạn mở trúng kho báu Kim Cương +1500 điểm thưởng!';
+    let title = 'NỔ HŨ KIM CƯƠNG (+1.500Đ)!';
+    let desc = 'Bạn mở trúng Nổ Hũ Kim Cương: Thưởng nóng ngay +1.500 điểm thưởng!';
     let bonusDelta = 1500;
     let specialPower: string | undefined = undefined;
     let nextLives = lives;
 
     if (roll < 0.25) {
+      // 1. 💎 Nổ Hũ Kim Cương: +1.500 điểm thưởng
       icon = '💎';
-      title = 'NỔ HŨ KIM CƯƠNG (+1500Đ)!';
-      desc = `Rương Vàng #${chestIndex + 1} phát nổ +1500 điểm thưởng!`;
+      title = 'NỔ HŨ KIM CƯƠNG (+1.500Đ)!';
+      desc = `Rương Kho Báu #${chestIndex + 1} phát nổ Kim Cương: Thưởng nóng ngay +1.500 điểm thưởng!`;
       bonusDelta = 1500;
-    } else if (roll < 0.48) {
-      icon = '🦊';
-      title = 'SIÊU ĐẠO CHÍCH (+900Đ & HÚT ĐIỂM TOP 1)!';
-      desc = 'Bạn nhận +900 điểm và hút 500 điểm từ đối thủ đang dẫn đầu!';
+    } else if (roll < 0.50) {
+      // 2. 🥷 Đạo Chích: +900đ và hút 500đ của bạn đang dẫn đầu Top 1
+      icon = '🥷';
+      title = 'ĐẠO CHÍCH (+900Đ & HÚT 500Đ TOP 1)!';
+      desc = `Rương #${chestIndex + 1}: Kích hoạt Đạo Chích +900đ và xuất chiêu hút 500đ từ đối thủ đang dẫn đầu Top 1!`;
       bonusDelta = 900;
       specialPower = 'STEAL_LEADER';
-    } else if (roll < 0.68) {
-      if (gameType === 'BELL') {
-        icon = '❤️';
-        title = 'TIÊN ĐƠN HỒI MẠNG (+1 ❤️ & +600Đ)!';
-        desc = 'Bạn nhận thêm +1 ❤️ Mạng bảo hộ trên sàn Rung Chuông Vàng và +600 điểm!';
-        bonusDelta = 600;
-        nextLives = Math.min(5, lives + 1);
-        setLives(nextLives);
-      } else if (gameType === 'TUG') {
-        icon = '⚡';
-        title = 'BÙA CUỒNG NỘ KÉO CO (+800Đ & X2 KÉO)!';
-        desc = 'Nhận +800 điểm, giật mạnh dây về đội nhà và tặng 1 Thẻ Kỹ Năng!';
-        bonusDelta = 800;
-        awardRandomPowerUp();
-      } else {
-        icon = '🗡️';
-        title = 'THIÊN THẠCH CHÍ MẠNG (+1000Đ)!';
-        desc = 'Nhận +1000 điểm thưởng tốc độ và giáng đòn sấm sét lên bảng đấu!';
-        bonusDelta = 1000;
-      }
-    } else if (roll < 0.85) {
-      icon = '🛡️';
-      title = 'KHIÊN HỘ MỆNH BẤT TỬ (+500Đ)!';
-      desc = 'Kích hoạt Khiên Bảo Vệ chống đóng băng / bảo hiểm điểm số +500đ!';
+    } else if (roll < 0.75) {
+      // 3. 💖 Tim Vàng: +1 Mạng hồi sinh trong Rung Chuông Vàng
+      icon = '💖';
+      title = 'TIM VÀNG (+1 MẠNG HỒI SINH & +500Đ)!';
+      desc = `Rương #${chestIndex + 1}: Nhận ngay +1 ❤️ Mạng hồi sinh quý giá trong Rung Chuông Vàng và +500 điểm!`;
       bonusDelta = 500;
-      setActiveShield(true);
+      nextLives = Math.min(5, lives + 1);
+      setLives(nextLives);
+      if (eliminatedRef.current) {
+        setEliminated(false);
+        eliminatedRef.current = false;
+        if (screenRef.current === 'ELIMINATED') {
+          setScreen('QUIZ');
+        }
+      }
     } else {
-      icon = '🍌';
-      title = 'TRƯỢT VỎ CHUỐI MAY MẮN (+200Đ)!';
-      desc = 'Suýt trúng hũ lớn! Chibi tặng bạn +200 điểm khích lệ siêu đáng yêu!';
-      bonusDelta = 200;
+      // 4. 🛡️ Khiên Bất Tử: Bảo vệ bạn không bị phạt nếu câu sau sai!
+      icon = '🛡️';
+      title = 'KHIÊN BẤT TỬ BẢO VỆ CÂU TIẾP THEO!';
+      desc = `Rương #${chestIndex + 1}: Kích hoạt Khiên Bất Tử bảo vệ bạn tuyệt đối không bị phạt điểm / mất mạng nếu câu sau sai!`;
+      bonusDelta = 300;
+      setHasImmunityShield(true);
+      setActiveShield(true);
     }
 
     const updatedScore = fastScoreRef.current + bonusDelta;
@@ -1347,10 +1375,11 @@ export const StudentMobileView: React.FC<Props> = ({
       totalScore: updatedScore,
       lives: nextLives,
       powerUpUsed: specialPower as any,
-      mysteryRewardText: `${icon} ${title}`
+      mysteryRewardText: `${icon} ${title}`,
+      hasOpenedMysteryChest: true
     });
 
-    // Sau khi mở rương xong, chuyển sang câu tiếp theo mượt mà sau 1.25s
+    // Sau khi mở rương xong, chuyển sang câu tiếp theo mượt mà sau 1.4s
     if (!eliminatedRef.current) {
       if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
       const answeredIdx = currentGlobalQIndexRef.current;
@@ -1358,7 +1387,7 @@ export const StudentMobileView: React.FC<Props> = ({
         if (!eliminatedRef.current) {
           advanceStudentQuestionOrFinish(answeredIdx);
         }
-      }, 1250);
+      }, 1400);
     }
   };
 
@@ -1370,6 +1399,14 @@ export const StudentMobileView: React.FC<Props> = ({
     const activeWager = wagerLevel || 1;
     const isGoldenEvent = activeWorldEvent === 'GOLDEN_X2';
 
+    // Đánh dấu đã dùng lượt cược bản lĩnh duy nhất nếu chọn Liều Lĩnh (1.5x) hoặc Tất Tay (2.5x)
+    if (activeWager > 1) {
+      setHasUsedSpecialWager(true);
+      try {
+        sessionStorage.setItem(`kc3d_wager_used_${tabSessionId}`, 'true');
+      } catch {}
+    }
+
     if (isCorrect) {
       AudioFX.pullHeave();
       const nextStreak = streak + 1;
@@ -1380,9 +1417,19 @@ export const StudentMobileView: React.FC<Props> = ({
 
       // Điểm thưởng tốc độ phản xạ (Nhanh <= 5s: +300đ, <= 10s: +150đ)
       const speedBonus = elapsedSec <= 5 ? 300 : elapsedSec <= 10 ? 150 : 0;
-      // Điểm thưởng chuỗi Bốc Lửa (Streak >= 3: +200đ)
+      // Điểm thưởng chuỗi Bốc Lửa (Streak >= 3: +200đ, Streak >= 5: +400đ)
       const streakBonus = nextStreak >= 5 ? 400 : nextStreak >= 3 ? 200 : 0;
-      const basePts = Math.round(1000 * factor * activeWager * powerMultiplier);
+
+      // Điểm cơ bản theo mức cược bản lĩnh
+      // • 🛡️ An Toàn (x1): 1000đ
+      // • ⚡ Liều Lĩnh (x1.5): 1500đ (nhân 1.5x điểm)
+      // • 🔥 Tất Tay (x2.5): 2500đ (nhân 2.5x điểm)
+      const basePts = activeWager === 2.5
+        ? Math.round(2500 * factor * powerMultiplier)
+        : activeWager === 1.5
+        ? Math.round(1500 * factor * powerMultiplier)
+        : Math.round(1000 * factor * powerMultiplier);
+
       const gainedPts = basePts + speedBonus + streakBonus;
       const effectiveHostPts = isGoldenEvent ? gainedPts * 2 : gainedPts;
 
@@ -1393,10 +1440,29 @@ export const StudentMobileView: React.FC<Props> = ({
       setFastScore(nextTotalScore);
       setMyCorrectCount(nextCorrectCount);
 
-      // Mở khóa Rương Bí Ẩn Định Mệnh khi đạt chuỗi >= 2, hoặc thắng cược Liều Lĩnh/Tất Tay, hoặc may mắn 45%
-      const unlockMysteryChest = !isFinalQuestion && (nextStreak >= 2 || activeWager > 1 || Math.random() < 0.45);
-      setMysteryChestsAvailable(unlockMysteryChest);
-      setClaimedChestResult(null);
+      // Riêng cơ chế 4. Mở Rương Bí Ẩn Định Mệnh: Bắt buộc phải trả lời đúng liên tiếp 5 câu (Streak = 5) mới được mở rương (Chỉ mở 1 lần duy nhất cả trận)
+      const unlockMysteryChest = !isFinalQuestion && !hasOpenedMysteryChest && nextStreak === 5;
+      if (unlockMysteryChest) {
+        setMysteryChestsAvailable(true);
+        setClaimedChestResult(null);
+        setChestCountdown(4);
+        if (chestTimerRef.current) clearInterval(chestTimerRef.current);
+        let rem = 4;
+        chestTimerRef.current = setInterval(() => {
+          rem -= 1;
+          setChestCountdown(rem);
+          if (rem <= 0) {
+            if (chestTimerRef.current) {
+              clearInterval(chestTimerRef.current);
+              chestTimerRef.current = null;
+            }
+            handleOpenMysteryChest(Math.floor(Math.random() * 3));
+          }
+        }, 1000);
+      } else {
+        setMysteryChestsAvailable(false);
+        setClaimedChestResult(null);
+      }
 
       // Chỉ có trò Kéo Co (TUG) mới có hiệu ứng thẻ kỹ năng
       if (gameType === 'TUG' && nextStreak >= 3) {
@@ -1404,8 +1470,8 @@ export const StudentMobileView: React.FC<Props> = ({
       }
 
       const speedTag = elapsedSec <= 5 ? ` • ⚡ Phản xạ thần tốc ${elapsedSec.toFixed(1)}s (+300đ)` : elapsedSec <= 10 ? ` • ⚡ Tốc độ nhanh (+150đ)` : '';
-      const wagerTag = activeWager === 2.5 ? ' • 💎 Thắng Cược Tất Tay x2.5!' : activeWager === 1.5 ? ' • 🔥 Thắng Cược Liều Lĩnh x1.5!' : '';
-      const streakTag = nextStreak >= 3 ? ` • 🔥 Chuỗi ${nextStreak} Bốc Lửa` : '';
+      const wagerTag = activeWager === 2.5 ? ' • 💎 Thắng Cược Tất Tay x2.5 (+2500đ)!' : activeWager === 1.5 ? ' • ⚡ Thắng Cược Liều Lĩnh x1.5 (+1500đ)!' : '';
+      const streakTag = nextStreak >= 5 ? ` • 🔥 Chuỗi 5 Bốc Lửa (Mở Rương Định Mệnh)!` : nextStreak >= 3 ? ` • 🔥 Chuỗi ${nextStreak} Bốc Lửa` : '';
       const goldenTag = isGoldenEvent ? ' • 🌟 Nhân đôi Giờ Vàng X2!' : '';
 
       setLastLockedResult({
@@ -1423,74 +1489,110 @@ export const StudentMobileView: React.FC<Props> = ({
         wagerLevel: activeWager,
         gainedPts,
         totalScore: nextTotalScore,
-        savedCorrect: nextCorrectCount
+        savedCorrect: nextCorrectCount,
+        hasUsedSpecialWager: activeWager > 1
       });
 
       setLastCompletedQIndex(currentGlobalQIndexRef.current);
 
-      // Nếu mở khóa Rương Bí Ẩn thì cho 4.2 giây để học sinh bấm khui rương; nếu không thì chuyển câu sau 1.6s
+      // Nếu mở khóa Rương Bí Ẩn thì đợi 4.5 giây (hoặc học sinh bấm khui rương); nếu không thì chuyển câu sau 1.6s
       if (!eliminatedRef.current) {
         if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
         const answeredIdx = currentGlobalQIndexRef.current;
         finishTransitionTimerRef.current = setTimeout(() => {
-          if (!eliminatedRef.current) {
+          if (!eliminatedRef.current && !mysteryChestsAvailable) {
             advanceStudentQuestionOrFinish(answeredIdx);
           }
-        }, isFinalQuestion ? 1400 : unlockMysteryChest ? 4200 : 1650);
+        }, isFinalQuestion ? 1400 : unlockMysteryChest ? 4800 : 1650);
       }
     } else {
       AudioFX.freezeCrack();
       setStreak(0);
       setMysteryChestsAvailable(false);
       setClaimedChestResult(null);
+      if (chestTimerRef.current) {
+        clearInterval(chestTimerRef.current);
+        chestTimerRef.current = null;
+      }
+
+      // Kiểm tra Khiên Bất Tử (từ Rương Bí Ẩn) hoặc Khiên Bảo Vệ
+      const isProtectedByShield = hasImmunityShield || activeShield;
+      if (hasImmunityShield) setHasImmunityShield(false);
+      if (activeShield) setActiveShield(false);
+
+      // Mức trừ điểm theo đúng quy tắc cược bản lĩnh:
+      // • 🛡️ An Toàn (x1): Sai không bị trừ điểm (penalty = 0)
+      // • ⚡ Liều Lĩnh (x1.5): Sai bị trừ -300đ
+      // • 🔥 Tất Tay (x2.5): Sai bị trừ -800đ
+      let penaltyPts = 0;
+      if (activeWager === 2.5) {
+        penaltyPts = 800;
+      } else if (activeWager === 1.5) {
+        penaltyPts = 300;
+      } else {
+        penaltyPts = 0;
+      }
 
       let nextTotalScore = fastScoreRef.current;
       let nextLivesVal = lives;
-      const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
-      const penaltyPts = activeWager === 2.5 ? 2000 : activeWager === 1.5 ? 1500 : 1000;
-      const bellLifeLoss = activeWager === 2.5 ? 2 : 1;
 
-      // Chỉ có trò Rung Chuông Vàng (BELL) khi trả lời sai mới mất mạng, hết mạng rời cuộc chơi thành Khán giả cổ vũ
-      if (gameType === 'BELL') {
-        if (activeShield) {
-          setActiveShield(false);
-          setLastLockedResult({
-            isCorrect: false,
-            text: '🛡️ ĐÁP ÁN SAI NHƯNG KHIÊN HỘ MỆNH ĐÃ CHẶN MẤT MẠNG CHO BẠN! (Bảo toàn ❤️)'
-          });
-        } else {
-          nextLivesVal = Math.max(0, lives - bellLifeLoss);
-          setLives(nextLivesVal);
-          if (nextLivesVal <= 0) {
-            setEliminated(true);
-            eliminatedRef.current = true;
-            setScreen('ELIMINATED');
-          }
-          setLastLockedResult({
-            isCorrect: false,
-            text: `❌ ĐÁP ÁN SAI! ${activeWager === 2.5 ? '(Cược Tất Tay x2.5 thất bại: Mất 2 ❤️)' : 'Bạn bị mất 1 ❤️ Mạng ở câu này'}`
-          });
+      if (isProtectedByShield) {
+        // Được Khiên Bất Tử bảo vệ -> Tuyệt đối không bị trừ điểm và không mất mạng!
+        setLastLockedResult({
+          isCorrect: false,
+          text: '🛡️ KHIÊN BẤT TỬ ĐÃ BẢO VỆ BẠN! Câu này trả lời sai nhưng bạn hoàn toàn không bị phạt điểm / mất mạng!'
+        });
+      } else if (gameType === 'BELL') {
+        // Rung Chuông Vàng: Mất 1 mạng, kèm trừ điểm nếu chọn cược Liều Lĩnh / Tất Tay
+        nextLivesVal = Math.max(0, lives - 1);
+        setLives(nextLivesVal);
+        if (nextLivesVal <= 0) {
+          setEliminated(true);
+          eliminatedRef.current = true;
+          setScreen('ELIMINATED');
         }
-      } else if (hasPenalty) {
-        if (activeShield) {
-          setActiveShield(false);
-          setLastLockedResult({
-            isCorrect: false,
-            text: '🛡️ ĐÁP ÁN SAI NHƯNG KHIÊN BẢO HIỂM ĐÃ GIÚP BẠN KHÔNG BỊ TRỪ ĐIỂM!'
-          });
-        } else {
+        if (penaltyPts > 0) {
           nextTotalScore = fastScoreRef.current - penaltyPts;
           fastScoreRef.current = nextTotalScore;
           setFastScore(nextTotalScore);
-          setLastLockedResult({
-            isCorrect: false,
-            text: `❌ ĐÁP ÁN SAI! Trừ -${penaltyPts} điểm ${activeWager > 1 ? `(Mức cược x${activeWager})` : ''} (Số câu đúng ghi sổ điểm GV vẫn bảo lưu!)`
-          });
         }
-      } else {
         setLastLockedResult({
           isCorrect: false,
-          text: `❌ ĐÁP ÁN SAI! (0 điểm câu này ${activeWager > 1 ? `• Đóng băng ${activeWager === 2.5 ? '5.5s' : '4s'}` : '• Đã khóa câu trả lời'})`
+          text: activeWager === 2.5
+            ? '❌ ĐÁP ÁN SAI! Cược Tất Tay x2.5 thất bại: Mất 1 ❤️ và bị phạt -800đ!'
+            : activeWager === 1.5
+            ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh x1.5 thất bại: Mất 1 ❤️ và bị phạt -300đ!'
+            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Mất 1 ❤️ (Không bị phạt điểm)!'
+        });
+      } else if (gameType === 'FAST' || gameType === 'BOSS') {
+        // Đua Tốc Độ / Diệt Boss
+        if (penaltyPts > 0) {
+          nextTotalScore = fastScoreRef.current - penaltyPts;
+          fastScoreRef.current = nextTotalScore;
+          setFastScore(nextTotalScore);
+        }
+        setLastLockedResult({
+          isCorrect: false,
+          text: activeWager === 2.5
+            ? '❌ ĐÁP ÁN SAI! Cược Tất Tay x2.5 thất bại: Trừ -800 điểm!'
+            : activeWager === 1.5
+            ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh x1.5 thất bại: Trừ -300 điểm!'
+            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Bạn không bị trừ điểm!'
+        });
+      } else {
+        // Kéo Co (TUG)
+        if (penaltyPts > 0) {
+          nextTotalScore = fastScoreRef.current - penaltyPts;
+          fastScoreRef.current = nextTotalScore;
+          setFastScore(nextTotalScore);
+        }
+        setLastLockedResult({
+          isCorrect: false,
+          text: activeWager === 2.5
+            ? '❌ ĐÁP ÁN SAI! Cược Tất Tay thất bại: Trừ -800đ & đóng băng!'
+            : activeWager === 1.5
+            ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh thất bại: Trừ -300đ & đóng băng!'
+            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Không bị trừ điểm • Đã khóa câu trả lời!'
         });
       }
 
@@ -1502,7 +1604,8 @@ export const StudentMobileView: React.FC<Props> = ({
         wagerLevel: activeWager,
         lives: nextLivesVal,
         totalScore: nextTotalScore,
-        savedCorrect: myCorrectCountRef.current
+        savedCorrect: myCorrectCountRef.current,
+        hasUsedSpecialWager: activeWager > 1
       });
 
       setLastCompletedQIndex(currentGlobalQIndexRef.current);
@@ -2956,45 +3059,64 @@ export const StudentMobileView: React.FC<Props> = ({
                 {lastLockedResult.text}
               </div>
 
-              {/* 🎁 RƯƠNG BÍ ẨN ĐỊNH MỆNH (MYSTERY LUCKY CHEST - 3 RƯƠNG CHỌN 1) */}
+              {/* 🎁 RƯƠNG BÍ ẨN ĐỊNH MỆNH (BẮT BUỘC ĐÚNG LIÊN TIẾP 5 CÂU - 4 GIÂY CHỌN 1 RƯƠNG NGẪU NHIÊN - DÙNG 1 LẦN DUY NHẤT) */}
               {mysteryChestsAvailable && !claimedChestResult && (
                 <div style={{
-                  margin: '12px 0',
-                  padding: '14px 12px',
-                  borderRadius: '16px',
-                  background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.92))',
-                  border: '2px solid #facc15',
-                  boxShadow: '0 8px 25px rgba(250, 204, 21, 0.35)'
+                  margin: '14px 0',
+                  padding: '16px 14px',
+                  borderRadius: '18px',
+                  background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 27, 75, 0.96))',
+                  border: '2.5px solid #facc15',
+                  boxShadow: '0 10px 30px rgba(250, 204, 21, 0.45)',
+                  animation: 'pulse 1.5s infinite'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a', marginBottom: '4px' }}>
-                    🎁 PHẦN THƯỞNG BẤT NGỜ: CHỌN 1 RƯƠNG BÍ ẨN!
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🎁 MỞ RƯƠNG BÍ ẨN ĐỊNH MỆNH</span>
+                      <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '999px', background: '#dc2626', color: '#fff' }}>
+                        1 Lần Duy Nhất
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '13.5px',
+                      fontWeight: 900,
+                      color: chestCountdown <= 2 ? '#ef4444' : '#fde047',
+                      background: 'rgba(0,0,0,0.5)',
+                      padding: '3px 9px',
+                      borderRadius: '8px',
+                      border: '1.5px solid ' + (chestCountdown <= 2 ? '#ef4444' : '#facc15')
+                    }}>
+                      ⏳ Còn {chestCountdown}s
+                    </span>
                   </div>
-                  <div style={{ fontSize: '11.5px', color: '#cbd5e1', marginBottom: '10px' }}>
-                    Bấm mở ngay để săn <b>💎 Nổ Hũ +1500đ</b>, <b>🦊 Đạo Chích Hút Điểm</b>, <b>🛡️ Khiên Bất Tử</b> hoặc <b>❤️ Hồi Mạng</b>!
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '12px', lineHeight: 1.5 }}>
+                    🔥 Chúc mừng chuỗi <b>5 câu đúng liên tiếp</b>! Bạn có <b>4 giây</b> để chọn 1 rương ngẫu nhiên:<br />
+                    • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500đ &nbsp;|&nbsp; • 🥷 <b>Đạo Chích:</b> +900đ &amp; hút 500đ Top 1<br />
+                    • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh &nbsp;|&nbsp; • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ câu sau sai!
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                     {[0, 1, 2].map(cIdx => (
                       <button
                         key={cIdx}
                         type="button"
                         onClick={() => handleOpenMysteryChest(cIdx)}
                         style={{
-                          padding: '10px 6px',
-                          borderRadius: '12px',
+                          padding: '12px 6px',
+                          borderRadius: '14px',
                           background: 'linear-gradient(135deg, #f59e0b, #b45309)',
                           border: '2px solid #fef08a',
                           color: '#0f172a',
                           fontWeight: 900,
-                          fontSize: '13px',
+                          fontSize: '13.5px',
                           cursor: 'pointer',
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
-                          gap: '4px',
-                          boxShadow: '0 4px 12px rgba(245, 158, 11, 0.45)'
+                          gap: '6px',
+                          boxShadow: '0 6px 16px rgba(245, 158, 11, 0.5)'
                         }}
                       >
-                        <span style={{ fontSize: '26px' }}>🎁</span>
+                        <span style={{ fontSize: '30px' }}>🎁</span>
                         <span>Rương #{cIdx + 1}</span>
                       </button>
                     ))}
@@ -3059,50 +3181,111 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           ) : (
             <>
-              {/* 🎲 THANH ĐẶT CƯỢC BẢN LĨNH (RISK & LUCK WAGER BAR) TRƯỚC KHI CHỌN ĐÁP ÁN */}
+              {/* 🎲 THANH ĐẶT CƯỢC BẢN LĨNH (MỖI HỌC SINH CHỈ DÙNG 1 LẦN DUY NHẤT TRONG CẢ TRẬN) */}
               <div style={{
-                background: 'rgba(15, 23, 42, 0.92)',
+                background: 'rgba(15, 23, 42, 0.94)',
                 border: '1.5px solid #475569',
-                borderRadius: '14px',
-                padding: '8px 10px',
-                marginBottom: '10px',
+                borderRadius: '16px',
+                padding: '10px 12px',
+                marginBottom: '12px',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '6px',
-                flexWrap: 'wrap'
+                flexDirection: 'column',
+                gap: '8px'
               }}>
-                <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#fef08a' }}>
-                  🎲 Cược Bản Lĩnh:
-                </span>
-                <div style={{ display: 'flex', gap: '5px', flex: 1, justifyContent: 'flex-end' }}>
-                  {[
-                    { lv: 1 as WagerLevel, label: '🛡️ An Toàn (x1)', color: '#0284c7' },
-                    { lv: 1.5 as WagerLevel, label: '🔥 Liều Lĩnh (x1.5)', color: '#d97706' },
-                    { lv: 2.5 as WagerLevel, label: '💎 Tất Tay (x2.5)', color: '#db2777' }
-                  ].map(w => {
-                    const active = wagerLevel === w.lv;
-                    return (
-                      <button
-                        key={w.lv}
-                        type="button"
-                        onClick={() => setWagerLevel(w.lv)}
-                        style={{
-                          padding: '5px 8px',
-                          borderRadius: '9px',
-                          fontSize: '11px',
-                          fontWeight: 900,
-                          background: active ? w.color : '#1e293b',
-                          color: '#ffffff',
-                          border: active ? '2px solid #fef08a' : '1px solid #334155',
-                          cursor: 'pointer',
-                          boxShadow: active ? `0 3px 10px ${w.color}66` : 'none'
-                        }}
-                      >
-                        {w.label}
-                      </button>
-                    );
-                  })}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🎲 Cược Bản Lĩnh Trước Khi Chốt</span>
+                    <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '6px', background: hasUsedSpecialWager ? '#475569' : '#dc2626', color: '#fff' }}>
+                      {hasUsedSpecialWager ? 'Đã dùng 1 lần duy nhất' : 'Mỗi bạn chỉ dùng 1 lần'}
+                    </span>
+                  </span>
+                  {hasImmunityShield && (
+                    <span style={{ fontSize: '11px', background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: '999px', fontWeight: 900 }}>
+                      🛡️ Khiên Bất Tử Đang Bật (Bảo vệ câu này)
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {/* An Toàn (x1) */}
+                  <button
+                    type="button"
+                    onClick={() => setWagerLevel(1)}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '10px',
+                      background: wagerLevel === 1 ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
+                      color: '#ffffff',
+                      border: wagerLevel === 1 ? '2px solid #7dd3fc' : '1px solid #334155',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '2px',
+                      boxShadow: wagerLevel === 1 ? '0 3px 10px rgba(2, 132, 199, 0.5)' : 'none'
+                    }}
+                  >
+                    <span style={{ fontSize: '11.5px', fontWeight: 900 }}>🛡️ An Toàn (x1)</span>
+                    <span style={{ fontSize: '9.5px', color: '#93c5fd', fontWeight: 700 }}>Sai: 0đ (không trừ)</span>
+                  </button>
+
+                  {/* Liều Lĩnh (x1.5) */}
+                  <button
+                    type="button"
+                    disabled={hasUsedSpecialWager}
+                    onClick={() => {
+                      if (!hasUsedSpecialWager) setWagerLevel(1.5);
+                    }}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '10px',
+                      background: wagerLevel === 1.5 ? 'linear-gradient(135deg, #d97706, #b45309)' : '#1e293b',
+                      color: hasUsedSpecialWager ? '#64748b' : '#ffffff',
+                      border: wagerLevel === 1.5 ? '2px solid #fde047' : '1px solid #334155',
+                      cursor: hasUsedSpecialWager ? 'not-allowed' : 'pointer',
+                      opacity: hasUsedSpecialWager ? 0.45 : 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '2px',
+                      boxShadow: wagerLevel === 1.5 ? '0 3px 10px rgba(217, 119, 6, 0.5)' : 'none'
+                    }}
+                    title={hasUsedSpecialWager ? 'Bạn đã dùng lượt cược bản lĩnh duy nhất của trận đấu' : 'Đúng nhân 1.5x điểm, sai trừ -300đ'}
+                  >
+                    <span style={{ fontSize: '11.5px', fontWeight: 900 }}>⚡ Liều Lĩnh (x1.5)</span>
+                    <span style={{ fontSize: '9.5px', color: '#fcd34d', fontWeight: 700 }}>
+                      {hasUsedSpecialWager ? 'Đã dùng' : 'Đúng 1.5x • Sai -300đ'}
+                    </span>
+                  </button>
+
+                  {/* Tất Tay (x2.5) */}
+                  <button
+                    type="button"
+                    disabled={hasUsedSpecialWager}
+                    onClick={() => {
+                      if (!hasUsedSpecialWager) setWagerLevel(2.5);
+                    }}
+                    style={{
+                      padding: '7px 4px',
+                      borderRadius: '10px',
+                      background: wagerLevel === 2.5 ? 'linear-gradient(135deg, #e11d48, #9f1239)' : '#1e293b',
+                      color: hasUsedSpecialWager ? '#64748b' : '#ffffff',
+                      border: wagerLevel === 2.5 ? '2px solid #fda4af' : '1px solid #334155',
+                      cursor: hasUsedSpecialWager ? 'not-allowed' : 'pointer',
+                      opacity: hasUsedSpecialWager ? 0.45 : 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '2px',
+                      boxShadow: wagerLevel === 2.5 ? '0 3px 10px rgba(225, 29, 72, 0.5)' : 'none'
+                    }}
+                    title={hasUsedSpecialWager ? 'Bạn đã dùng lượt cược bản lĩnh duy nhất của trận đấu' : 'Đúng nhân 2.5x điểm, sai trừ -800đ (dành cho bạn tự tin 100% để lật kèo)'}
+                  >
+                    <span style={{ fontSize: '11.5px', fontWeight: 900 }}>🔥 Tất Tay (x2.5)</span>
+                    <span style={{ fontSize: '9.5px', color: '#fca5a5', fontWeight: 700 }}>
+                      {hasUsedSpecialWager ? 'Đã dùng' : 'Đúng 2.5x • Sai -800đ'}
+                    </span>
+                  </button>
                 </div>
               </div>
 

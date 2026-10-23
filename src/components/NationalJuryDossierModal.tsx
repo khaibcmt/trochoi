@@ -596,6 +596,30 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                 </p>
               </div>
 
+              {/* Banner Chú Ý Đặc Biệt: Mỗi học sinh chỉ dùng 1 lần duy nhất */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(220, 38, 38, 0.25), rgba(245, 158, 11, 0.25))',
+                  border: '2.5px solid #f59e0b',
+                  borderRadius: '18px',
+                  padding: '14px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  boxShadow: '0 8px 24px rgba(245, 158, 11, 0.2)'
+                }}
+              >
+                <span style={{ fontSize: '32px' }}>⚡</span>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fef08a' }}>
+                    QUY TẮC ĐẶC BIỆT: CÁC CƠ CHẾ NÀY MỖI HỌC SINH CHỈ DÙNG 1 LẦN DUY NHẤT TRONG TẤT CẢ CÁC TRÒ CHƠI!
+                  </div>
+                  <div style={{ fontSize: '13.5px', color: '#cbd5e1', marginTop: '3px', lineHeight: 1.5 }}>
+                    Cả <b>Cơ Chế Cược Bản Lĩnh</b> và <b>Mở Rương Bí Ẩn Định Mệnh</b> đều được giới hạn đúng <b>1 lần duy nhất</b> cho mỗi học sinh trong cả trận đấu. Hãy lựa chọn thời điểm chiến lược để lật ngược thế cờ!
+                  </div>
+                </div>
+              </div>
+
               {/* Các Bước Dành Cho Học Sinh */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '16px' }}>
                 <div style={{ background: '#111827', border: '1.5px solid #334155', borderRadius: '16px', padding: '18px' }}>
@@ -620,28 +644,42 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '1.5px solid #f43f5e', borderRadius: '16px', padding: '18px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fda4af', marginBottom: '8px' }}>
-                    3. Cơ Chế Cược Bản Lĩnh Trước Khi Chốt
+                <div style={{ background: '#111827', border: '2px solid #f43f5e', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '16.5px', fontWeight: 900, color: '#fda4af' }}>
+                      3. Cơ Chế Cược Bản Lĩnh Trước Khi Chốt
+                    </div>
+                    <span style={{ fontSize: '11px', background: '#dc2626', color: '#fff', padding: '2px 8px', borderRadius: '999px', fontWeight: 900 }}>
+                      Dùng 1 Lần Duy Nhất
+                    </span>
                   </div>
-                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
-                    Trước khi bấm chọn đáp án, học sinh có thể chọn mức cược:<br />
-                    • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm.<br />
-                    • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm, sai bị trừ -300đ.<br />
-                    • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm, sai bị trừ -800đ (dành cho bạn tự tin 100% để lật kèo)!
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    Trước khi bấm chọn đáp án, học sinh có thể chọn mức cược chiến thuật:<br />
+                    • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm (mức mặc định).<br />
+                    • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm, sai bị trừ <b>-300đ</b>.<br />
+                    • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm, sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!<br />
+                    <span style={{ color: '#fde047', fontWeight: 800 }}>
+                      ⚠️ Lưu ý: Khi đã bấm chọn Liều Lĩnh hoặc Tất Tay, bạn đã dùng hết lượt cược duy nhất của trận đấu; các câu sau sẽ tự động trở về An Toàn (x1)!
+                    </span>
                   </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '1.5px solid #f59e0b', borderRadius: '16px', padding: '18px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
-                    4. Mở Rương Bí Ẩn Định Mệnh
+                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '16.5px', fontWeight: 900, color: '#fde047' }}>
+                      4. Mở Rương Bí Ẩn Định Mệnh
+                    </div>
+                    <span style={{ fontSize: '11px', background: '#d97706', color: '#fff', padding: '2px 8px', borderRadius: '999px', fontWeight: 900 }}>
+                      Streak = 5 • 4 Giây Chọn
+                    </span>
                   </div>
-                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
-                    Khi trả lời đúng, màn hình xuất hiện <b>3 Rương Kho Báu</b>. Bạn có 4 giây để chọn mở 1 rương ngẫu nhiên:<br />
-                    • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
-                    • 🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của bạn đang dẫn đầu Top 1.<br />
-                    • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
-                    • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị phạt nếu câu sau sai!
+                  <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    <b style={{ color: '#f87171' }}>• Điều kiện bắt buộc:</b> Phải trả lời đúng <b>liên tiếp 5 câu</b> (Streak = 5) mới được mở rương (mỗi học sinh chỉ mở 1 lần duy nhất trong cả trận).<br />
+                    • Màn hình xuất hiện <b>3 Rương Kho Báu</b>. Bạn có <b>4 giây</b> để chọn mở 1 rương ngẫu nhiên:<br />
+                    &nbsp;&nbsp;💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
+                    &nbsp;&nbsp;🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của bạn đang dẫn đầu Top 1.<br />
+                    &nbsp;&nbsp;💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
+                    &nbsp;&nbsp;🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn tuyệt đối không bị phạt nếu câu sau sai!
                   </div>
                 </div>
               </div>
@@ -718,6 +756,46 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     • Mỗi câu trả lời đúng bắn một luồng năng lượng trừ máu Boss.<br />
                     • Boss có các pha cuồng nộ và triệu hồi khiên chắn khi máu xuống dưới 50%.<br />
                     • Thúc đẩy tinh thần &ldquo;Không bỏ lại bất kỳ học sinh nào phía sau&rdquo;!
+                  </div>
+                </div>
+              </div>
+
+              {/* 2 CƠ CHẾ ĐẶC BIỆT ÁP DỤNG XUYÊN SUỐT CẢ 4 TRÒ CHƠI */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 27, 75, 0.95))',
+                  border: '2.5px solid #f59e0b',
+                  borderRadius: '18px',
+                  padding: '18px 22px',
+                  boxShadow: '0 8px 25px rgba(245, 158, 11, 0.25)'
+                }}
+              >
+                <div style={{ fontSize: '17px', fontWeight: 900, color: '#fde047', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>⚡ 2 CƠ CHẾ ĐẶC BIỆT TOÀN DIỆN: MỖI HỌC SINH CHỈ DÙNG 1 LẦN DUY NHẤT!</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginTop: '10px' }}>
+                  <div style={{ background: '#0b0f19', border: '1.5px solid #ef4444', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ color: '#fda4af', fontWeight: 900, fontSize: '15px', marginBottom: '6px' }}>
+                      🎲 1. Cược Bản Lĩnh Trước Khi Chốt (Dùng 1 Lần Duy Nhất):
+                    </div>
+                    <div style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.55 }}>
+                      • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm (mặc định an tâm).<br />
+                      • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm (+1.500đ), sai bị trừ <b>-300đ</b>.<br />
+                      • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#0b0f19', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
+                    <div style={{ color: '#fde047', fontWeight: 900, fontSize: '15px', marginBottom: '6px' }}>
+                      🎁 2. Mở Rương Bí Ẩn Định Mệnh (Bắt Buộc Đúng 5 Câu Liên Tiếp - 4s Chọn):
+                    </div>
+                    <div style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.55 }}>
+                      Xuất hiện 3 Rương, có 4 giây để chọn 1 rương ngẫu nhiên:<br />
+                      • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
+                      • 🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của đối thủ đang Top 1.<br />
+                      • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
+                      • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị phạt nếu câu sau sai!
+                    </div>
                   </div>
                 </div>
               </div>

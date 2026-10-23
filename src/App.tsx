@@ -918,14 +918,27 @@ export const App: React.FC = () => {
         pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + delta;
         if (typeof d.lives === 'number' && prev.gameType === 'BELL') {
           pObj.lives = Math.min(5, d.lives);
+          if (pObj.lives > 0) {
+            pObj.eliminated = false;
+            pObj.role = 'PULLER';
+          }
         }
 
-        // Nếu mở trúng Siêu Đạo Chích (STEAL_LEADER), hút 500đ từ người dẫn đầu đối phương
+        // Nếu mở trúng Đạo Chích (STEAL_LEADER): +900đ và hút 500đ của bạn đang dẫn đầu Top 1
         if (d.powerUpUsed === ('STEAL_LEADER' as any)) {
           const others = allP.filter(x => x.id !== pObj.id && (x.fastScore || 0) > 0).sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
           if (others.length > 0) {
             const leader = others[0];
-            leader.fastScore = Math.max(0, (leader.fastScore || 0) - 500);
+            const stolen = Math.min(500, leader.fastScore || 0);
+            leader.fastScore = Math.max(0, (leader.fastScore || 0) - stolen);
+            CloudNetwork.sendMessage({
+              type: 'PLAYER_LIVES_SYNC',
+              playerId: leader.id,
+              fastScore: leader.fastScore,
+              lives: leader.lives,
+              streak: leader.streak,
+              eliminated: leader.eliminated
+            });
           }
         }
 
@@ -944,7 +957,7 @@ export const App: React.FC = () => {
         if (d.mysteryRewardText) {
           nextFeed.unshift({
             id: `lf_mc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            text: `🎁 [RƯƠNG BÍ ẨN] ${pObj.label}: ${d.mysteryRewardText}`,
+            text: `🎁 [RƯƠNG ĐỊNH MỆNH 5 STREAK] ${pObj.label}: ${d.mysteryRewardText}`,
             type: 'JACKPOT',
             timestamp: Date.now()
           });
@@ -990,12 +1003,17 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        // CHỈ CÓ RUNG CHUÔNG VÀNG (BELL) mới bị mất mạng khi trả lời sai (Cược Tất Tay x2.5 mà sai thì mất 2 mạng!)
+        // Mức phạt chuẩn cược bản lĩnh:
+        // • An Toàn (x1): 0đ (không trừ)
+        // • Liều Lĩnh (x1.5): trừ 300đ
+        // • Tất Tay (x2.5): trừ 800đ
+        const penalty = wager === 2.5 ? 800 : wager === 1.5 ? 300 : 0;
+
         if (prev.gameType === 'BELL') {
           AudioFX.freezeCrack();
-          const lifeLoss = wager === 2.5 ? 2 : 1;
-          pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - lifeLoss);
-          pObj.lastDelta = 0;
+          pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - 1);
+          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : Math.max(0, (pObj.fastScore || 0) - penalty);
+          pObj.lastDelta = -penalty;
           if (pObj.lives <= 0) {
             pObj.eliminated = true;
             pObj.role = 'SPECTATOR';
@@ -1011,9 +1029,7 @@ export const App: React.FC = () => {
             bonusAwarded: false
           });
         } else if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
-          // TRÒ AI NHANH HƠN (FAST) VÀ ĐÁNH BOSS (BOSS): Trừ điểm theo mức cược (An toàn -1000, Liều lĩnh -1500, Tất tay -2000)
           AudioFX.freezeCrack();
-          const penalty = wager === 2.5 ? 2000 : wager === 1.5 ? 1500 : 1000;
           pObj.lives = 3;
           pObj.eliminated = false;
           pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - penalty;
@@ -1029,13 +1045,14 @@ export const App: React.FC = () => {
             bonusAwarded: false
           });
         } else {
-          // Trò Kéo Co (TUG): Câu sai bị đóng băng (3s -> 6s tùy mức cược)
+          // Trò Kéo Co (TUG)
           pObj.lives = 3;
           pObj.eliminated = false;
-          pObj.lastDelta = 0;
+          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - penalty;
+          pObj.lastDelta = -penalty;
           if (prev.gameType === 'TUG') {
             AudioFX.freezeCrack();
-            const freezeMs = wager === 2.5 ? 5500 : wager === 1.5 ? 4000 : 3000;
+            const freezeMs = wager === 2.5 ? 4000 : wager === 1.5 ? 3000 : 2000;
             pObj.freeze = Date.now() + freezeMs;
           }
         }
