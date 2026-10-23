@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat } from '../types';
+import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat, WagerLevel, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
 import { CloudNetwork, NetworkConnStatus } from '../services/network';
 import {
@@ -129,11 +129,16 @@ export const StudentMobileView: React.FC<Props> = ({
     };
   });
 
-  // Power-up Inventory
+  // Power-up Inventory + Wager Mode + Mystery Chest + World Event state
   const [inventory, setInventory] = useState<PowerUpType[]>([]);
   const [activeShield, setActiveShield] = useState<boolean>(false);
   const [doublePowerActive, setDoublePowerActive] = useState<boolean>(false);
   const [eliminatedOptions, setEliminatedOptions] = useState<number[]>([]);
+  const [wagerLevel, setWagerLevel] = useState<WagerLevel>(1);
+  const [activeWorldEvent, setActiveWorldEvent] = useState<WorldEventType>('NONE');
+  const [worldEventTitle, setWorldEventTitle] = useState<string>('');
+  const [mysteryChestsAvailable, setMysteryChestsAvailable] = useState<boolean>(false);
+  const [claimedChestResult, setClaimedChestResult] = useState<{ icon: string; title: string; desc: string } | null>(null);
 
   // True/False answers state for current question: { a: boolean, b: boolean, c: boolean, d: boolean }
   const [tfAnswers, setTfAnswers] = useState<Record<string, boolean>>({
@@ -508,6 +513,9 @@ export const StudentMobileView: React.FC<Props> = ({
       setEliminatedOptions([]);
       setShortAnswerInput('');
       setTfAnswers({ a: true, b: false, c: true, d: false });
+      setWagerLevel(1);
+      setMysteryChestsAvailable(false);
+      setClaimedChestResult(null);
       startMsRef.current = Date.now();
     }
 
@@ -695,6 +703,49 @@ export const StudentMobileView: React.FC<Props> = ({
     if (d.type === 'FAST_ANSWER_RESULT' && d.playerId === myPlayerId) {
       if (typeof d.rank === 'number' && d.rank > 0) {
         setFastRank(d.rank);
+      }
+      if (d.isFirstBlood) {
+        AudioFX.firstBloodStrike();
+        triggerBonusToast('⚡ TIA CHỚP ĐẦU TIÊN! Bạn trả lời đúng nhanh nhất câu này (+500đ thưởng)!');
+      }
+      return;
+    }
+
+    if (d.type === 'DRAMA_EVENT') {
+      if (d.playerId === myPlayerId && d.isFirstBlood) {
+        AudioFX.firstBloodStrike();
+        if (typeof d.totalScore === 'number' && d.totalScore > fastScoreRef.current) {
+          fastScoreRef.current = d.totalScore;
+          setFastScore(d.totalScore);
+        }
+        triggerBonusToast('⚡ BẠN GIÀNH TIA CHỚP ĐẦU TIÊN (FIRST BLOOD): +500 ĐIỂM TỐC ĐỘ!');
+      } else if (d.dramaAnnouncement) {
+        triggerBonusToast(d.dramaAnnouncement);
+      }
+      return;
+    }
+
+    if (d.type === 'WORLD_EVENT_TRIGGERED') {
+      AudioFX.worldEventSiren();
+      if (d.worldEvent) setActiveWorldEvent(d.worldEvent);
+      if (d.worldEventTitle) {
+        setWorldEventTitle(d.worldEventTitle);
+        triggerBonusToast(d.worldEventTitle);
+      }
+      if (d.worldEvent === 'MIRACLE_BLESSING') {
+        setEliminated(false);
+        eliminatedRef.current = false;
+        setLives(prev => Math.max(prev, 1));
+        const nextPts = fastScoreRef.current + 500;
+        fastScoreRef.current = nextPts;
+        setFastScore(nextPts);
+        if (screenRef.current === 'ELIMINATED') {
+          setScreen(hasFinishedAllQuestionsRef.current ? 'ENDED' : 'QUIZ');
+        }
+      } else if (d.worldEvent === 'UNDERDOG_BOOST' && typeof d.bonusScoreDelta === 'number' && d.bonusScoreDelta > 0) {
+        const nextPts = fastScoreRef.current + d.bonusScoreDelta;
+        fastScoreRef.current = nextPts;
+        setFastScore(nextPts);
       }
       return;
     }
@@ -932,6 +983,10 @@ export const StudentMobileView: React.FC<Props> = ({
         setMatchStatText(`Tỉ số kéo: Đỏ ${d.redRoundWins || 0} - Xanh ${d.blueRoundWins || 0}`);
       }
 
+      if (d.worldEvent) {
+        setActiveWorldEvent(d.worldEvent);
+        setWorldEventTitle(d.worldEventTitle || '');
+      }
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
         quizDeckRef.current = d.quiz;
@@ -1022,6 +1077,13 @@ export const StudentMobileView: React.FC<Props> = ({
         if (d.question) {
           setBroadcastQuestionMap(prev => ({ ...prev, [d.qIndex!]: d.question! }));
           setCurrentBroadcastQ({ ...d.question, qIndex: d.qIndex } as any);
+        }
+        if (d.worldEvent) {
+          setActiveWorldEvent(d.worldEvent);
+          setWorldEventTitle(d.worldEventTitle || '');
+        } else {
+          setActiveWorldEvent('NONE');
+          setWorldEventTitle('');
         }
         if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
           setQuizDeck(d.quiz);
@@ -1161,19 +1223,6 @@ export const StudentMobileView: React.FC<Props> = ({
     setSelectedOptionOriginalIdx(origIdx);
 
     const isCorrect = Number(origIdx) === Number(resolvedCurrentQ.correct);
-    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
-
-    setLastLockedResult({
-      isCorrect,
-      text: isCorrect
-        ? '✅ CHÍNH XÁC! Bạn đã chọn ĐÚNG đáp án (+1000 điểm • +1 câu đúng ghi sổ điểm)'
-        : (gameType === 'BELL'
-            ? '❌ ĐÁP ÁN SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
-            : hasPenalty
-            ? '❌ ĐÁP ÁN SAI! Bạn bị trừ -1000 điểm ở câu này (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)'
-            : '❌ ĐÁP ÁN SAI! (0 điểm câu này • Đã khóa câu trả lời)')
-    });
-
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
@@ -1196,20 +1245,7 @@ export const StudentMobileView: React.FC<Props> = ({
     });
 
     const won = items.length > 0 && correctCount === items.length;
-    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
-
-    setLastLockedResult({
-      isCorrect: won,
-      text: won
-        ? `✅ XUẤT SẮC! Bạn trả lời ĐÚNG cả ${correctCount}/${items.length} mệnh đề (+1000 điểm • +1 câu đúng ghi sổ điểm)`
-        : (gameType === 'BELL'
-            ? `❌ CHƯA CHÍNH XÁC (${correctCount}/${items.length} ý đúng) • Bạn bị mất 1 ❤️ Mạng`
-            : hasPenalty
-            ? `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng) • Trừ -1000 điểm (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)`
-            : `❌ CHƯA TRỌN VẸN (${correctCount}/${items.length} ý đúng • 0 điểm) • Đã khóa câu trả lời`)
-    });
-
-    processAnswerOutcome(won, won ? 1 : 0);
+    processAnswerOutcome(won, won ? 1 : 0, `${correctCount}/${items.length} mệnh đề đúng`);
   };
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
@@ -1236,27 +1272,103 @@ export const StudentMobileView: React.FC<Props> = ({
     const isNumEqual = !isNaN(Number(normCorrect)) && !isNaN(Number(normUser)) && Number(normCorrect) === Number(normUser);
     const isStrEqual = correctVal === userVal;
     const isCorrect = isNumEqual || isStrEqual;
-    const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
 
-    setLastLockedResult({
-      isCorrect,
-      text: isCorrect
-        ? `✅ CHÍNH XÁC! Kết quả "${shortAnswerInput.trim()}" hoàn toàn ĐÚNG (+1000 điểm • +1 câu đúng ghi sổ điểm)`
-        : (gameType === 'BELL'
-            ? '❌ KẾT QUẢ SAI! Bạn bị mất 1 ❤️ Mạng ở câu này'
-            : hasPenalty
-            ? '❌ KẾT QUẢ SAI! Bạn bị trừ -1000 điểm ở câu này (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên!)'
-            : '❌ KẾT QUẢ SAI! (0 điểm câu này • Đã khóa câu trả lời)')
-    });
-
-    processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
+    processAnswerOutcome(isCorrect, isCorrect ? 1 : 0, `Kết quả "${shortAnswerInput.trim()}"`);
   };
 
-  // Common answer processor
-  const processAnswerOutcome = (isCorrect: boolean, factor: number) => {
-    const elapsedSec = (Date.now() - startMsRef.current) / 1000;
+  // Mở Rương Bí Ẩn Định Mệnh (Mystery Lucky Chest - Yếu tố Bất Ngờ & May Rủi)
+  const handleOpenMysteryChest = (chestIndex: number) => {
+    if (!mysteryChestsAvailable || claimedChestResult) return;
+    AudioFX.jackpotSpin();
+
+    const roll = Math.random();
+    let icon = '💎';
+    let title = 'NỔ HŨ KIM CƯƠNG (+1500Đ)!';
+    let desc = 'Chúc mừng! Bạn mở trúng kho báu Kim Cương +1500 điểm thưởng!';
+    let bonusDelta = 1500;
+    let specialPower: string | undefined = undefined;
+    let nextLives = lives;
+
+    if (roll < 0.25) {
+      icon = '💎';
+      title = 'NỔ HŨ KIM CƯƠNG (+1500Đ)!';
+      desc = `Rương Vàng #${chestIndex + 1} phát nổ +1500 điểm thưởng!`;
+      bonusDelta = 1500;
+    } else if (roll < 0.48) {
+      icon = '🦊';
+      title = 'SIÊU ĐẠO CHÍCH (+900Đ & HÚT ĐIỂM TOP 1)!';
+      desc = 'Bạn nhận +900 điểm và hút 500 điểm từ đối thủ đang dẫn đầu!';
+      bonusDelta = 900;
+      specialPower = 'STEAL_LEADER';
+    } else if (roll < 0.68) {
+      if (gameType === 'BELL') {
+        icon = '❤️';
+        title = 'TIÊN ĐƠN HỒI MẠNG (+1 ❤️ & +600Đ)!';
+        desc = 'Bạn nhận thêm +1 ❤️ Mạng bảo hộ trên sàn Rung Chuông Vàng và +600 điểm!';
+        bonusDelta = 600;
+        nextLives = Math.min(5, lives + 1);
+        setLives(nextLives);
+      } else if (gameType === 'TUG') {
+        icon = '⚡';
+        title = 'BÙA CUỒNG NỘ KÉO CO (+800Đ & X2 KÉO)!';
+        desc = 'Nhận +800 điểm, giật mạnh dây về đội nhà và tặng 1 Thẻ Kỹ Năng!';
+        bonusDelta = 800;
+        awardRandomPowerUp();
+      } else {
+        icon = '🗡️';
+        title = 'THIÊN THẠCH CHÍ MẠNG (+1000Đ)!';
+        desc = 'Nhận +1000 điểm thưởng tốc độ và giáng đòn sấm sét lên bảng đấu!';
+        bonusDelta = 1000;
+      }
+    } else if (roll < 0.85) {
+      icon = '🛡️';
+      title = 'KHIÊN HỘ MỆNH BẤT TỬ (+500Đ)!';
+      desc = 'Kích hoạt Khiên Bảo Vệ chống đóng băng / bảo hiểm điểm số +500đ!';
+      bonusDelta = 500;
+      setActiveShield(true);
+    } else {
+      icon = '🍌';
+      title = 'TRƯỢT VỎ CHUỐI MAY MẮN (+200Đ)!';
+      desc = 'Suýt trúng hũ lớn! Chibi tặng bạn +200 điểm khích lệ siêu đáng yêu!';
+      bonusDelta = 200;
+    }
+
+    const updatedScore = fastScoreRef.current + bonusDelta;
+    fastScoreRef.current = updatedScore;
+    setFastScore(updatedScore);
+    setClaimedChestResult({ icon, title, desc });
+    setMysteryChestsAvailable(false);
+
+    CloudNetwork.sendMessage({
+      type: 'MYSTERY_CHEST_CLAIMED',
+      playerId: myPlayerId,
+      team,
+      bonusScoreDelta: bonusDelta,
+      totalScore: updatedScore,
+      lives: nextLives,
+      powerUpUsed: specialPower as any,
+      mysteryRewardText: `${icon} ${title}`
+    });
+
+    // Sau khi mở rương xong, chuyển sang câu tiếp theo mượt mà sau 1.25s
+    if (!eliminatedRef.current) {
+      if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+      const answeredIdx = currentGlobalQIndexRef.current;
+      finishTransitionTimerRef.current = setTimeout(() => {
+        if (!eliminatedRef.current) {
+          advanceStudentQuestionOrFinish(answeredIdx);
+        }
+      }, 1250);
+    }
+  };
+
+  // Common answer processor (Tích hợp Tốc độ Phản xạ + Mức Cược Bản Lĩnh + Chuỗi Bốc Lửa + Rương Bí Ẩn)
+  const processAnswerOutcome = (isCorrect: boolean, factor: number, detailNote?: string) => {
+    const elapsedSec = Math.max(0.2, (Date.now() - startMsRef.current) / 1000);
     const totalCount = Math.max(1, quizDeckRef.current.length || quizDeck.length || 1);
     const isFinalQuestion = currentGlobalQIndexRef.current + 1 >= totalCount;
+    const activeWager = wagerLevel || 1;
+    const isGoldenEvent = activeWorldEvent === 'GOLDEN_X2';
 
     if (isCorrect) {
       AudioFX.pullHeave();
@@ -1266,19 +1378,40 @@ export const StudentMobileView: React.FC<Props> = ({
       const powerMultiplier = (gameType === 'TUG' && doublePowerActive) ? 2 : 1;
       if (doublePowerActive) setDoublePowerActive(false);
 
-      const gainedPts = Math.max(1000, factor * powerMultiplier * 1000);
-      const nextTotalScore = fastScoreRef.current + gainedPts;
+      // Điểm thưởng tốc độ phản xạ (Nhanh <= 5s: +300đ, <= 10s: +150đ)
+      const speedBonus = elapsedSec <= 5 ? 300 : elapsedSec <= 10 ? 150 : 0;
+      // Điểm thưởng chuỗi Bốc Lửa (Streak >= 3: +200đ)
+      const streakBonus = nextStreak >= 5 ? 400 : nextStreak >= 3 ? 200 : 0;
+      const basePts = Math.round(1000 * factor * activeWager * powerMultiplier);
+      const gainedPts = basePts + speedBonus + streakBonus;
+      const effectiveHostPts = isGoldenEvent ? gainedPts * 2 : gainedPts;
+
+      const nextTotalScore = fastScoreRef.current + effectiveHostPts;
       const nextCorrectCount = myCorrectCountRef.current + 1;
       fastScoreRef.current = nextTotalScore;
       myCorrectCountRef.current = nextCorrectCount;
       setFastScore(nextTotalScore);
       setMyCorrectCount(nextCorrectCount);
 
+      // Mở khóa Rương Bí Ẩn Định Mệnh khi đạt chuỗi >= 2, hoặc thắng cược Liều Lĩnh/Tất Tay, hoặc may mắn 45%
+      const unlockMysteryChest = !isFinalQuestion && (nextStreak >= 2 || activeWager > 1 || Math.random() < 0.45);
+      setMysteryChestsAvailable(unlockMysteryChest);
+      setClaimedChestResult(null);
+
       // Chỉ có trò Kéo Co (TUG) mới có hiệu ứng thẻ kỹ năng
       if (gameType === 'TUG' && nextStreak >= 3) {
         awardRandomPowerUp();
-        triggerBonusToast('🔥 CHUỖI 3 CÂU ĐÚNG! NHẬN 1 THẺ KỸ NĂNG KÉO CO!');
       }
+
+      const speedTag = elapsedSec <= 5 ? ` • ⚡ Phản xạ thần tốc ${elapsedSec.toFixed(1)}s (+300đ)` : elapsedSec <= 10 ? ` • ⚡ Tốc độ nhanh (+150đ)` : '';
+      const wagerTag = activeWager === 2.5 ? ' • 💎 Thắng Cược Tất Tay x2.5!' : activeWager === 1.5 ? ' • 🔥 Thắng Cược Liều Lĩnh x1.5!' : '';
+      const streakTag = nextStreak >= 3 ? ` • 🔥 Chuỗi ${nextStreak} Bốc Lửa` : '';
+      const goldenTag = isGoldenEvent ? ' • 🌟 Nhân đôi Giờ Vàng X2!' : '';
+
+      setLastLockedResult({
+        isCorrect: true,
+        text: `✅ CHÍNH XÁC! ${detailNote ? `(${detailNote}) ` : ''}+${effectiveHostPts} điểm${wagerTag}${speedTag}${streakTag}${goldenTag}`
+      });
 
       CloudNetwork.sendMessage({
         type: 'PULL_CORRECT',
@@ -1287,31 +1420,78 @@ export const StudentMobileView: React.FC<Props> = ({
         globalQIndex: currentGlobalQIndexRef.current,
         elapsedSec,
         correctCountInTF: factor,
+        wagerLevel: activeWager,
         gainedPts,
         totalScore: nextTotalScore,
         savedCorrect: nextCorrectCount
       });
+
+      setLastCompletedQIndex(currentGlobalQIndexRef.current);
+
+      // Nếu mở khóa Rương Bí Ẩn thì cho 4.2 giây để học sinh bấm khui rương; nếu không thì chuyển câu sau 1.6s
+      if (!eliminatedRef.current) {
+        if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+        const answeredIdx = currentGlobalQIndexRef.current;
+        finishTransitionTimerRef.current = setTimeout(() => {
+          if (!eliminatedRef.current) {
+            advanceStudentQuestionOrFinish(answeredIdx);
+          }
+        }, isFinalQuestion ? 1400 : unlockMysteryChest ? 4200 : 1650);
+      }
     } else {
       AudioFX.freezeCrack();
       setStreak(0);
+      setMysteryChestsAvailable(false);
+      setClaimedChestResult(null);
 
       let nextTotalScore = fastScoreRef.current;
-      // Chỉ có trò Rung Chuông Vàng (BELL) khi trả lời sai mới mất 1 mạng, hết 3 mạng rời cuộc chơi thành Khán giả cổ vũ
+      let nextLivesVal = lives;
+      const hasPenalty = gameType === 'FAST' || gameType === 'BOSS';
+      const penaltyPts = activeWager === 2.5 ? 2000 : activeWager === 1.5 ? 1500 : 1000;
+      const bellLifeLoss = activeWager === 2.5 ? 2 : 1;
+
+      // Chỉ có trò Rung Chuông Vàng (BELL) khi trả lời sai mới mất mạng, hết mạng rời cuộc chơi thành Khán giả cổ vũ
       if (gameType === 'BELL') {
-        setLives(prev => {
-          const nextL = Math.max(0, prev - 1);
-          if (nextL <= 0) {
+        if (activeShield) {
+          setActiveShield(false);
+          setLastLockedResult({
+            isCorrect: false,
+            text: '🛡️ ĐÁP ÁN SAI NHƯNG KHIÊN HỘ MỆNH ĐÃ CHẶN MẤT MẠNG CHO BẠN! (Bảo toàn ❤️)'
+          });
+        } else {
+          nextLivesVal = Math.max(0, lives - bellLifeLoss);
+          setLives(nextLivesVal);
+          if (nextLivesVal <= 0) {
             setEliminated(true);
             eliminatedRef.current = true;
             setScreen('ELIMINATED');
           }
-          return nextL;
+          setLastLockedResult({
+            isCorrect: false,
+            text: `❌ ĐÁP ÁN SAI! ${activeWager === 2.5 ? '(Cược Tất Tay x2.5 thất bại: Mất 2 ❤️)' : 'Bạn bị mất 1 ❤️ Mạng ở câu này'}`
+          });
+        }
+      } else if (hasPenalty) {
+        if (activeShield) {
+          setActiveShield(false);
+          setLastLockedResult({
+            isCorrect: false,
+            text: '🛡️ ĐÁP ÁN SAI NHƯNG KHIÊN BẢO HIỂM ĐÃ GIÚP BẠN KHÔNG BỊ TRỪ ĐIỂM!'
+          });
+        } else {
+          nextTotalScore = fastScoreRef.current - penaltyPts;
+          fastScoreRef.current = nextTotalScore;
+          setFastScore(nextTotalScore);
+          setLastLockedResult({
+            isCorrect: false,
+            text: `❌ ĐÁP ÁN SAI! Trừ -${penaltyPts} điểm ${activeWager > 1 ? `(Mức cược x${activeWager})` : ''} (Số câu đúng ghi sổ điểm GV vẫn bảo lưu!)`
+          });
+        }
+      } else {
+        setLastLockedResult({
+          isCorrect: false,
+          text: `❌ ĐÁP ÁN SAI! (0 điểm câu này ${activeWager > 1 ? `• Đóng băng ${activeWager === 2.5 ? '5.5s' : '4s'}` : '• Đã khóa câu trả lời'})`
         });
-      } else if (gameType === 'FAST' || gameType === 'BOSS') {
-        // Trong trò Ai Nhanh Hơn (FAST) và Đánh Boss (BOSS): Mỗi câu chọn sai trừ 1000 điểm
-        nextTotalScore = fastScoreRef.current - 1000;
-        fastScoreRef.current = nextTotalScore;
-        setFastScore(nextTotalScore);
       }
 
       CloudNetwork.sendMessage({
@@ -1319,23 +1499,23 @@ export const StudentMobileView: React.FC<Props> = ({
         playerId: myPlayerId,
         team,
         globalQIndex: currentGlobalQIndexRef.current,
+        wagerLevel: activeWager,
+        lives: nextLivesVal,
         totalScore: nextTotalScore,
         savedCorrect: myCorrectCountRef.current
       });
-    }
 
-    setLastCompletedQIndex(currentGlobalQIndexRef.current);
+      setLastCompletedQIndex(currentGlobalQIndexRef.current);
 
-    // Sau khi trả lời xong 1 câu: Tự động chuyển mượt mà sang câu hỏi tiếp theo sau 1.5 giây
-    // Nếu là câu hỏi cuối cùng -> Tự động NGỪNG và mở màn hình Thông báo Kết quả cuối cùng (không bao giờ chạy lại câu 1)
-    if (!eliminatedRef.current) {
-      if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
-      const answeredIdx = currentGlobalQIndexRef.current;
-      finishTransitionTimerRef.current = setTimeout(() => {
-        if (!eliminatedRef.current) {
-          advanceStudentQuestionOrFinish(answeredIdx);
-        }
-      }, isFinalQuestion ? 1300 : 1600);
+      if (!eliminatedRef.current) {
+        if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+        const answeredIdx = currentGlobalQIndexRef.current;
+        finishTransitionTimerRef.current = setTimeout(() => {
+          if (!eliminatedRef.current) {
+            advanceStudentQuestionOrFinish(answeredIdx);
+          }
+        }, isFinalQuestion ? 1300 : 1600);
+      }
     }
   };
 
@@ -2686,26 +2866,58 @@ export const StudentMobileView: React.FC<Props> = ({
             />
           </div>
 
+          {/* Banner Sự Kiện Đặc Biệt Toàn Sân / Câu Hỏi Vàng X2 (Nếu có) */}
+          {worldEventTitle && (
+            <div style={{
+              background: 'linear-gradient(90deg, rgba(124, 58, 237, 0.92), rgba(219, 39, 119, 0.92))',
+              border: '1.5px solid #fef08a',
+              borderRadius: '12px',
+              padding: '7px 12px',
+              marginBottom: '8px',
+              color: '#fef08a',
+              fontSize: '12px',
+              fontWeight: 900,
+              textAlign: 'center',
+              boxShadow: '0 4px 14px rgba(236, 72, 153, 0.4)'
+            }}>
+              {worldEventTitle}
+            </div>
+          )}
+
           {/* Khung Câu Hỏi Nổi Bật Chuẩn 3 Dạng Thức THPT 2018 */}
           <div style={{
             background: 'linear-gradient(180deg, #0f172a 0%, #090d16 100%)',
-            border: '2px solid #38bdf8',
+            border: activeWorldEvent === 'GOLDEN_X2' ? '2.5px solid #facc15' : '2px solid #38bdf8',
             borderRadius: '18px',
             padding: '16px',
-            marginBottom: '14px',
-            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.45)'
+            marginBottom: '12px',
+            boxShadow: activeWorldEvent === 'GOLDEN_X2' ? '0 8px 25px rgba(250, 204, 21, 0.35)' : '0 8px 25px rgba(0, 0, 0, 0.45)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-              <span style={{
-                fontSize: '12px',
-                background: currentQItem.format === 'TRUE_FALSE' ? '#f59e0b' : currentQItem.format === 'SHORT_ANSWER' ? '#10b981' : '#0284c7',
-                color: currentQItem.format === 'TRUE_FALSE' ? '#0f172a' : '#ffffff',
-                padding: '3px 10px',
-                borderRadius: '8px',
-                fontWeight: 900
-              }}>
-                CÂU {currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'DẠNG THỨC II: ĐÚNG / SAI (4 Ý)' : currentQItem.format === 'SHORT_ANSWER' ? 'DẠNG THỨC III: TRẢ LỜI NGẮN' : 'DẠNG THỨC I: 4 PHƯƠNG ÁN'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{
+                  fontSize: '12px',
+                  background: currentQItem.format === 'TRUE_FALSE' ? '#f59e0b' : currentQItem.format === 'SHORT_ANSWER' ? '#10b981' : '#0284c7',
+                  color: currentQItem.format === 'TRUE_FALSE' ? '#0f172a' : '#ffffff',
+                  padding: '3px 10px',
+                  borderRadius: '8px',
+                  fontWeight: 900
+                }}>
+                  CÂU {currentGlobalQIndex + 1} • {currentQItem.format === 'TRUE_FALSE' ? 'DẠNG THỨC II: ĐÚNG / SAI (4 Ý)' : currentQItem.format === 'SHORT_ANSWER' ? 'DẠNG THỨC III: TRẢ LỜI NGẮN' : 'DẠNG THỨC I: 4 PHƯƠNG ÁN'}
+                </span>
+                {streak >= 2 && (
+                  <span style={{
+                    fontSize: '11.5px',
+                    background: 'linear-gradient(135deg, #f97316, #dc2626)',
+                    color: '#fff',
+                    padding: '3px 8px',
+                    borderRadius: '8px',
+                    fontWeight: 900
+                  }}>
+                    🔥 Chuỗi {streak} Đúng
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: '13px', fontWeight: 900, color: remSec <= 5 ? '#f87171' : '#fde047' }}>
                 ⏱️ {Math.ceil(remSec)}s
               </span>
@@ -2718,7 +2930,7 @@ export const StudentMobileView: React.FC<Props> = ({
           {(hasAnsweredCurrentQ || isAnswerLocked) && lastLockedResult ? (
             <div
               style={{
-                padding: '22px 18px',
+                padding: '20px 16px',
                 borderRadius: '20px',
                 background: lastLockedResult.isCorrect
                   ? 'linear-gradient(135deg, #065f46 0%, #047857 100%)'
@@ -2728,15 +2940,14 @@ export const StudentMobileView: React.FC<Props> = ({
                 boxShadow: lastLockedResult.isCorrect
                   ? '0 12px 35px rgba(16, 185, 129, 0.45)'
                   : '0 12px 35px rgba(239, 68, 68, 0.45)',
-                userSelect: 'none',
-                pointerEvents: 'none'
+                userSelect: 'none'
               }}
             >
               <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'center' }}>
                 {renderCuteChibiCharacter(86, lastLockedResult.isCorrect ? 'cheering' : 'sad')}
               </div>
               <div style={{
-                fontSize: '20px',
+                fontSize: '18.5px',
                 fontWeight: 900,
                 color: lastLockedResult.isCorrect ? '#a7f3d0' : '#fecaca',
                 marginBottom: '8px',
@@ -2744,6 +2955,72 @@ export const StudentMobileView: React.FC<Props> = ({
               }}>
                 {lastLockedResult.text}
               </div>
+
+              {/* 🎁 RƯƠNG BÍ ẨN ĐỊNH MỆNH (MYSTERY LUCKY CHEST - 3 RƯƠNG CHỌN 1) */}
+              {mysteryChestsAvailable && !claimedChestResult && (
+                <div style={{
+                  margin: '12px 0',
+                  padding: '14px 12px',
+                  borderRadius: '16px',
+                  background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.92))',
+                  border: '2px solid #facc15',
+                  boxShadow: '0 8px 25px rgba(250, 204, 21, 0.35)'
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a', marginBottom: '4px' }}>
+                    🎁 PHẦN THƯỞNG BẤT NGỜ: CHỌN 1 RƯƠNG BÍ ẨN!
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#cbd5e1', marginBottom: '10px' }}>
+                    Bấm mở ngay để săn <b>💎 Nổ Hũ +1500đ</b>, <b>🦊 Đạo Chích Hút Điểm</b>, <b>🛡️ Khiên Bất Tử</b> hoặc <b>❤️ Hồi Mạng</b>!
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                    {[0, 1, 2].map(cIdx => (
+                      <button
+                        key={cIdx}
+                        type="button"
+                        onClick={() => handleOpenMysteryChest(cIdx)}
+                        style={{
+                          padding: '10px 6px',
+                          borderRadius: '12px',
+                          background: 'linear-gradient(135deg, #f59e0b, #b45309)',
+                          border: '2px solid #fef08a',
+                          color: '#0f172a',
+                          fontWeight: 900,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px',
+                          boxShadow: '0 4px 12px rgba(245, 158, 11, 0.45)'
+                        }}
+                      >
+                        <span style={{ fontSize: '26px' }}>🎁</span>
+                        <span>Rương #{cIdx + 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Kết quả sau khi khui Rương Bí Ẩn */}
+              {claimedChestResult && (
+                <div style={{
+                  margin: '12px 0',
+                  padding: '12px 14px',
+                  borderRadius: '14px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '2px solid #facc15',
+                  color: '#fef08a'
+                }}>
+                  <div style={{ fontSize: '15px', fontWeight: 900 }}>
+                    {claimedChestResult.icon} {claimedChestResult.title}
+                  </div>
+                  <div style={{ fontSize: '12.5px', color: '#e2e8f0', marginTop: '3px', fontWeight: 700 }}>
+                    {claimedChestResult.desc}
+                  </div>
+                </div>
+              )}
+
               <div style={{
                 display: 'inline-block',
                 marginTop: '6px',
@@ -2758,7 +3035,7 @@ export const StudentMobileView: React.FC<Props> = ({
                   ? `🏁 Đã hoàn thành câu cuối cùng (${currentGlobalQIndex + 1}/${safeTotalDeckCount}) • Đang tổng kết kết quả...`
                   : `🔒 Đã chốt câu #${currentGlobalQIndex + 1}/${safeTotalDeckCount} • Tự động chuyển sang câu #${currentGlobalQIndex + 2}...`}
               </div>
-              <div style={{ marginTop: '12px', pointerEvents: 'auto' }}>
+              <div style={{ marginTop: '12px' }}>
                 <button
                   type="button"
                   onClick={() => advanceStudentQuestionOrFinish(currentGlobalQIndex)}
@@ -2782,6 +3059,53 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           ) : (
             <>
+              {/* 🎲 THANH ĐẶT CƯỢC BẢN LĨNH (RISK & LUCK WAGER BAR) TRƯỚC KHI CHỌN ĐÁP ÁN */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.92)',
+                border: '1.5px solid #475569',
+                borderRadius: '14px',
+                padding: '8px 10px',
+                marginBottom: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '6px',
+                flexWrap: 'wrap'
+              }}>
+                <span style={{ fontSize: '11.5px', fontWeight: 900, color: '#fef08a' }}>
+                  🎲 Cược Bản Lĩnh:
+                </span>
+                <div style={{ display: 'flex', gap: '5px', flex: 1, justifyContent: 'flex-end' }}>
+                  {[
+                    { lv: 1 as WagerLevel, label: '🛡️ An Toàn (x1)', color: '#0284c7' },
+                    { lv: 1.5 as WagerLevel, label: '🔥 Liều Lĩnh (x1.5)', color: '#d97706' },
+                    { lv: 2.5 as WagerLevel, label: '💎 Tất Tay (x2.5)', color: '#db2777' }
+                  ].map(w => {
+                    const active = wagerLevel === w.lv;
+                    return (
+                      <button
+                        key={w.lv}
+                        type="button"
+                        onClick={() => setWagerLevel(w.lv)}
+                        style={{
+                          padding: '5px 8px',
+                          borderRadius: '9px',
+                          fontSize: '11px',
+                          fontWeight: 900,
+                          background: active ? w.color : '#1e293b',
+                          color: '#ffffff',
+                          border: active ? '2px solid #fef08a' : '1px solid #334155',
+                          cursor: 'pointer',
+                          boxShadow: active ? `0 3px 10px ${w.color}66` : 'none'
+                        }}
+                      >
+                        {w.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Dạng thức I: Trắc nghiệm 4 phương án A, B, C, D */}
               {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>

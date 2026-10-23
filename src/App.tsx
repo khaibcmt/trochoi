@@ -157,10 +157,12 @@ export const App: React.FC = () => {
   };
 
   const answeredQKeysRef = useRef<Set<string>>(new Set());
+  const firstBloodByQRef = useRef<Set<number>>(new Set());
   const lastEnterAckMapRef = useRef<Record<string, number>>({});
 
   const handleSelectGameType = (newGameType: GamePlayType) => {
     answeredQKeysRef.current.clear();
+    firstBloodByQRef.current.clear();
     setGameType(newGameType);
     setMatchState(prev => {
       const resetPlayer = (p: Player): Player => ({
@@ -283,6 +285,7 @@ export const App: React.FC = () => {
   // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
     answeredQKeysRef.current.clear();
+    firstBloodByQRef.current.clear();
     const normalizedDeck: QuizItem[] = parsedQuiz.map((item, idx) => ({
       ...item,
       qid: idx,
@@ -404,6 +407,8 @@ export const App: React.FC = () => {
       bellTotalCount: allP.length,
       bossHP: currentMS.bossHP,
       maxBossHP: currentMS.maxBossHP,
+      worldEvent: currentMS.activeWorldEvent || 'NONE',
+      worldEventTitle: currentMS.worldEventTitle || '',
       subj: currentSubjectKeyRef.current,
       question: activeQWithMeta,
       quiz: activeDeck
@@ -419,6 +424,7 @@ export const App: React.FC = () => {
 
     if (d.type === 'MATCH_START' || d.type === 'GAME_SWITCH' || d.type === 'GAME_SWITCHED') {
       answeredQKeysRef.current.clear();
+      firstBloodByQRef.current.clear();
       return;
     }
 
@@ -645,7 +651,16 @@ export const App: React.FC = () => {
         if (answeredQKeysRef.current.has(answerKey)) return prev;
         answeredQKeysRef.current.add(answerKey);
 
-        AudioFX.pullHeave();
+        // Kiểm tra Tia Chớp Đầu Tiên (First Blood) cho câu hỏi này
+        const isFirstBlood = !firstBloodByQRef.current.has(targetQIdx);
+        if (isFirstBlood) {
+          firstBloodByQRef.current.add(targetQIdx);
+          AudioFX.firstBloodStrike();
+          pObj.firstBloodCount = (pObj.firstBloodCount || 0) + 1;
+        } else {
+          AudioFX.pullHeave();
+        }
+
         pObj.correct = (pObj.correct || 0) + 1;
         if (typeof d.savedCorrect === 'number' && d.savedCorrect > pObj.correct) {
           pObj.correct = d.savedCorrect;
@@ -653,12 +668,47 @@ export const App: React.FC = () => {
         pObj.streak = (pObj.streak || 0) + 1;
 
         const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
-        const gainedScore = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
+        const wager = d.wagerLevel || 1;
+        const firstBloodBonus = isFirstBlood ? 500 : 0;
+        const worldEventMultiplier = prev.activeWorldEvent === 'GOLDEN_X2' ? 2 : 1;
+        const baseGained = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
+        const gainedScore = Math.round(baseGained * worldEventMultiplier) + firstBloodBonus;
 
-        pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + gainedScore;
+        pObj.fastScore = typeof d.totalScore === 'number'
+          ? d.totalScore + firstBloodBonus + (worldEventMultiplier > 1 ? baseGained : 0)
+          : (pObj.fastScore || 0) + gainedScore;
         pObj.lastDelta = gainedScore;
         pObj.lastTimeSec = studentElapsedSec;
         pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
+
+        // Bảng tin kịch tính thời gian thực (Live Kill-Feed)
+        const nextFeed = [...(prev.liveFeed || [])];
+        const pushFeed = (text: string, type: 'FIRST_BLOOD' | 'JACKPOT' | 'STREAK' | 'WAGER_WIN' | 'BOSS_CRIT' | 'WORLD_EVENT') => {
+          nextFeed.unshift({
+            id: `lf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            text,
+            type,
+            timestamp: Date.now()
+          });
+          if (nextFeed.length > 6) nextFeed.length = 6;
+        };
+
+        if (isFirstBlood) {
+          pushFeed(`⚡ [TIA CHỚP ĐẦU TIÊN] ${pObj.label} trả lời đúng nhanh nhất câu #${targetQIdx + 1} (${studentElapsedSec.toFixed(1)}s • +${gainedScore}đ)!`, 'FIRST_BLOOD');
+          CloudNetwork.sendMessage({
+            type: 'DRAMA_EVENT',
+            playerId: pObj.id,
+            playerName: pObj.label,
+            isFirstBlood: true,
+            bonusScoreDelta: firstBloodBonus,
+            totalScore: pObj.fastScore,
+            dramaAnnouncement: `⚡ TIA CHỚP ĐẦU TIÊN: ${pObj.label} mở điểm câu #${targetQIdx + 1} siêu tốc (+500đ thưởng)!`
+          });
+        } else if (wager === 2.5) {
+          pushFeed(`💎 [TẤT TAY x2.5] ${pObj.label} đặt cược All-In bản lĩnh và thắng lớn +${gainedScore}đ!`, 'WAGER_WIN');
+        } else if (pObj.streak >= 3 && pObj.streak % 2 === 1) {
+          pushFeed(`🔥 [CHUỖI ${pObj.streak} LIÊN TIẾP] ${pObj.label} đang Bốc Lửa trên bảng vàng!`, 'STREAK');
+        }
 
         // Record question rightCount in ref without re-triggering quizList effects mid-question
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
@@ -676,20 +726,21 @@ export const App: React.FC = () => {
           : prev.blueAnsweredIds;
 
         // BOSS Mode: Deal damage to Boss & rank individuals by score/correct
-        // Khi Boss hết máu mà vẫn còn câu hỏi, Boss sẽ Hồi Sinh Cấp Độ Mới (tăng máu) để học sinh làm trọn vẹn hết bộ câu hỏi!
         if (prev.gameType === 'BOSS') {
-          const dmg = 150;
+          const isRageCrit = prev.activeWorldEvent === 'BOSS_RAGE_CRIT' || wager === 2.5 || isFirstBlood;
+          const dmg = Math.round(150 * wager * (prev.activeWorldEvent === 'BOSS_RAGE_CRIT' ? 2 : 1) * (isFirstBlood ? 1.3 : 1));
           const rawNextHP = (prev.bossHP || 1000) - dmg;
           const baseMaxHP = prev.maxBossHP || 1000;
           let nextBossHP = Math.max(0, rawNextHP);
           let nextMaxHP = baseMaxHP;
-          let attackMsg = `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (+${gainedScore}đ • Tổng: ${pObj.fastScore}đ)`;
+          let attackMsg = `${isRageCrit ? '💥 BẠO KÍCH! ' : ''}Chiến binh ${pObj.label} gây -${dmg} HP Boss! (+${gainedScore}đ • Tổng: ${pObj.fastScore}đ)`;
 
           if (rawNextHP <= 0) {
             AudioFX.winFanfare();
             nextMaxHP = baseMaxHP + 1000;
             nextBossHP = nextMaxHP;
-            attackMsg = `🔥 ${pObj.label} ĐÃ HẠ GỤC BOSS! Boss Tiến Hóa Cấp Mới (${nextMaxHP} HP) — Tiếp tục chiến đấu đến hết câu hỏi!`;
+            attackMsg = `🔥 ${pObj.label} ĐÃ KẾT LIỄU BOSS! Boss Tiến Hóa Cấp Mới (${nextMaxHP} HP) — Thưởng nóng toàn sàn!`;
+            pushFeed(`🐉 [KẾT LIỄU BOSS] ${pObj.label} tung đòn chí mạng hạ gục Boss!`, 'BOSS_CRIT');
           }
 
           return {
@@ -699,6 +750,9 @@ export const App: React.FC = () => {
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
             bossLastAttack: attackMsg,
+            firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
+            firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
+            liveFeed: nextFeed,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
@@ -713,6 +767,7 @@ export const App: React.FC = () => {
             playerId: pObj.id,
             qIndex: targetQIdx,
             isCorrect: true,
+            isFirstBlood,
             gainedPts: gainedScore,
             elapsedSec: studentElapsedSec,
             totalScore: pObj.fastScore,
@@ -724,6 +779,9 @@ export const App: React.FC = () => {
             ...prev,
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
+            firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
+            firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
+            liveFeed: nextFeed,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
@@ -736,6 +794,7 @@ export const App: React.FC = () => {
             pObj.streak = 0;
             bonusAwarded = true;
             AudioFX.bonusLifeChime();
+            pushFeed(`🔔 [THƯỞNG MẠNG VÀNG] ${pObj.label} đạt chuỗi 3 câu đúng liên tiếp • Nhận +1 ❤️ Mạng!`, 'STREAK');
           }
 
           CloudNetwork.sendMessage({
@@ -752,13 +811,21 @@ export const App: React.FC = () => {
             ...prev,
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
+            firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
+            firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
+            liveFeed: nextFeed,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };
         }
 
-        // TUG mode (Kéo Co 3D): Kéo dây theo lực trả lời đúng, KHÔNG ngắt ngang đồng hồ 30 giây của câu hỏi đang chạy
-        const pullPower = d.gainedPts && d.gainedPts >= 1500 ? 1.2 : 0.8;
+        // TUG mode (Kéo Co 3D): Lực kéo tăng theo Mức Cược (wager), Tốc độ (First Blood) và Sự Kiện Phản Công (UNDERDOG_BOOST)
+        const isTeamUnderdog =
+          (pObj.team === 'RED' && prev.ropeScore > 0.8) ||
+          (pObj.team === 'BLUE' && prev.ropeScore < -0.8);
+        const underdogMult = prev.activeWorldEvent === 'UNDERDOG_BOOST' && isTeamUnderdog ? 1.75 : 1;
+        const basePull = d.gainedPts && d.gainedPts >= 1500 ? 1.15 : 0.8;
+        const pullPower = basePull * wager * underdogMult * (isFirstBlood ? 1.25 : 1);
         const rawNextRope = prev.ropeScore + (pObj.team === 'BLUE' ? pullPower : -pullPower);
         const nextRope = Math.max(-6, Math.min(6, rawNextRope));
         const nextRedTotalCorrect = pObj.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect;
@@ -773,6 +840,62 @@ export const App: React.FC = () => {
           blueAnsweredIds: nextBlueAns,
           redTotalCorrect: nextRedTotalCorrect,
           blueTotalCorrect: nextBlueTotalCorrect,
+          firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
+          firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
+          liveFeed: nextFeed,
+          redPlayers: [...prev.redPlayers],
+          bluePlayers: [...prev.bluePlayers]
+        };
+      });
+    }
+    else if (d.type === 'MYSTERY_CHEST_CLAIMED') {
+      setMatchState(prev => {
+        const allP = [...prev.redPlayers, ...prev.bluePlayers];
+        const pObj = allP.find(x => x.id === d.playerId);
+        if (!pObj) return prev;
+
+        const delta = typeof d.bonusScoreDelta === 'number' ? d.bonusScoreDelta : 0;
+        pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + delta;
+        if (typeof d.lives === 'number' && prev.gameType === 'BELL') {
+          pObj.lives = Math.min(5, d.lives);
+        }
+
+        // Nếu mở trúng Siêu Đạo Chích (STEAL_LEADER), hút 500đ từ người dẫn đầu đối phương
+        if (d.powerUpUsed === ('STEAL_LEADER' as any)) {
+          const others = allP.filter(x => x.id !== pObj.id && (x.fastScore || 0) > 0).sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
+          if (others.length > 0) {
+            const leader = others[0];
+            leader.fastScore = Math.max(0, (leader.fastScore || 0) - 500);
+          }
+        }
+
+        let nextRope = prev.ropeScore;
+        if (prev.gameType === 'TUG' && delta >= 1000) {
+          const yank = pObj.team === 'BLUE' ? 0.9 : -0.9;
+          nextRope = Math.max(-6, Math.min(6, prev.ropeScore + yank));
+        }
+
+        let nextBossHP = prev.bossHP;
+        if (prev.gameType === 'BOSS' && delta >= 1000) {
+          nextBossHP = Math.max(10, (prev.bossHP || 1000) - 250);
+        }
+
+        const nextFeed = [...(prev.liveFeed || [])];
+        if (d.mysteryRewardText) {
+          nextFeed.unshift({
+            id: `lf_mc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            text: `🎁 [RƯƠNG BÍ ẨN] ${pObj.label}: ${d.mysteryRewardText}`,
+            type: 'JACKPOT',
+            timestamp: Date.now()
+          });
+          if (nextFeed.length > 6) nextFeed.length = 6;
+        }
+
+        return {
+          ...prev,
+          ropeScore: nextRope,
+          bossHP: nextBossHP,
+          liveFeed: nextFeed,
           redPlayers: [...prev.redPlayers],
           bluePlayers: [...prev.bluePlayers]
         };
@@ -791,6 +914,7 @@ export const App: React.FC = () => {
 
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
+        const wager = d.wagerLevel || 1;
 
         const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
         const safeQIdx = Math.min(Math.max(0, targetQIdx), Math.max(0, (activeDeck.length || 1) - 1));
@@ -806,10 +930,11 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        // CHỈ CÓ RUNG CHUÔNG VÀNG (BELL) mới bị mất 1 mạng khi trả lời sai và hết 3 mạng thì rời cuộc chơi thành khán giả cổ vũ
+        // CHỈ CÓ RUNG CHUÔNG VÀNG (BELL) mới bị mất mạng khi trả lời sai (Cược Tất Tay x2.5 mà sai thì mất 2 mạng!)
         if (prev.gameType === 'BELL') {
           AudioFX.freezeCrack();
-          pObj.lives = Math.max(0, (pObj.lives ?? 3) - 1);
+          const lifeLoss = wager === 2.5 ? 2 : 1;
+          pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - lifeLoss);
           pObj.lastDelta = 0;
           if (pObj.lives <= 0) {
             pObj.eliminated = true;
@@ -826,12 +951,13 @@ export const App: React.FC = () => {
             bonusAwarded: false
           });
         } else if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
-          // TRÒ AI NHANH HƠN (FAST) VÀ ĐÁNH BOSS (BOSS): Mỗi câu chọn sai trừ 1000 điểm! (Số câu đúng ghi sổ điểm GV vẫn giữ nguyên)
+          // TRÒ AI NHANH HƠN (FAST) VÀ ĐÁNH BOSS (BOSS): Trừ điểm theo mức cược (An toàn -1000, Liều lĩnh -1500, Tất tay -2000)
           AudioFX.freezeCrack();
+          const penalty = wager === 2.5 ? 2000 : wager === 1.5 ? 1500 : 1000;
           pObj.lives = 3;
           pObj.eliminated = false;
-          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - 1000;
-          pObj.lastDelta = -1000;
+          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - penalty;
+          pObj.lastDelta = -penalty;
 
           CloudNetwork.sendMessage({
             type: 'PLAYER_LIVES_SYNC',
@@ -843,13 +969,14 @@ export const App: React.FC = () => {
             bonusAwarded: false
           });
         } else {
-          // Trò Kéo Co (TUG): Câu sai không bị trừ điểm, không bị trừ mạng
+          // Trò Kéo Co (TUG): Câu sai bị đóng băng (3s -> 6s tùy mức cược)
           pObj.lives = 3;
           pObj.eliminated = false;
           pObj.lastDelta = 0;
           if (prev.gameType === 'TUG') {
             AudioFX.freezeCrack();
-            pObj.freeze = Date.now() + 3000;
+            const freezeMs = wager === 2.5 ? 5500 : wager === 1.5 ? 4000 : 3000;
+            pObj.freeze = Date.now() + freezeMs;
           }
         }
 

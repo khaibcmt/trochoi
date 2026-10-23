@@ -37,6 +37,23 @@ export interface SubjectData {
 
 export type PowerUpType = 'SHIELD' | 'FREEZE_OPPONENT' | 'FIFTY_FIFTY' | 'DOUBLE_POWER';
 
+export type WagerLevel = 1 | 1.5 | 2.5;
+
+export type WorldEventType =
+  | 'NONE'
+  | 'GOLDEN_X2'
+  | 'UNDERDOG_BOOST'
+  | 'BOSS_RAGE_CRIT'
+  | 'MIRACLE_BLESSING'
+  | 'TUG_STORM';
+
+export interface LiveFeedItem {
+  id: string;
+  text: string;
+  type: 'FIRST_BLOOD' | 'JACKPOT' | 'STREAK' | 'WAGER_WIN' | 'BOSS_CRIT' | 'WORLD_EVENT';
+  timestamp: number;
+}
+
 export interface AvatarConfig {
   gender?: 'male' | 'female';
   hairStyle: 'cap' | 'headband' | 'crown' | 'beret' | 'cyber';
@@ -67,6 +84,7 @@ export interface Player {
   activeShield?: boolean;
   doublePowerActive?: boolean;
   tabSwitchCount?: number;
+  firstBloodCount?: number;
 }
 
 export interface MatchSettings {
@@ -96,6 +114,12 @@ export interface MatchState {
   maxBossHP?: number;
   bossRage?: boolean;
   bossLastAttack?: string;
+  // World-class Drama & Surprise Mechanics
+  activeWorldEvent?: WorldEventType;
+  worldEventTitle?: string;
+  firstBloodPlayerId?: string | null;
+  firstBloodPlayerName?: string | null;
+  liveFeed?: LiveFeedItem[];
   // Settings
   settings: MatchSettings;
 }
@@ -160,5 +184,14 @@ export interface CloudMessage {
   fastScore?: number;
   savedScore?: number;
   savedCorrect?: number;
+  // Speed, Surprise & Risk/Luck fields
+  wagerLevel?: WagerLevel;
+  isFirstBlood?: boolean;
+  mysteryRewardText?: string;
+  bonusScoreDelta?: number;
+  worldEvent?: WorldEventType;
+  worldEventTitle?: string;
+  dramaAnnouncement?: string;
 }
+
 

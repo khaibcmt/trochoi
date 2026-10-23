@@ -318,7 +318,9 @@ app.post('/api/room/:roomId/publish', (req, res) => {
           updatedAt: Date.now()
         };
       } else if (
-        (payload.type === 'PULL_CORRECT' || payload.type === 'FREEZE_WRONG') &&
+        (payload.type === 'PULL_CORRECT' ||
+          payload.type === 'FREEZE_WRONG' ||
+          payload.type === 'MYSTERY_CHEST_CLAIMED') &&
         payload.playerId &&
         room.players[payload.playerId]
       ) {

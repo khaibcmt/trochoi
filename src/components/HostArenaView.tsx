@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
 import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
-import { MatchState, QuizItem, Player, GamePlayType } from '../types';
+import { MatchState, QuizItem, Player, GamePlayType, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
 import { CloudNetwork } from '../services/network';
 import {
@@ -83,11 +83,13 @@ export const HostArenaView: React.FC<Props> = ({
   const isTransitioningRef = useRef<boolean>(false);
   const correctOrderCountRef = useRef<number>(0);
 
-  // Rescue banner message & rescue modal
+  // Rescue banner message & rescue modal + World Chaos Event Wheel modal
   const [rescueBannerMsg, setRescueBannerMsg] = useState<string | null>(null);
   const [showRescueModal, setShowRescueModal] = useState<boolean>(false);
   const [wheelSpinning, setWheelSpinning] = useState<boolean>(false);
   const [wheelResult, setWheelResult] = useState<string | null>(null);
+  const [showWorldEventModal, setShowWorldEventModal] = useState<boolean>(false);
+  const [worldWheelSpinning, setWorldWheelSpinning] = useState<boolean>(false);
 
   // AI Explanation Modal
   const [showAIExplainModal, setShowAIExplainModal] = useState<boolean>(false);
@@ -1188,12 +1190,37 @@ export const HostArenaView: React.FC<Props> = ({
       totalQuestions: totalCount
     };
 
+    // Tự động kích hoạt "CÂU HỎI VÀNG NHÂN ĐÔI (GOLDEN X2)" ở các câu bản lề (Câu 4, Câu 8, hoặc Câu Cuối Cùng) để tạo kịch tính lật kèo phút 89!
+    const isMilestoneGoldenQ =
+      totalCount > 2 && (safeIdx === totalCount - 1 || (safeIdx > 0 && (safeIdx + 1) % 4 === 0));
+    const nextWorldEv: WorldEventType = isMilestoneGoldenQ ? 'GOLDEN_X2' : 'NONE';
+    const nextWorldTitle = isMilestoneGoldenQ
+      ? safeIdx === totalCount - 1
+        ? '🌟 CÂU HỎI QUYẾT ĐỊNH CUỐI CÙNG: NHÂN ĐÔI ĐIỂM SỐ & SỨC MẠNH (X2 SURGE)!'
+        : `🌟 CÂU HỎI VÀNG BƯỚC NGOẶT #${safeIdx + 1}: NHÂN ĐÔI ĐIỂM SỐ & LỰC KÉO (X2)!`
+      : '';
+
+    onUpdateMatchState(prev => ({
+      ...prev,
+      firstBloodPlayerId: null,
+      firstBloodPlayerName: null,
+      activeWorldEvent: nextWorldEv,
+      worldEventTitle: nextWorldTitle
+    }));
+
+    if (isMilestoneGoldenQ) {
+      AudioFX.worldEventSiren();
+      triggerRescueBanner(nextWorldTitle);
+    }
+
     // Broadcast question started ONCE when this question appears
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
       qIndex: safeIdx,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
+      worldEvent: nextWorldEv,
+      worldEventTitle: nextWorldTitle,
       question: activeQWithMeta,
       quiz: currentDeck
     });
@@ -1392,6 +1419,104 @@ export const HostArenaView: React.FC<Props> = ({
     }, 2500);
   };
 
+  // Kích hoạt Sự Kiện Bất Ngờ Toàn Sân (World Chaos Event - Chuẩn Game Show Quốc Tế)
+  const handleTriggerWorldEvent = (evType: WorldEventType) => {
+    AudioFX.worldEventSiren();
+    let title = '';
+    if (evType === 'GOLDEN_X2') {
+      title = '🌟 CƠN MƯA VÀNG X2: Nhân đôi điểm số & sức mạnh cho mọi câu trả lời đúng ở câu này!';
+    } else if (evType === 'UNDERDOG_BOOST') {
+      title = '⚡ PHẢN CÔNG PHÚT 89: Đội đang bị dẫn được x1.75 lực kéo & nửa dưới BXH được +800 điểm tiếp sức!';
+    } else if (evType === 'TUG_STORM') {
+      title =
+        matchState.gameType === 'BOSS'
+          ? '🌩️ SẤM SÉT THIÊN HÀ: Giáng sét trừ ngay -600 HP Quái Vật Boss!'
+          : '🌪️ BÃO ĐẢO CHIỀU SÂN ĐẤU: Cân bằng lại dây kéo co & xáo trộn kịch tính!';
+    } else if (evType === 'MIRACLE_BLESSING') {
+      title = '🛟 PHÉP MÀU SÂN ĐẤU: Hồi sinh thí sinh & Tặng toàn bộ học sinh trên sân +500 điểm May Mắn!';
+    } else if (evType === 'BOSS_RAGE_CRIT') {
+      title = '🔥 CUỒNG NỘ BẠO KÍCH X2: Toàn bộ đòn đánh & điểm tốc độ được kích hoạt Bạo Kích Chí Mạng!';
+    }
+
+    onUpdateMatchState(prev => {
+      const allP = [...prev.redPlayers, ...prev.bluePlayers];
+      const sortedScores = [...allP].sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0));
+      const medianScore = sortedScores.length > 0 ? sortedScores[Math.floor(sortedScores.length / 2)].fastScore || 0 : 0;
+
+      const buffPlayer = (p: Player): Player => {
+        if (evType === 'MIRACLE_BLESSING') {
+          return {
+            ...p,
+            eliminated: false,
+            lives: Math.max(p.lives || 1, 1),
+            fastScore: (p.fastScore || 0) + 500,
+            lastDelta: 500
+          };
+        }
+        if (evType === 'UNDERDOG_BOOST' && (p.fastScore || 0) <= medianScore) {
+          return {
+            ...p,
+            fastScore: (p.fastScore || 0) + 800,
+            lastDelta: 800
+          };
+        }
+        return p;
+      };
+
+      const nextFeed = [...(prev.liveFeed || [])];
+      if (title) {
+        nextFeed.unshift({
+          id: `lf_we_${Date.now()}`,
+          text: title,
+          type: 'WORLD_EVENT',
+          timestamp: Date.now()
+        });
+        if (nextFeed.length > 6) nextFeed.length = 6;
+      }
+
+      return {
+        ...prev,
+        activeWorldEvent: evType,
+        worldEventTitle: title,
+        ropeScore: evType === 'TUG_STORM' ? prev.ropeScore * 0.25 : prev.ropeScore,
+        bossHP: evType === 'TUG_STORM' && prev.gameType === 'BOSS' ? Math.max(50, (prev.bossHP || 1000) - 600) : prev.bossHP,
+        liveFeed: nextFeed,
+        redPlayers: prev.redPlayers.map(buffPlayer),
+        bluePlayers: prev.bluePlayers.map(buffPlayer)
+      };
+    });
+
+    CloudNetwork.sendMessage({
+      type: 'WORLD_EVENT_TRIGGERED',
+      worldEvent: evType,
+      worldEventTitle: title,
+      bonusScoreDelta: evType === 'MIRACLE_BLESSING' ? 500 : evType === 'UNDERDOG_BOOST' ? 800 : 0
+    });
+
+    if (title) {
+      triggerRescueBanner(title);
+    }
+    setShowWorldEventModal(false);
+  };
+
+  const handleSpinWorldEventWheel = () => {
+    if (worldWheelSpinning) return;
+    setWorldWheelSpinning(true);
+    AudioFX.jackpotSpin();
+    const pool: WorldEventType[] = [
+      'GOLDEN_X2',
+      'UNDERDOG_BOOST',
+      'TUG_STORM',
+      'MIRACLE_BLESSING',
+      'BOSS_RAGE_CRIT'
+    ];
+    setTimeout(() => {
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      setWorldWheelSpinning(false);
+      handleTriggerWorldEvent(picked);
+    }, 1400);
+  };
+
   // AI Tutor Explanation (Direct Client-Side Gemini & Offline Intelligent Fallback)
   const handleRequestAIExplanation = async () => {
     setShowAIExplainModal(true);
@@ -1563,9 +1688,35 @@ export const HostArenaView: React.FC<Props> = ({
             : prev.blueAnsweredIds;
 
         if (isCorrect) {
-          AudioFX.pullHeave();
+          const isBotFirstBlood = !prev.firstBloodPlayerId;
+          if (isBotFirstBlood) {
+            AudioFX.firstBloodStrike();
+          } else {
+            AudioFX.pullHeave();
+          }
           if (curQ) curQ.rightCount = (curQ.rightCount || 0) + 1;
-          const gained = 1000;
+          const botWager = Math.random() < 0.22 ? 2.5 : Math.random() < 0.45 ? 1.5 : 1;
+          const worldMult = prev.activeWorldEvent === 'GOLDEN_X2' ? 2 : 1;
+          const gained = Math.round(1000 * botWager * worldMult) + (isBotFirstBlood ? 500 : 0);
+
+          const nextFeed = [...(prev.liveFeed || [])];
+          const pushBotFeed = (text: string, type: 'FIRST_BLOOD' | 'JACKPOT' | 'STREAK' | 'WAGER_WIN' | 'BOSS_CRIT') => {
+            nextFeed.unshift({
+              id: `lf_bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              text,
+              type,
+              timestamp: Date.now()
+            });
+            if (nextFeed.length > 6) nextFeed.length = 6;
+          };
+
+          if (isBotFirstBlood) {
+            pushBotFeed(`⚡ [TIA CHỚP ĐẦU TIÊN] ${chosen.label} mở điểm câu #${prev.globalQIndex + 1} siêu tốc (+${gained}đ)!`, 'FIRST_BLOOD');
+          } else if (botWager === 2.5) {
+            pushBotFeed(`💎 [TẤT TAY x2.5] ${chosen.label} đặt cược All-In bản lĩnh và thắng lớn +${gained}đ!`, 'WAGER_WIN');
+          } else if ((chosen.streak || 0) + 1 >= 3) {
+            pushBotFeed(`🔥 [CHUỖI ${(chosen.streak || 0) + 1} ĐÚNG] ${chosen.label} đang Bốc Lửa & mở Rương Bí Ẩn!`, 'STREAK');
+          }
 
           const updateWinner = (p: Player): Player => {
             if (p.id !== chosen.id) return p;
@@ -1574,19 +1725,26 @@ export const HostArenaView: React.FC<Props> = ({
               correct: (p.correct || 0) + 1,
               streak: (p.streak || 0) + 1,
               fastScore: (p.fastScore || 0) + gained,
-              lastDelta: gained
+              lastDelta: gained,
+              firstBloodCount: isBotFirstBlood ? (p.firstBloodCount || 0) + 1 : p.firstBloodCount
             };
           };
 
-          const pullStep = chosen.team === 'BLUE' ? 0.75 : -0.75;
+          const pullStep = (chosen.team === 'BLUE' ? 0.75 : -0.75) * botWager;
           const nextRope = prev.gameType === 'TUG' ? Math.max(-6, Math.min(6, prev.ropeScore + pullStep)) : prev.ropeScore;
-          const nextBossHP = prev.gameType === 'BOSS' ? Math.max(0, (prev.bossHP || 1000) - 150) : prev.bossHP;
+          const dmg = Math.round(150 * botWager);
+          const rawBossHP = (prev.bossHP || 1000) - dmg;
+          const nextMaxBossHP = prev.gameType === 'BOSS' && rawBossHP <= 0 ? (prev.maxBossHP || 1000) + 1000 : (prev.maxBossHP || 1000);
+          const nextBossHP = prev.gameType === 'BOSS' ? (rawBossHP <= 0 ? nextMaxBossHP : rawBossHP) : prev.bossHP;
 
           return {
             ...prev,
             ropeScore: nextRope,
             bossHP: nextBossHP,
-            status: prev.gameType === 'BOSS' && nextBossHP <= 0 ? 'ENDED' : prev.status,
+            maxBossHP: nextMaxBossHP,
+            firstBloodPlayerId: isBotFirstBlood ? chosen.id : prev.firstBloodPlayerId,
+            firstBloodPlayerName: isBotFirstBlood ? chosen.label : prev.firstBloodPlayerName,
+            liveFeed: nextFeed,
             redRoundWins: prev.gameType === 'TUG' && chosen.team === 'RED' ? prev.redRoundWins + 1 : prev.redRoundWins,
             blueRoundWins: prev.gameType === 'TUG' && chosen.team === 'BLUE' ? prev.blueRoundWins + 1 : prev.blueRoundWins,
             redTotalCorrect: chosen.team === 'RED' ? prev.redTotalCorrect + 1 : prev.redTotalCorrect,
@@ -2016,6 +2174,25 @@ export const HostArenaView: React.FC<Props> = ({
             ⏭ Qua Câu
           </button>
 
+          <button
+            className="b3d-btn"
+            style={{
+              background:
+                matchState.activeWorldEvent && matchState.activeWorldEvent !== 'NONE'
+                  ? 'linear-gradient(135deg, #ec4899, #8b5cf6)'
+                  : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+              border: '1.5px solid #f9a8d4',
+              color: '#fef08a',
+              padding: '5px 10px',
+              fontSize: '11.5px',
+              fontWeight: 900
+            }}
+            onClick={() => setShowWorldEventModal(true)}
+            title="Kích hoạt Vòng Quay Sự Kiện Bất Ngờ Toàn Sân (Cơn Mưa Vàng X2, Phản Công Phút 89, Bão Đảo Chiều, Phép Màu Hồi Sinh...)"
+          >
+            🎲 Sự Kiện Bất Ngờ
+          </button>
+
           {matchState.gameType === 'BELL' && (
             <button
               className="b3d-btn"
@@ -2114,14 +2291,18 @@ export const HostArenaView: React.FC<Props> = ({
             if (!coord) return null;
             const hasDoneQ = matchState.redAnsweredIds.includes(p.id) || matchState.blueAnsweredIds.includes(p.id);
 
+            const isFirstBloodWinner = matchState.firstBloodPlayerId === p.id;
+            const isOnFire = (p.streak || 0) >= 3;
+            const prefixBadges = `${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
+
             let labelText = '';
             if (matchState.gameType === 'BELL') {
               const hearts = '❤️'.repeat(Math.max(0, p.lives));
-              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} ${hearts}`;
+              labelText = `${prefixBadges}${p.label} ${hearts}`;
             } else if (matchState.gameType === 'TUG') {
-              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} (${p.correct || 0})`;
+              labelText = `${prefixBadges}${p.label} (${p.correct || 0})`;
             } else {
-              labelText = `${hasDoneQ ? '✓ ' : ''}${p.label} (${p.fastScore || 0}đ)`;
+              labelText = `${prefixBadges}${p.label} (${p.fastScore || 0}đ)`;
             }
 
             return (
@@ -2131,9 +2312,18 @@ export const HostArenaView: React.FC<Props> = ({
                 style={{
                   left: `${coord.x}px`,
                   top: `${coord.y}px`,
-                  borderColor: matchState.gameType === 'TUG'
+                  borderColor: isFirstBloodWinner
+                    ? '#facc15'
+                    : isOnFire
+                    ? '#f97316'
+                    : matchState.gameType === 'TUG'
                     ? (p.team === 'RED' ? 'var(--red)' : 'var(--blue)')
-                    : '#38bdf8'
+                    : '#38bdf8',
+                  boxShadow: isFirstBloodWinner
+                    ? '0 0 14px rgba(250, 204, 21, 0.85)'
+                    : isOnFire
+                    ? '0 0 12px rgba(249, 115, 22, 0.7)'
+                    : undefined
                 }}
               >
                 {labelText}
@@ -2141,6 +2331,80 @@ export const HostArenaView: React.FC<Props> = ({
             );
           })}
         </div>
+
+        {/* Bảng Tin Kịch Tính Thời Gian Thực (Live Drama Kill-Feed & World Event Banner) */}
+        {(matchState.worldEventTitle || (matchState.liveFeed && matchState.liveFeed.length > 0)) && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '8px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 28,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              maxWidth: '58%',
+              pointerEvents: 'none'
+            }}
+          >
+            {matchState.worldEventTitle && (
+              <div
+                style={{
+                  background: 'linear-gradient(90deg, rgba(124, 58, 237, 0.94), rgba(219, 39, 119, 0.94))',
+                  border: '1.5px solid #fef08a',
+                  color: '#fef08a',
+                  padding: '4px 14px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  boxShadow: '0 4px 16px rgba(219, 39, 119, 0.5)',
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '100%'
+                }}
+              >
+                {matchState.worldEventTitle}
+              </div>
+            )}
+            {matchState.liveFeed && matchState.liveFeed.slice(0, 2).map((item, idx) => (
+              <div
+                key={item.id}
+                style={{
+                  background:
+                    item.type === 'FIRST_BLOOD'
+                      ? 'rgba(15, 23, 42, 0.92)'
+                      : item.type === 'JACKPOT' || item.type === 'WAGER_WIN'
+                      ? 'rgba(6, 78, 59, 0.92)'
+                      : 'rgba(30, 27, 75, 0.9)',
+                  border: `1.5px solid ${
+                    item.type === 'FIRST_BLOOD'
+                      ? '#facc15'
+                      : item.type === 'JACKPOT' || item.type === 'WAGER_WIN'
+                      ? '#34d399'
+                      : '#f97316'
+                  }`,
+                  color: '#ffffff',
+                  padding: '3px 12px',
+                  borderRadius: '999px',
+                  fontSize: idx === 0 ? '11.5px' : '10.5px',
+                  fontWeight: 800,
+                  opacity: idx === 0 ? 1 : 0.85,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.45)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '100%'
+                }}
+              >
+                {item.text}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Floating QR Badges: Chỉ hiện 2 mã Đỏ/Xanh khi chơi Kéo Co (TUG), các trò khác chỉ hiện 1 mã QR phòng chung */}
         {qrVisible && (
@@ -2641,6 +2905,19 @@ export const HostArenaView: React.FC<Props> = ({
               <span style={{ color: '#cbd5e1' }}>
                 Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
               </span>
+              {matchState.firstBloodPlayerName && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span style={{ color: '#facc15', fontWeight: 900 }}>
+                    ⚡ Tia chớp: {matchState.firstBloodPlayerName}
+                  </span>
+                </>
+              )}
+              {matchState.activeWorldEvent === 'GOLDEN_X2' && (
+                <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', padding: '1px 8px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 900 }}>
+                  🌟 X2 ĐIỂM &amp; SỨC MẠNH
+                </span>
+              )}
             </div>
 
             {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
@@ -3038,6 +3315,113 @@ export const HostArenaView: React.FC<Props> = ({
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vòng Quay Sự Kiện Bất Ngờ Toàn Sân (World Chaos Event Wheel Modal) */}
+      {showWorldEventModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: 'linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%)', border: '2.5px solid #f472b6', borderRadius: '22px', padding: '22px', maxWidth: '580px', width: '100%', textAlign: 'center', color: '#ffffff', boxShadow: '0 25px 60px rgba(236, 72, 153, 0.45)' }}>
+            <h2 style={{ margin: '0 0 6px 0', fontSize: '21px', color: '#fef08a', fontWeight: 900 }}>
+              🎲 VÒNG QUAY SỰ KIỆN BẤT NGỜ TOÀN SÂN
+            </h2>
+            <p style={{ fontSize: '13px', color: '#cbd5e1', margin: '0 0 14px 0', lineHeight: 1.45 }}>
+              Kích hoạt yếu tố <b>Nhanh • Bất Ngờ • May Rủi • Lật Kèo Phút 89</b> chuẩn Game Show quốc tế cho toàn bộ học sinh trong phòng!
+            </p>
+
+            <button
+              type="button"
+              onClick={handleSpinWorldEventWheel}
+              disabled={worldWheelSpinning}
+              style={{
+                width: '100%',
+                padding: '14px 18px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                color: '#fef08a',
+                border: '2px solid #fef08a',
+                fontSize: '16px',
+                fontWeight: 900,
+                cursor: worldWheelSpinning ? 'wait' : 'pointer',
+                marginBottom: '14px',
+                boxShadow: '0 8px 25px rgba(236, 72, 153, 0.5)'
+              }}
+            >
+              {worldWheelSpinning ? '🎡 ĐANG QUAY SỰ KIỆN ĐỊNH MỆNH...' : '🎡 QUAY NGẪU NHIÊN SỰ KIỆN BẤT NGỜ (1 CHẠM)'}
+            </button>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', textAlign: 'left', marginBottom: '14px' }}>
+              {[
+                {
+                  id: 'GOLDEN_X2' as WorldEventType,
+                  title: '🌟 Cơn Mưa Vàng X2',
+                  desc: 'Nhân đôi điểm số & sức mạnh kéo/sát thương ở câu này',
+                  bg: 'rgba(245, 158, 11, 0.18)',
+                  border: '#f59e0b'
+                },
+                {
+                  id: 'UNDERDOG_BOOST' as WorldEventType,
+                  title: '⚡ Phản Công Phút 89',
+                  desc: 'Đội đang thua được x1.75 lực kéo & nửa dưới BXH +800đ',
+                  bg: 'rgba(16, 185, 129, 0.18)',
+                  border: '#10b981'
+                },
+                {
+                  id: 'TUG_STORM' as WorldEventType,
+                  title: matchState.gameType === 'BOSS' ? '🌩️ Sấm Sét Diệt Boss' : '🌪️ Bão Đảo Chiều',
+                  desc: matchState.gameType === 'BOSS' ? 'Giáng sét trừ ngay -600 HP Quái vật Boss' : 'Đưa dây kéo co về thế cân bằng nghẹt thở',
+                  bg: 'rgba(56, 189, 248, 0.18)',
+                  border: '#38bdf8'
+                },
+                {
+                  id: 'MIRACLE_BLESSING' as WorldEventType,
+                  title: '🛟 Phép Màu Toàn Sân',
+                  desc: 'Hồi sinh thí sinh bị loại & tặng cả lớp +500đ May Mắn',
+                  bg: 'rgba(168, 85, 247, 0.18)',
+                  border: '#a855f7'
+                }
+              ].map(ev => (
+                <button
+                  key={ev.id}
+                  type="button"
+                  onClick={() => handleTriggerWorldEvent(ev.id)}
+                  style={{
+                    background: ev.bg,
+                    border: `1.5px solid ${ev.border}`,
+                    borderRadius: '12px',
+                    padding: '10px 12px',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#fef08a', marginBottom: '3px' }}>
+                    {ev.title}
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#cbd5e1', lineHeight: 1.35 }}>
+                    {ev.desc}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWorldEventModal(false)}
+              style={{
+                padding: '8px 22px',
+                borderRadius: '10px',
+                background: '#334155',
+                color: '#e2e8f0',
+                border: '1px solid #64748b',
+                fontWeight: 800,
+                fontSize: '13px',
+                cursor: 'pointer'
+              }}
+            >
+              Đóng
+            </button>
           </div>
         </div>
       )}
