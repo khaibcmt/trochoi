@@ -263,47 +263,58 @@ app.post('/api/room/:roomId/publish', (req, res) => {
       room.latestHeartbeat = payload;
       primaryActiveRoomId = room.roomId;
     } else {
-      room.seqCounter += 1;
-      // Tối ưu băng thông khi chịu tải hàng trăm Tab cùng lúc: Không nhân bản mảng quiz lớn trong từng gói ENTER_CONFIRMED
-      const eventPayload =
-        payload.type === 'ENTER_CONFIRMED' && room.latestHeartbeat?.quiz
-          ? { ...payload, quiz: undefined }
-          : payload;
-
-      room.events.push({
-        seq: room.seqCounter,
-        ts: Date.now(),
-        msg: eventPayload
-      });
-      if (room.events.length > 2500) {
-        room.events.splice(0, room.events.length - 2500);
+      // Nếu là gói đồng bộ câu hỏi mới (QUIZ_SYNC / GAME_SWITCHED / MATCH_START), cập nhật ngay vào latestHeartbeat
+      if (
+        (payload.type === 'QUIZ_SYNC' || payload.type === 'GAME_SWITCHED' || payload.type === 'MATCH_START') &&
+        Array.isArray(payload.quiz) &&
+        payload.quiz.length > 0
+      ) {
+        room.latestHeartbeat = {
+          ...(room.latestHeartbeat || {}),
+          type: 'HOST_HEARTBEAT',
+          _mid: payload._mid || 'hb_' + Date.now(),
+          gameType: payload.gameType || room.latestHeartbeat?.gameType || 'TUG',
+          status: payload.status || room.latestHeartbeat?.status || 'LOBBY',
+          globalQIndex: typeof payload.qIndex === 'number' ? payload.qIndex : (payload.globalQIndex ?? 0),
+          quiz: payload.quiz,
+          question: payload.question || payload.quiz[0]
+        };
       }
 
-      if (payload.type === 'MATCH_START' || payload.type === 'GAME_SWITCH' || payload.type === 'GAME_SWITCHED') {
-        Object.keys(room.players).forEach(pid => {
-          if (room.players[pid]) {
-            room.players[pid].savedScore = 0;
-            room.players[pid].savedCorrect = 0;
-          }
-        });
-      }
-
-      // Lưu thông tin học sinh vào danh sách phòng (Cho phép không giới hạn số lượng nhân vật từ cùng 1 máy / cùng IP / Tab ẩn danh)
+      // Kiểm tra xem gói tin PLAYER_READY_ROPE / AUTO_ENTER_ARENA có thay đổi gì mới không để tránh làm tràn hàng đợi sự kiện
+      let isDuplicatePlayerPing = false;
       if (
         (payload.type === 'AUTO_ENTER_ARENA' ||
           payload.type === 'PLAYER_READY_ROPE' ||
           payload.type === 'PLAYER_FINISH_QUIZ') &&
         payload.playerId
       ) {
+        const prevP = room.players[payload.playerId];
+        const nextReady = payload.type === 'PLAYER_READY_ROPE' || payload.type === 'PLAYER_FINISH_QUIZ' || Boolean(prevP?.ready);
+        const nextScore = typeof payload.savedScore === 'number' ? payload.savedScore : prevP?.savedScore;
+        const nextCorrect = typeof payload.savedCorrect === 'number' ? payload.savedCorrect : prevP?.savedCorrect;
+        const nextName = payload.playerName || prevP?.playerName || 'Học sinh';
+
+        if (
+          prevP &&
+          prevP.ready === nextReady &&
+          prevP.savedScore === nextScore &&
+          prevP.savedCorrect === nextCorrect &&
+          prevP.playerName === nextName &&
+          payload.type !== 'PLAYER_FINISH_QUIZ'
+        ) {
+          isDuplicatePlayerPing = true;
+        }
+
         room.players[payload.playerId] = {
-          ...(room.players[payload.playerId] || {}),
+          ...(prevP || {}),
           playerId: payload.playerId,
-          playerName: payload.playerName || room.players[payload.playerId]?.playerName || 'Học sinh',
-          preferredTeam: payload.preferredTeam || payload.team || room.players[payload.playerId]?.preferredTeam || 'RED',
-          avatar: payload.avatar || room.players[payload.playerId]?.avatar,
-          savedScore: typeof payload.savedScore === 'number' ? payload.savedScore : room.players[payload.playerId]?.savedScore,
-          savedCorrect: typeof payload.savedCorrect === 'number' ? payload.savedCorrect : room.players[payload.playerId]?.savedCorrect,
-          ready: payload.type === 'PLAYER_READY_ROPE' || payload.type === 'PLAYER_FINISH_QUIZ' || Boolean(room.players[payload.playerId]?.ready),
+          playerName: nextName,
+          preferredTeam: payload.preferredTeam || payload.team || prevP?.preferredTeam || 'RED',
+          avatar: payload.avatar || prevP?.avatar,
+          savedScore: nextScore,
+          savedCorrect: nextCorrect,
+          ready: nextReady,
           updatedAt: Date.now()
         };
       } else if (
@@ -318,6 +329,33 @@ app.post('/api/room/:roomId/publish', (req, res) => {
           room.players[payload.playerId].savedCorrect = payload.savedCorrect;
         }
         room.players[payload.playerId].updatedAt = Date.now();
+      }
+
+      if (!isDuplicatePlayerPing) {
+        room.seqCounter += 1;
+        // Tối ưu băng thông khi chịu tải hàng trăm Tab cùng lúc: Không nhân bản mảng quiz lớn trong từng gói ENTER_CONFIRMED
+        const eventPayload =
+          payload.type === 'ENTER_CONFIRMED' && room.latestHeartbeat?.quiz
+            ? { ...payload, quiz: undefined }
+            : payload;
+
+        room.events.push({
+          seq: room.seqCounter,
+          ts: Date.now(),
+          msg: eventPayload
+        });
+        if (room.events.length > 2500) {
+          room.events.splice(0, room.events.length - 2500);
+        }
+      }
+
+      if (payload.type === 'MATCH_START' || payload.type === 'GAME_SWITCH' || payload.type === 'GAME_SWITCHED') {
+        Object.keys(room.players).forEach(pid => {
+          if (room.players[pid]) {
+            room.players[pid].savedScore = 0;
+            room.players[pid].savedCorrect = 0;
+          }
+        });
       }
     }
 

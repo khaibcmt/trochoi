@@ -38,20 +38,32 @@ export const StudentMobileView: React.FC<Props> = ({
       const existingTabId = sessionStorage.getItem('kc3d_tab_session_id');
       const reloadTs = parseInt(sessionStorage.getItem('kc3d_tab_reload_ts') || '0', 10);
       sessionStorage.removeItem('kc3d_tab_reload_ts');
-      const isF5ReloadOfSameTab = Boolean(existingTabId && reloadTs > 0 && Date.now() - reloadTs < 25000);
-      if (isF5ReloadOfSameTab && existingTabId) {
+      const winName = typeof window !== 'undefined' ? window.name : '';
+
+      // Nếu window.name khớp với existingTabId (cùng 1 Tab đang hoạt động hoặc vừa remount/F5 trên điện thoại)
+      // hoặc vừa F5 reload lại Tab -> Giữ nguyên 100% phiên làm bài, tuyệt đối không bao giờ văng ra!
+      if (existingTabId && (winName === existingTabId || (reloadTs > 0 && Date.now() - reloadTs < 120000))) {
+        if (typeof window !== 'undefined') window.name = existingTabId;
         return existingTabId;
       }
+
+      // Trường hợp mở Tab mới hoặc bấm "Duplicate Tab / Nhân đôi Tab" (window.name rỗng hoặc khác) -> Tạo ID nhân vật độc lập mới
       const freshTabId = 'tab_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
       sessionStorage.setItem('kc3d_tab_session_id', freshTabId);
+      if (typeof window !== 'undefined') window.name = freshTabId;
       return freshTabId;
     } catch {
       return 'tab_' + Math.random().toString(36).substring(2, 8);
     }
   });
 
-  // Đánh dấu khi Tab thực sự F5 / Reload để phân biệt với việc mở Tab mới hoặc Nhân đôi Tab (Duplicate Tab)
+  // Đánh dấu khi Tab thực sự F5 / Reload để bảo toàn tuyệt đối phiên làm bài của học sinh
   useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && tabSessionId) {
+        window.name = tabSessionId;
+      }
+    } catch {}
     const handleBeforeUnload = () => {
       try {
         sessionStorage.setItem('kc3d_tab_reload_ts', String(Date.now()));
@@ -63,7 +75,7 @@ export const StudentMobileView: React.FC<Props> = ({
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
     };
-  }, []);
+  }, [tabSessionId]);
 
   const [roomId, setRoomId] = useState(initialRoomId || '12345');
 
@@ -667,8 +679,9 @@ export const StudentMobileView: React.FC<Props> = ({
       setMaxBossHP(d.maxBossHP);
     }
 
-    // Nếu giáo viên kết thúc trận đấu hoặc đã hết câu hỏi -> Dừng ngay và thông báo kết quả cuối cùng!
-    if (d.type === 'MATCH_ENDED' || d.status === 'ENDED' || d.matchStatus === 'ENDED') {
+    // Chỉ khi Giáo viên chủ động bấm KẾT THÚC TRẬN (MATCH_ENDED) mới dừng toàn phòng;
+    // Không để trạng thái ENDED cũ trong nhịp tim làm văng học sinh vừa mới vào phòng hoặc đang làm dở câu hỏi!
+    if (d.type === 'MATCH_ENDED') {
       setHostMatchStatus('ENDED');
       hostMatchStatusRef.current = 'ENDED';
       if (hasJoinedArenaRef.current || screenRef.current !== 'LOBBY') {
@@ -698,11 +711,6 @@ export const StudentMobileView: React.FC<Props> = ({
         setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
         setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
       }
-      if (!hasFinishedAllQuestionsRef.current && typeof d.globalQIndex === 'number' && d.globalQIndex > maxReachedQIndexRef.current) {
-        currentGlobalQIndexRef.current = d.globalQIndex;
-        maxReachedQIndexRef.current = d.globalQIndex;
-        setCurrentGlobalQIndex(d.globalQIndex);
-      }
       if (d.status === 'PLAYING' && hasJoinedArenaRef.current && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
         waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
@@ -724,19 +732,19 @@ export const StudentMobileView: React.FC<Props> = ({
         setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
         setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
       }
-      if (!hasFinishedAllQuestionsRef.current && typeof d.globalQIndex === 'number' && d.globalQIndex > maxReachedQIndexRef.current) {
-        currentGlobalQIndexRef.current = d.globalQIndex;
-        maxReachedQIndexRef.current = d.globalQIndex;
-        setCurrentGlobalQIndex(d.globalQIndex);
-      }
       if (typeof d.lives === 'number') setLives(d.lives);
       if (typeof d.streak === 'number') setStreak(d.streak);
-      if (typeof d.eliminated === 'boolean') setEliminated(d.eliminated);
+      if (typeof d.eliminated === 'boolean' && gameTypeRef.current === 'BELL') {
+        setEliminated(d.eliminated);
+        eliminatedRef.current = d.eliminated;
+      }
       if (typeof d.fastScore === 'number' && d.fastScore > fastScoreRef.current) {
         setFastScore(d.fastScore);
+        fastScoreRef.current = d.fastScore;
       }
       if (typeof d.savedCorrect === 'number' && d.savedCorrect > myCorrectCountRef.current) {
         setMyCorrectCount(d.savedCorrect);
+        myCorrectCountRef.current = d.savedCorrect;
       }
 
       if (hasFinishedAllQuestionsRef.current) {
@@ -945,13 +953,14 @@ export const StudentMobileView: React.FC<Props> = ({
         });
       }
 
-      // Chỉ tiến lên câu hỏi mới nếu Host đang PLAYING và có chỉ số câu hỏi lớn hơn chỉ số câu hiện tại của học sinh
-      // TUYỆT ĐỐI KHÔNG kéo lùi học sinh về câu 1 hoặc làm văng học sinh đã hoàn thành bài thi!
+      // Chỉ tiến lên câu hỏi mới nếu học sinh ĐÃ TRẢ LỜI câu hiện tại (hoặc đang ở phòng chờ)
+      // TUYỆT ĐỐI KHÔNG ngắt ngang khi học sinh đang suy nghĩ câu hiện tại và KHÔNG kéo lùi học sinh về câu 1!
       if (
         !hasFinishedAllQuestionsRef.current &&
         d.status === 'PLAYING' &&
         typeof d.globalQIndex === 'number' &&
-        d.globalQIndex > currentGlobalQIndexRef.current
+        d.globalQIndex > currentGlobalQIndexRef.current &&
+        (hasAnsweredCurrentQRef.current || screenRef.current === 'WAITING')
       ) {
         const totalCount = Math.max(1, (d.quiz && d.quiz.length) || quizDeckRef.current.length || 1);
         if (d.globalQIndex >= totalCount) {
@@ -1051,12 +1060,20 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     );
 
-    // Gửi đồng bộ định kỳ để đảm bảo tên, nhân vật và điểm của học sinh luôn hiển thị thông suốt trên màn hình giáo viên
+    // Đồng bộ nhẹ nhàng: Nếu chưa được Host xác nhận thì gửi sau 3s, khi đã xác nhận chỉ gửi định kỳ mỗi 10s để tránh nghẽn mạng khi mở 40+ Tab
+    let lastSyncTs = Date.now();
+    let lastSyncedScore = fastScoreRef.current;
     const interval = setInterval(() => {
-      if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+      if (!hasJoinedArenaRef.current || !studentNameRef.current.trim()) return;
+      const now = Date.now();
+      const scoreChanged = fastScoreRef.current !== lastSyncedScore;
+      const neededDelay = hasConfirmedEnterRef.current ? 10000 : 3000;
+      if (scoreChanged || now - lastSyncTs >= neededDelay) {
+        lastSyncTs = now;
+        lastSyncedScore = fastScoreRef.current;
         sendEnter();
       }
-    }, 2200);
+    }, 1500);
 
     return () => {
       clearInterval(interval);
@@ -1309,12 +1326,16 @@ export const StudentMobileView: React.FC<Props> = ({
 
     setLastCompletedQIndex(currentGlobalQIndexRef.current);
 
-    // Nếu đây là câu hỏi cuối cùng của bộ đề -> Sau 1.4 giây tự động NGỪNG và mở màn hình Thông báo Kết quả cuối cùng (không chạy lại câu 1)
-    if (isFinalQuestion && !eliminatedRef.current) {
+    // Sau khi trả lời xong 1 câu: Tự động chuyển mượt mà sang câu hỏi tiếp theo sau 1.5 giây
+    // Nếu là câu hỏi cuối cùng -> Tự động NGỪNG và mở màn hình Thông báo Kết quả cuối cùng (không bao giờ chạy lại câu 1)
+    if (!eliminatedRef.current) {
       if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+      const answeredIdx = currentGlobalQIndexRef.current;
       finishTransitionTimerRef.current = setTimeout(() => {
-        advanceStudentQuestionOrFinish(currentGlobalQIndexRef.current);
-      }, 1400);
+        if (!eliminatedRef.current) {
+          advanceStudentQuestionOrFinish(answeredIdx);
+        }
+      }, isFinalQuestion ? 1300 : 1600);
     }
   };
 
@@ -2733,7 +2754,30 @@ export const StudentMobileView: React.FC<Props> = ({
                 fontSize: '13px',
                 fontWeight: 800
               }}>
-                🔒 Đã khóa câu #{currentGlobalQIndex + 1} • Tự động qua câu mới sau {Math.ceil(remSec)}s...
+                {currentGlobalQIndex + 1 >= safeTotalDeckCount
+                  ? `🏁 Đã hoàn thành câu cuối cùng (${currentGlobalQIndex + 1}/${safeTotalDeckCount}) • Đang tổng kết kết quả...`
+                  : `🔒 Đã chốt câu #${currentGlobalQIndex + 1}/${safeTotalDeckCount} • Tự động chuyển sang câu #${currentGlobalQIndex + 2}...`}
+              </div>
+              <div style={{ marginTop: '12px', pointerEvents: 'auto' }}>
+                <button
+                  type="button"
+                  onClick={() => advanceStudentQuestionOrFinish(currentGlobalQIndex)}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#0f172a',
+                    fontWeight: 900,
+                    fontSize: '14px',
+                    border: '2px solid #fef08a',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(0,0,0,0.35)'
+                  }}
+                >
+                  {currentGlobalQIndex + 1 >= safeTotalDeckCount
+                    ? '🏆 XEM KẾT QUẢ CUỐI CÙNG NGAY'
+                    : `➡️ SANG CÂU TIẾP THEO (CÂU ${currentGlobalQIndex + 2})`}
+                </button>
               </div>
             </div>
           ) : (
@@ -3021,6 +3065,153 @@ export const StudentMobileView: React.FC<Props> = ({
             <span style={{ fontSize: '13px', color: '#6ee7b7', fontWeight: 800 }}>
               🛟 Hãy chú ý màn hình chính: Giáo viên có thể tung Phao Cứu Trợ hồi sinh bạn trở lại thi đấu bất cứ lúc nào!
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Screen 5: ENDED -> Màn hình Tổng Kết Kết Quả Cuối Cùng (Ngừng hoàn toàn khi hết câu hỏi, tuyệt đối không chạy lại câu 1) */}
+      {screen === 'ENDED' && (
+        <div style={{ maxWidth: '500px', margin: '24px auto', padding: '22px 18px', textAlign: 'center' }}>
+          <div
+            style={{
+              background: 'linear-gradient(145deg, #0f172a 0%, #1e1b4b 100%)',
+              border: '3px solid #f59e0b',
+              borderRadius: '24px',
+              padding: '24px 18px',
+              boxShadow: '0 16px 40px rgba(0, 0, 0, 0.55)'
+            }}
+          >
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+              {renderCuteChibiCharacter(108, 'cheering')}
+            </div>
+
+            <div
+              style={{
+                display: 'inline-block',
+                padding: '5px 14px',
+                borderRadius: '999px',
+                background: 'rgba(16, 185, 129, 0.2)',
+                border: '1.5px solid #34d399',
+                color: '#6ee7b7',
+                fontSize: '12.5px',
+                fontWeight: 900,
+                marginBottom: '10px'
+              }}
+            >
+              🏁 ĐÃ HOÀN THÀNH TOÀN BỘ {safeTotalDeckCount} CÂU HỎI
+            </div>
+
+            <h2 style={{ fontSize: '23px', color: '#fef08a', fontWeight: 900, margin: '0 0 6px 0' }}>
+              🏆 KẾT QUẢ CUỐI CÙNG CỦA BẠN
+            </h2>
+            <p style={{ fontSize: '14.5px', color: '#e2e8f0', fontWeight: 800, margin: '0 0 18px 0' }}>
+              Học sinh: <b style={{ color: '#38bdf8' }}>{studentName || 'Học sinh'}</b> • Phòng <b style={{ color: '#4ade80' }}>{roomId}</b>
+            </p>
+
+            {/* Bảng thông số kết quả */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '10px',
+                marginBottom: '18px'
+              }}
+            >
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '2px solid #38bdf8',
+                  borderRadius: '16px',
+                  padding: '12px 8px'
+                }}
+              >
+                <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 800 }}>TỔNG ĐIỂM</div>
+                <div style={{ fontSize: '21px', color: '#38bdf8', fontWeight: 900, marginTop: '4px' }}>
+                  {fastScore}đ
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '2px solid #4ade80',
+                  borderRadius: '16px',
+                  padding: '12px 8px'
+                }}
+              >
+                <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 800 }}>SỐ CÂU ĐÚNG</div>
+                <div style={{ fontSize: '21px', color: '#4ade80', fontWeight: 900, marginTop: '4px' }}>
+                  {myCorrectCount}/{safeTotalDeckCount}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '2px solid #f59e0b',
+                  borderRadius: '16px',
+                  padding: '12px 8px'
+                }}
+              >
+                <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 800 }}>ĐIỂM HỆ 10</div>
+                <div style={{ fontSize: '21px', color: '#fef08a', fontWeight: 900, marginTop: '4px' }}>
+                  {getTeacherGradebookScore(myCorrectCount, safeTotalDeckCount).grade}đ
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: 'rgba(6, 95, 70, 0.35)',
+                border: '1.5px solid #10b981',
+                borderRadius: '14px',
+                padding: '12px 14px',
+                color: '#d1fae5',
+                fontSize: '13.5px',
+                fontWeight: 800,
+                lineHeight: 1.5,
+                marginBottom: '18px'
+              }}
+            >
+              ✅ Kết quả của em đã được gửi và lưu trực tiếp lên Bảng Vàng & Sổ Điểm của Giáo viên!<br />
+              Em hãy giữ màn hình này để đối chiếu hoặc chờ Giáo viên phát động vòng thi mới.
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleManualReconnect}
+                style={{
+                  padding: '12px 18px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '13.5px',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Đồng bộ lại điểm lên Màn hình GV
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCreateNewCharacterInTab}
+                style={{
+                  padding: '12px 18px',
+                  borderRadius: '12px',
+                  background: '#1e293b',
+                  color: '#cbd5e1',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  border: '1.5px solid #475569',
+                  cursor: 'pointer'
+                }}
+              >
+                ➕ Tạo nhân vật HS khác
+              </button>
+            </div>
           </div>
         </div>
       )}

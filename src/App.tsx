@@ -146,9 +146,18 @@ export const App: React.FC = () => {
     const normalized = parsedQuiz.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
     setQuizList(normalized);
     quizListRef.current = normalized;
+    const safeIdx = Math.min(Math.max(0, matchStateRef.current.globalQIndex), Math.max(0, normalized.length - 1));
+    const curQ = normalized[safeIdx] ? { ...normalized[safeIdx], qIndex: safeIdx, totalQuestions: normalized.length } : undefined;
+    CloudNetwork.sendMessage({
+      type: 'QUIZ_SYNC',
+      qIndex: safeIdx,
+      question: curQ,
+      quiz: normalized
+    });
   };
 
   const answeredQKeysRef = useRef<Set<string>>(new Set());
+  const lastEnterAckMapRef = useRef<Record<string, number>>({});
 
   const handleSelectGameType = (newGameType: GamePlayType) => {
     answeredQKeysRef.current.clear();
@@ -245,6 +254,17 @@ export const App: React.FC = () => {
     };
     const nextDB = { ...subjectsDB, [currentSubjectKey]: updatedSubj };
     saveSubjects(nextDB);
+    const safeIdx = Math.min(Math.max(0, matchStateRef.current.globalQIndex), Math.max(0, normalized.length - 1));
+    const curQ = normalized[safeIdx] ? { ...normalized[safeIdx], qIndex: safeIdx, totalQuestions: normalized.length } : undefined;
+    CloudNetwork.sendMessage({
+      type: 'QUIZ_SYNC',
+      qIndex: safeIdx,
+      question: curQ,
+      quiz: normalized
+    });
+    setTimeout(() => {
+      broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
+    }, 20);
     if (!silent) {
       alert(`✅ Đã lưu và đồng bộ thành công ${parsedQuiz.length} câu hỏi vào môn "${updatedSubj.name}"!`);
     }
@@ -423,17 +443,20 @@ export const App: React.FC = () => {
             AudioFX.stepInRope();
           }
 
+          const nextFastScore = d.type === 'PLAYER_FINISH_QUIZ' && typeof d.savedScore === 'number'
+            ? d.savedScore
+            : ((existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
+                ? existing.fastScore
+                : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore));
+          const nextCorrect = Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0);
+
           const updatedPlayer: Player = {
             ...existing,
             label: nextLabel,
             avatar: d.avatar || existing.avatar,
             ready: nextReady,
-            fastScore: d.type === 'PLAYER_FINISH_QUIZ' && typeof d.savedScore === 'number'
-              ? d.savedScore
-              : ((existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
-                  ? existing.fastScore
-                  : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore)),
-            correct: Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0)
+            fastScore: nextFastScore,
+            correct: nextCorrect
           };
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
@@ -445,8 +468,17 @@ export const App: React.FC = () => {
             totalQuestions: currentList.length
           } : null;
 
-          // Crucial: Send confirmation back to student so their phone restores full session & score
-          if (d.type !== 'PLAYER_FINISH_QUIZ') {
+          const now = Date.now();
+          const lastAckAt = lastEnterAckMapRef.current[updatedPlayer.id] || 0;
+          const playerChanged =
+            existing.label !== nextLabel ||
+            existing.ready !== nextReady ||
+            existing.fastScore !== nextFastScore ||
+            existing.correct !== nextCorrect;
+
+          // Chỉ phản hồi ENTER_CONFIRMED khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi mở 40+ Tab
+          if (d.type !== 'PLAYER_FINISH_QUIZ' && (playerChanged || now - lastAckAt > 8000)) {
+            lastEnterAckMapRef.current[updatedPlayer.id] = now;
             CloudNetwork.sendMessage({
               type: 'ENTER_CONFIRMED',
               playerId: updatedPlayer.id,
@@ -466,6 +498,10 @@ export const App: React.FC = () => {
               quiz: currentList,
               question: activeQWithMeta
             });
+          }
+
+          if (!playerChanged) {
+            return prev;
           }
 
           const nextRed = existingRedIdx !== -1
@@ -640,28 +676,29 @@ export const App: React.FC = () => {
           : prev.blueAnsweredIds;
 
         // BOSS Mode: Deal damage to Boss & rank individuals by score/correct
+        // Khi Boss hết máu mà vẫn còn câu hỏi, Boss sẽ Hồi Sinh Cấp Độ Mới (tăng máu) để học sinh làm trọn vẹn hết bộ câu hỏi!
         if (prev.gameType === 'BOSS') {
           const dmg = 150;
-          const nextBossHP = Math.max(0, (prev.bossHP || 1000) - dmg);
-          let nextStatus: MatchStatus = prev.status;
+          const rawNextHP = (prev.bossHP || 1000) - dmg;
+          const baseMaxHP = prev.maxBossHP || 1000;
+          let nextBossHP = Math.max(0, rawNextHP);
+          let nextMaxHP = baseMaxHP;
+          let attackMsg = `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (+${gainedScore}đ • Tổng: ${pObj.fastScore}đ)`;
 
-          if (nextBossHP <= 0) {
+          if (rawNextHP <= 0) {
             AudioFX.winFanfare();
-            nextStatus = 'ENDED';
-            CloudNetwork.sendMessage({
-              type: 'MATCH_ENDED',
-              status: 'ENDED',
-              globalQIndex: prev.globalQIndex
-            });
+            nextMaxHP = baseMaxHP + 1000;
+            nextBossHP = nextMaxHP;
+            attackMsg = `🔥 ${pObj.label} ĐÃ HẠ GỤC BOSS! Boss Tiến Hóa Cấp Mới (${nextMaxHP} HP) — Tiếp tục chiến đấu đến hết câu hỏi!`;
           }
 
           return {
             ...prev,
             bossHP: nextBossHP,
-            status: nextStatus,
+            maxBossHP: nextMaxHP,
             redAnsweredIds: nextRedAns,
             blueAnsweredIds: nextBlueAns,
-            bossLastAttack: `Chiến binh ${pObj.label} gây -${dmg} HP Boss! (+${gainedScore}đ • Tổng: ${pObj.fastScore}đ)`,
+            bossLastAttack: attackMsg,
             redPlayers: [...prev.redPlayers],
             bluePlayers: [...prev.bluePlayers]
           };

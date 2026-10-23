@@ -195,13 +195,16 @@ class NetworkService {
   private async pollHttpRoomNow() {
     if (this.isIntentionalDisconnect || !this.currentRoomId || this.isPollingInFlight) return;
     this.isPollingInFlight = true;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
     try {
       const res = await fetch(
         `/api/room/${encodeURIComponent(this.currentRoomId)}/poll?since=${this.lastHttpSeq}&hb=${encodeURIComponent(this.lastHeartbeatMid)}`,
         {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
-          cache: 'no-store'
+          cache: 'no-store',
+          signal: controller ? controller.signal : undefined
         }
       );
       if (res.ok) {
@@ -259,22 +262,26 @@ class NetworkService {
       }
     } catch {
       this.consecutiveHttpFailures++;
-      if (this.consecutiveHttpFailures >= 6 && (!this.client || !this.client.connected)) {
+      if (this.consecutiveHttpFailures >= 18 && (!this.client || !this.client.connected)) {
         this.httpHealthy = false;
         this.setStatus('RECONNECTING');
       }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       this.isPollingInFlight = false;
     }
   }
 
   private async publishHttpMessage(payload: CloudMessage) {
     if (!this.currentRoomId) return;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
     try {
       const res = await fetch(`/api/room/${encodeURIComponent(this.currentRoomId)}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller ? controller.signal : undefined
       });
       if (res.ok) {
         this.httpHealthy = true;
@@ -303,6 +310,8 @@ class NetworkService {
           this.offlineQueue.push(payload);
         }
       }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
@@ -322,7 +331,7 @@ class NetworkService {
         clientId,
         clean: true,
         connectTimeout: 4500,
-        reconnectPeriod: 2000,
+        reconnectPeriod: 5000,
         keepalive: 30
       });
 
@@ -358,12 +367,13 @@ class NetworkService {
 
   private switchBrokerFallback() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    const delay = this.httpHealthy ? 12000 : 3500;
     this.reconnectTimer = setTimeout(() => {
       if (!this.isIntentionalDisconnect && this.currentRoomId) {
         this.brokerIndex++;
         this.initMqttClient();
       }
-    }, 3000);
+    }, delay);
   }
 
   public reconnectImmediate() {

@@ -125,12 +125,15 @@ export const TeacherSetupView: React.FC<Props> = ({
   // Đọc & ghép câu hỏi từ 3 khung riêng biệt (Dạng I, Dạng II, Dạng III) mà không bao giờ bị lẫn hay mất câu
   const getCombinedQuizFrom3Boxes = (): QuizItem[] => {
     const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
+    const mcText = mcEditorRef.current?.innerText?.trim() || '';
     const tfRaw = tfEditorRef.current?.innerHTML?.trim() || '';
+    const tfText = tfEditorRef.current?.innerText?.trim() || '';
     const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
+    const saText = saEditorRef.current?.innerText?.trim() || '';
 
-    const mcItems = mcRaw ? parseHTMLToQuiz(mcRaw, 'MULTIPLE_CHOICE') : [];
-    const tfItems = tfRaw ? parseHTMLToQuiz(tfRaw, 'TRUE_FALSE') : [];
-    const saItems = saRaw ? parseHTMLToQuiz(saRaw, 'SHORT_ANSWER') : [];
+    const mcItems = (mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, 'MULTIPLE_CHOICE', mcText) : [];
+    const tfItems = (tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfText) : [];
+    const saItems = (saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saText) : [];
 
     const combined = [...mcItems, ...tfItems, ...saItems].map((item, idx) => ({
       ...item,
@@ -167,38 +170,56 @@ export const TeacherSetupView: React.FC<Props> = ({
     syncLiveToStorageAndHost(combined);
   };
 
-  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml>/font-family của Word, tự tách dòng a) b) c) d) và giữ nguyên gạch chân <u>
+  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml>/font-family của Word, tự tách dòng A. B. C. D. / a) b) c) d) và giữ nguyên gạch chân <u> / in đậm <b>
   const handleCleanPasteInBox = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
+    const targetEl = e.currentTarget;
     const htmlData = e.clipboardData.getData('text/html');
     const textData = e.clipboardData.getData('text/plain');
 
     const rawSource = htmlData && htmlData.trim() ? htmlData : textData;
     let cleanToInsert = '';
 
-    if (rawSource && rawSource.trim()) {
-      const normalizedLines = extractNormalizedLines(rawSource);
+    if ((rawSource && rawSource.trim()) || (textData && textData.trim())) {
+      const normalizedLines = extractNormalizedLines(rawSource || textData, textData);
       if (normalizedLines.length > 0) {
         cleanToInsert = normalizedLines
           .map(p => {
-            const safeLine = stripWordStyleGarbage(p.raw)
+            let safeLine = stripWordStyleGarbage(p.raw)
               .replace(/&/g, '&amp;')
               .replace(/</g, '&lt;')
               .replace(/>/g, '&gt;')
               .replace(/⟦U⟧/g, '<u>')
-              .replace(/⟦\/U⟧/g, '</u>');
+              .replace(/⟦\/U⟧/g, '</u>')
+              .replace(/⟦B⟧/g, '<b>')
+              .replace(/⟦\/B⟧/g, '</b>');
+            if (p.isU && !safeLine.includes('<u>')) {
+              safeLine = `<u>${safeLine}</u>`;
+            } else if (p.isBold && !safeLine.includes('<b>')) {
+              safeLine = `<b>${safeLine}</b>`;
+            }
             return `<div>${safeLine}</div>`;
           })
           .join('');
       }
     }
 
-    if (cleanToInsert) {
-      document.execCommand('insertHTML', false, cleanToInsert);
+    if (cleanToInsert && targetEl) {
+      targetEl.focus();
+      const beforeHTML = targetEl.innerHTML;
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertHTML', false, cleanToInsert);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted || targetEl.innerHTML === beforeHTML) {
+        targetEl.innerHTML = (beforeHTML && beforeHTML.trim() && beforeHTML !== '<br>' ? beforeHTML + '<br>' : '') + cleanToInsert;
+      }
     }
     setTimeout(() => {
       syncEditorQuestionsLive();
-    }, 30);
+    }, 20);
   };
 
   // Sync 3 format boxes when subject changes
@@ -358,13 +379,16 @@ export const TeacherSetupView: React.FC<Props> = ({
   const handleAIAutoMark = () => {
     // Nếu giáo viên dán chung cả 3 phần vào 1 khung, tự động phân loại về đúng 3 khung Dạng thức I, II, III
     const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
+    const mcText = mcEditorRef.current?.innerText?.trim() || '';
     const tfRaw = tfEditorRef.current?.innerHTML?.trim() || '';
+    const tfText = tfEditorRef.current?.innerText?.trim() || '';
     const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
+    const saText = saEditorRef.current?.innerText?.trim() || '';
 
     const autoItems = [
-      ...(mcRaw ? parseHTMLToQuiz(mcRaw) : []),
-      ...(tfRaw ? parseHTMLToQuiz(tfRaw, 'TRUE_FALSE') : []),
-      ...(saRaw ? parseHTMLToQuiz(saRaw, 'SHORT_ANSWER') : [])
+      ...((mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, undefined, mcText) : []),
+      ...((tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfText) : []),
+      ...((saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saText) : [])
     ].map((item, idx) => ({ ...item, qid: idx }));
 
     if (!autoItems.length) {
@@ -492,25 +516,75 @@ export const TeacherSetupView: React.FC<Props> = ({
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
+      const rawContent = String(ev.target?.result || '').trim();
+      if (!rawContent) return;
       try {
-        const arr = JSON.parse(ev.target?.result as string);
-        if (!Array.isArray(arr)) throw new Error('Invalid format');
-        const parsedItems: QuizItem[] = arr.map((item: any, i: number) => ({
-          qid: i,
-          q: cleanQuestionTitleText(item.q || item.question || ''),
-          format: item.format || 'MULTIPLE_CHOICE',
-          opts: item.opts || item.options || [],
-          correct: typeof item.correct === 'number' ? item.correct : aiAutoDetectCorrectIndex(item.q, item.opts || []),
-          tfItems: item.tfItems || [],
-          shortAnswer: item.shortAnswer || '',
-          rightCount: 0,
-          wrongCount: 0
-        }));
+        // Thử đọc dạng JSON trước
+        const parsedJSON = JSON.parse(rawContent);
+        const rawArr = Array.isArray(parsedJSON)
+          ? parsedJSON
+          : Array.isArray(parsedJSON?.questions)
+          ? parsedJSON.questions
+          : Array.isArray(parsedJSON?.items)
+          ? parsedJSON.items
+          : Array.isArray(parsedJSON?.quiz)
+          ? parsedJSON.quiz
+          : null;
+
+        if (!rawArr || rawArr.length === 0) throw new Error('Not a JSON question list');
+
+        const parsedItems: QuizItem[] = rawArr.map((item: any, i: number) => {
+          const qText = cleanQuestionTitleText(item.q || item.question || item.title || `Câu ${i + 1}`);
+          const rawOpts = Array.isArray(item.opts)
+            ? item.opts
+            : Array.isArray(item.options)
+            ? item.options
+            : Array.isArray(item.answers)
+            ? item.answers
+            : [item.A || item.a, item.B || item.b, item.C || item.c, item.D || item.d].filter(Boolean);
+          const cleanOpts = rawOpts.map((o: any) =>
+            String(o || '')
+              .replace(/^[A-D][\.\:\)\/]\s*/i, '')
+              .trim()
+          );
+
+          let correctIdx = 0;
+          if (typeof item.correct === 'number' && item.correct >= 0 && item.correct < 4) {
+            correctIdx = item.correct;
+          } else if (typeof item.correct === 'string' && /^[A-D]$/i.test(item.correct.trim())) {
+            correctIdx = item.correct.trim().toUpperCase().charCodeAt(0) - 65;
+          } else if (typeof item.answer === 'string' && /^[A-D]$/i.test(item.answer.trim())) {
+            correctIdx = item.answer.trim().toUpperCase().charCodeAt(0) - 65;
+          } else {
+            correctIdx = aiAutoDetectCorrectIndex(qText, cleanOpts);
+          }
+
+          return {
+            qid: i,
+            q: qText,
+            format: item.format || (Array.isArray(item.tfItems) && item.tfItems.length > 0 ? 'TRUE_FALSE' : item.shortAnswer ? 'SHORT_ANSWER' : 'MULTIPLE_CHOICE'),
+            opts: cleanOpts.length > 0 ? cleanOpts : ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
+            correct: correctIdx,
+            tfItems: item.tfItems || [],
+            shortAnswer: item.shortAnswer || '',
+            rightCount: 0,
+            wrongCount: 0
+          };
+        });
+
         populate3BoxesFromItems(parsedItems);
         onImportJSON(parsedItems);
-        alert(`✅ Đã nhập thành công ${parsedItems.length} câu hỏi vào 3 khung Dạng thức!`);
-      } catch (err) {
-        alert('File JSON không hợp lệ!');
+        alert(`✅ Đã nạp thành công ${parsedItems.length} câu hỏi vào 3 khung Dạng thức!`);
+      } catch {
+        // Nếu file là văn bản (.txt / .html) hoặc đề copy trực tiếp -> tự động bóc tách bằng bộ nhận diện câu hỏi trắc nghiệm
+        const parsedFromText = parseHTMLToQuiz(rawContent, undefined, rawContent);
+        if (parsedFromText && parsedFromText.length > 0) {
+          populate3BoxesFromItems(parsedFromText);
+          onImportJSON(parsedFromText);
+          alert(`✅ Đã tự động nhận diện và nạp thành công ${parsedFromText.length} câu hỏi từ file vào 3 khung Dạng thức!`);
+        } else {
+          alert('Không nhận diện được câu hỏi trong file. Vui lòng chọn file .json, .txt hoặc .html chứa câu hỏi trắc nghiệm!');
+        }
       }
     };
     reader.readAsText(file);
@@ -553,12 +627,12 @@ export const TeacherSetupView: React.FC<Props> = ({
               💾 Xuất Đề (.json)
             </button>
             <button className="btn-action-sm" onClick={() => fileInputRef.current?.click()}>
-              📂 Nhập Đề (.json)
+              📂 Nhập Đề (.json / .txt / .html)
             </button>
             <input
               type="file"
               ref={fileInputRef}
-              accept=".json"
+              accept=".json,.txt,.html,.htm"
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />

@@ -191,9 +191,15 @@ export async function parseDocClientSide(params: {
 }): Promise<QuizItem[]> {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
-  if (params.textContent && !apiKey) {
-    // If no key but text was provided, use built-in HTML/text parser
-    return parseHTMLToQuiz(params.textContent);
+  if (params.textContent && !params.imageBase64) {
+    // Ưu tiên bóc tách siêu tốc trực tiếp trên trình duyệt cho văn bản trắc nghiệm dán vào (không phụ thuộc API Key)
+    const directParsed = parseHTMLToQuiz(params.textContent, undefined, params.textContent);
+    if (directParsed && directParsed.length > 0 && !apiKey) {
+      return directParsed;
+    }
+    if (!apiKey) {
+      return directParsed;
+    }
   }
 
   if (!apiKey) {
@@ -223,7 +229,7 @@ export async function parseDocClientSide(params: {
   {
     "q": "Nội dung câu hỏi...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
-    "opts": ["A. ...", "B. ...", "C. ...", "D. ..."],
+    "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
     "tfItems": [
       { "label": "a", "text": "...", "isCorrect": true },
@@ -266,10 +272,19 @@ export async function parseDocClientSide(params: {
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((item: any, i: number) => ({
           qid: i,
-          q: cleanQuestionTitleText(item.q || ''),
+          q: cleanQuestionTitleText(item.q || item.question || ''),
           format: item.format || 'MULTIPLE_CHOICE',
-          opts: item.opts || [],
-          correct: typeof item.correct === 'number' ? item.correct : 0,
+          opts: Array.isArray(item.opts || item.options)
+            ? (item.opts || item.options).map((o: any) =>
+                String(o || '').replace(/^[A-D][\.\:\)\/]\s*/i, '').trim()
+              )
+            : [],
+          correct:
+            typeof item.correct === 'number'
+              ? item.correct
+              : typeof item.correct === 'string' && /^[A-D]$/i.test(item.correct.trim())
+              ? item.correct.trim().toUpperCase().charCodeAt(0) - 65
+              : 0,
           tfItems: item.tfItems || [],
           shortAnswer: item.shortAnswer || '',
           explanation: item.explanation || '',
@@ -283,7 +298,7 @@ export async function parseDocClientSide(params: {
   }
 
   if (params.textContent) {
-    return parseHTMLToQuiz(params.textContent);
+    return parseHTMLToQuiz(params.textContent, undefined, params.textContent);
   }
   return [];
 }
