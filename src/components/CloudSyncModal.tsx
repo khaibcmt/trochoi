@@ -7,7 +7,9 @@ import {
   saveBackupToCloud,
   loadBackupFromCloud,
   checkBackupStatus,
-  calculateBackupStats
+  calculateBackupStats,
+  exportSyncCodeString,
+  importSyncCodeString
 } from '../services/cloudSync';
 
 interface Props {
@@ -31,7 +33,7 @@ export const CloudSyncModal: React.FC<Props> = ({
   onApplyBackup,
   initialTab = 'GOOGLE'
 }) => {
-  const [activeTab, setActiveTab] = useState<'GOOGLE' | 'PASSWORD'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'GOOGLE' | 'PASSWORD' | 'DIRECT_CODE'>(initialTab);
   const [profile, setProfile] = useState<CloudSyncProfile>(() => getStoredSyncProfile());
 
   // Input fields
@@ -39,6 +41,8 @@ export const CloudSyncModal: React.FC<Props> = ({
   const [passwordInput, setPasswordInput] = useState(() => profile.passwordKey || '');
   const [showPassword, setShowPassword] = useState(false);
   const [autoSync, setAutoSync] = useState(() => profile.autoSyncEnabled ?? true);
+  const [codePasteInput, setCodePasteInput] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Status & loading
   const [loading, setLoading] = useState(false);
@@ -60,7 +64,8 @@ export const CloudSyncModal: React.FC<Props> = ({
     }
   }, [isOpen, initialTab]);
 
-  const checkCurrentStatus = async (curProfile: CloudSyncProfile, tab: 'GOOGLE' | 'PASSWORD') => {
+  const checkCurrentStatus = async (curProfile: CloudSyncProfile, tab: 'GOOGLE' | 'PASSWORD' | 'DIRECT_CODE') => {
+    if (tab === 'DIRECT_CODE') return;
     const ident = tab === 'GOOGLE' ? (curProfile.googleEmail || googleEmailInput) : (curProfile.passwordKey || passwordInput);
     if (!ident) {
       setCloudStatus(null);
@@ -101,7 +106,7 @@ export const CloudSyncModal: React.FC<Props> = ({
       });
       checkCurrentStatus(newProfile, 'GOOGLE');
     } else {
-      setStatusMessage({ type: 'error', text: `❌ ${result.message}` });
+      setStatusMessage({ type: 'error', text: `⚠️ ${result.message}` });
     }
   };
 
@@ -134,7 +139,7 @@ export const CloudSyncModal: React.FC<Props> = ({
       });
       checkCurrentStatus(newProfile, 'GOOGLE');
     } else {
-      setStatusMessage({ type: 'error', text: `❌ ${result.message}` });
+      setStatusMessage({ type: 'error', text: `⚠️ ${result.message}` });
     }
   };
 
@@ -145,7 +150,7 @@ export const CloudSyncModal: React.FC<Props> = ({
       return;
     }
     setLoading(true);
-    setStatusMessage({ type: 'info', text: 'Đang mã hóa và sao lưu dữ liệu với mật khẩu của bạn...' });
+    setStatusMessage({ type: 'info', text: 'Đang mã hóa và đẩy dữ liệu lên đám mây với mật khẩu của bạn...' });
 
     const newProfile: CloudSyncProfile = {
       ...profile,
@@ -163,11 +168,11 @@ export const CloudSyncModal: React.FC<Props> = ({
     if (result.ok) {
       setStatusMessage({
         type: 'success',
-        text: `✅ ${result.message} Khi đến trường, Thầy/Cô chỉ cần nhập đúng mật khẩu này để tự động đồng bộ toàn bộ đề thi.`
+        text: `✅ ${result.message} Khi đến trường, Thầy/Cô chỉ cần nhập đúng mật khẩu này để tự động tải về toàn bộ đề thi.`
       });
       checkCurrentStatus(newProfile, 'PASSWORD');
     } else {
-      setStatusMessage({ type: 'error', text: `❌ ${result.message}` });
+      setStatusMessage({ type: 'error', text: `⚠️ ${result.message}` });
     }
   };
 
@@ -178,7 +183,7 @@ export const CloudSyncModal: React.FC<Props> = ({
       return;
     }
     setLoading(true);
-    setStatusMessage({ type: 'info', text: 'Đang kiểm tra mật khẩu và kéo dữ liệu về...' });
+    setStatusMessage({ type: 'info', text: 'Đang kết nối đám mây và kéo toàn bộ dữ liệu về...' });
 
     const result = await loadBackupFromCloud('PASSWORD', passwordInput.trim());
     setLoading(false);
@@ -200,8 +205,84 @@ export const CloudSyncModal: React.FC<Props> = ({
       });
       checkCurrentStatus(newProfile, 'PASSWORD');
     } else {
-      setStatusMessage({ type: 'error', text: `❌ ${result.message}` });
+      setStatusMessage({ type: 'error', text: `⚠️ ${result.message}` });
     }
+  };
+
+  // 5. Sao chép mã 1 chạm
+  const handleCopyOneClickCode = () => {
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const code = exportSyncCodeString(payload);
+    navigator.clipboard?.writeText(code).then(() => {
+      setCopiedCode(true);
+      setStatusMessage({
+        type: 'success',
+        text: '✅ Đã sao chép Mã Đồng Bộ Toàn Bộ Đề Thi vào bộ nhớ tạm! Thầy/Cô chỉ cần dán mã này ở máy trường là dữ liệu khôi phục ngay lập tức.'
+      });
+      setTimeout(() => setCopiedCode(false), 3000);
+    }).catch(() => {
+      setCodePasteInput(code);
+      setStatusMessage({
+        type: 'info',
+        text: 'Thầy/Cô hãy bôi đen và sao chép toàn bộ đoạn mã trong ô văn bản bên dưới!'
+      });
+    });
+  };
+
+  // 6. Dán mã khôi phục
+  const handleApplyPastedCode = () => {
+    if (!codePasteInput.trim()) {
+      setStatusMessage({ type: 'error', text: 'Vui lòng dán mã đồng bộ vào ô bên dưới!' });
+      return;
+    }
+    const backup = importSyncCodeString(codePasteInput.trim());
+    if (backup && backup.subjectsDB) {
+      onApplyBackup(backup);
+      setStatusMessage({
+        type: 'success',
+        text: `🎉 Khôi phục thành công ${backup.stats?.totalSubjects || Object.keys(backup.subjectsDB).length} môn học từ mã đồng bộ!`
+      });
+      setCodePasteInput('');
+    } else {
+      setStatusMessage({ type: 'error', text: 'Mã đồng bộ không hợp lệ hoặc bị thiếu ký tự. Vui lòng kiểm tra lại mã đã sao chép!' });
+    }
+  };
+
+  // 7. Xuất file JSON
+  const handleDownloadBackupFile = () => {
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
+    const dl = document.createElement('a');
+    dl.setAttribute('href', dataStr);
+    dl.setAttribute('download', `DauTruong3D_SaoLuu_ToanBo_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.json`);
+    dl.click();
+    setStatusMessage({ type: 'success', text: '✅ Đã tải file sao lưu (.json) về máy tính!' });
+  };
+
+  // 8. Nhập file JSON
+  const handleUploadBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = String(ev.target?.result || '');
+        const backup = JSON.parse(text) as CloudBackupData;
+        if (backup && backup.subjectsDB) {
+          onApplyBackup(backup);
+          setStatusMessage({
+            type: 'success',
+            text: `🎉 Khôi phục thành công ${backup.stats?.totalSubjects || Object.keys(backup.subjectsDB).length} môn học từ file sao lưu!`
+          });
+        } else {
+          setStatusMessage({ type: 'error', text: 'File sao lưu không đúng định dạng của Đấu Trường 3D!' });
+        }
+      } catch {
+        setStatusMessage({ type: 'error', text: 'Lỗi đọc file JSON. Vui lòng chọn file sao lưu hợp lệ!' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const formatTimestamp = (ts?: number) => {
@@ -217,7 +298,7 @@ export const CloudSyncModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="relative w-full max-w-2xl bg-slate-900 border-2 border-indigo-500/60 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-indigo-900 via-slate-900 to-sky-950 border-b border-indigo-500/30 flex items-center justify-between">
@@ -246,7 +327,7 @@ export const CloudSyncModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Tab Selector */}
+        {/* Tab Selector 3 Mục Linh Hoạt */}
         <div className="flex border-b border-slate-800 bg-slate-950/70 p-1.5 gap-2">
           <button
             onClick={() => {
@@ -254,7 +335,7 @@ export const CloudSyncModal: React.FC<Props> = ({
               setStatusMessage(null);
               checkCurrentStatus(profile, 'GOOGLE');
             }}
-            className={`flex-1 py-2.5 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
               activeTab === 'GOOGLE'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-blue-400/40'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -262,9 +343,6 @@ export const CloudSyncModal: React.FC<Props> = ({
           >
             <span className="text-base">🌐</span>
             <span>Tài Khoản Google</span>
-            {profile.googleEmail && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            )}
           </button>
 
           <button
@@ -273,7 +351,7 @@ export const CloudSyncModal: React.FC<Props> = ({
               setStatusMessage(null);
               checkCurrentStatus(profile, 'PASSWORD');
             }}
-            className={`flex-1 py-2.5 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
               activeTab === 'PASSWORD'
                 ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-600/30 border border-amber-400/40'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -285,10 +363,25 @@ export const CloudSyncModal: React.FC<Props> = ({
               Ẩn Danh
             </span>
           </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('DIRECT_CODE');
+              setStatusMessage(null);
+            }}
+            className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'DIRECT_CODE'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-teal-600/30 border border-emerald-400/40'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <span className="text-base">📋</span>
+            <span>Mã 1 Chạm &amp; File</span>
+          </button>
         </div>
 
         {/* Body Content */}
-        <div className="p-6 overflow-y-auto space-y-5 text-slate-200 text-sm">
+        <div className="p-6 overflow-y-auto space-y-5 text-slate-200 text-sm sleek-scrollbar">
           {/* Status Alert Banner */}
           {statusMessage && (
             <div
@@ -316,7 +409,7 @@ export const CloudSyncModal: React.FC<Props> = ({
                     <span className="w-2 h-2 rounded-full bg-blue-400"></span>
                     Địa chỉ Email Google của Giáo viên
                   </label>
-                  <span className="text-xs text-slate-400 font-mono">Đồng bộ tự động qua đám mây</span>
+                  <span className="text-xs text-slate-400 font-mono">Đồng bộ đám mây trực tiếp</span>
                 </div>
 
                 <div className="relative">
@@ -333,7 +426,7 @@ export const CloudSyncModal: React.FC<Props> = ({
                 </div>
 
                 <p className="text-xs text-slate-400 leading-normal">
-                  Chỉ cần nhập email Google này trên bất kỳ máy tính nào (ở nhà hoặc trường học), mọi ngân hàng đề thi 12 môn và câu hỏi tùy chỉnh sẽ được khôi phục nguyên vẹn.
+                  Chỉ cần nhập email Google này trên bất kỳ máy tính nào (ở nhà hoặc trường học, kể cả GitHub Pages), mọi ngân hàng đề thi 12 môn và câu hỏi tùy chỉnh sẽ được khôi phục nguyên vẹn.
                 </p>
               </div>
 
@@ -350,7 +443,7 @@ export const CloudSyncModal: React.FC<Props> = ({
                   <div className="text-sm font-bold text-emerald-400 mt-1">
                     {cloudStatus?.exists
                       ? `${cloudStatus.stats?.totalSubjects || 0} môn • ${cloudStatus.stats?.totalQuestions || 0} câu`
-                      : 'Chưa có bản lưu'}
+                      : 'Sẵn sàng sao lưu'}
                   </div>
                   {cloudStatus?.lastUpdated && (
                     <div className="text-[10px] text-slate-500 mt-0.5">
@@ -377,7 +470,7 @@ export const CloudSyncModal: React.FC<Props> = ({
                   className="flex-1 py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-black text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   <span className="text-lg">🔄</span>
-                  <span>Tải & Đồng Bộ Về Máy Này</span>
+                  <span>Tải &amp; Đồng Bộ Về Máy Này</span>
                 </button>
               </div>
             </div>
@@ -438,7 +531,7 @@ export const CloudSyncModal: React.FC<Props> = ({
                   <div className="text-sm font-bold text-emerald-400 mt-1">
                     {cloudStatus?.exists
                       ? `${cloudStatus.stats?.totalSubjects || 0} môn • ${cloudStatus.stats?.totalQuestions || 0} câu`
-                      : 'Chưa có bản lưu'}
+                      : 'Sẵn sàng kết nối'}
                   </div>
                   {cloudStatus?.lastUpdated && (
                     <div className="text-[10px] text-slate-500 mt-0.5">
@@ -465,8 +558,72 @@ export const CloudSyncModal: React.FC<Props> = ({
                   className="flex-1 py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-black text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   <span className="text-lg">⚡</span>
-                  <span>Nhập Mật Khẩu & Đồng Bộ</span>
+                  <span>Nhập Mật Khẩu &amp; Đồng Bộ</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: DIRECT ONE-CLICK CODE & FILE (ZERO SERVER DEPENDENCY) */}
+          {activeTab === 'DIRECT_CODE' && (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl text-xs text-emerald-200/90 leading-relaxed flex items-start gap-2.5">
+                <span className="text-base">🚀</span>
+                <div>
+                  <strong className="text-emerald-300 font-bold">Giải pháp khôi phục trực tiếp 100% không lo lỗi mạng:</strong> Thầy/Cô chỉ cần bấm <b>&ldquo;Sao Chép Mã Đồng Bộ&rdquo;</b> gửi qua Zalo/Email cho chính mình, hoặc lưu file <b>.json</b>. Sang máy trường chỉ cần bấm Dán Mã hoặc Chọn File là khôi phục trọn vẹn trong 1 giây!
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={handleCopyOneClickCode}
+                  className="py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-black text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>{copiedCode ? '✅' : '📋'}</span>
+                  <span>{copiedCode ? 'Đã Copy Mã Đồng Bộ!' : 'Sao Chép Mã 1 Chạm'}</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadBackupFile}
+                  className="py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.98] text-white font-black text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>💾</span>
+                  <span>Tải File Sao Lưu (.json)</span>
+                </button>
+              </div>
+
+              <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <label className="font-bold text-xs uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                  <span>📥</span>
+                  <span>Dán Mã Đồng Bộ Vào Đây Để Khôi Phục:</span>
+                </label>
+                <textarea
+                  value={codePasteInput}
+                  onChange={(e) => setCodePasteInput(e.target.value)}
+                  placeholder="Dán đoạn mã sao lưu đã copy ở máy nhà vào đây..."
+                  rows={3}
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl p-3 text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all resize-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleApplyPastedCode}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <span>⚡</span>
+                    <span>Khôi Phục Từ Mã Đã Dán</span>
+                  </button>
+
+                  <label className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-slate-700">
+                    <span>📂</span>
+                    <span>Nạp File .json</span>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleUploadBackupFile}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
             </div>
           )}
@@ -499,7 +656,7 @@ export const CloudSyncModal: React.FC<Props> = ({
         {/* Footer */}
         <div className="px-6 py-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
           <span className="text-xs text-slate-400">
-            Hệ thống đám mây mã hóa an toàn • Đảm bảo đồng bộ 100% giữa các thiết bị
+            Hỗ trợ đa nền tảng • Hoạt động 100% trên GitHub Pages &amp; Máy Chiếu Trường Học
           </span>
           <button
             onClick={onClose}

@@ -1566,3 +1566,25 @@ body, html {
   box-shadow: 0 8px 25px rgba(16,185,129,0.6);
   text-align: center;
 }
+
+/* Thanh cuộn tối màu siêu mượt dành cho Modal Hướng Dẫn Sử Dụng */
+.sleek-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #090d16;
+}
+.sleek-scrollbar::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.sleek-scrollbar::-webkit-scrollbar-track {
+  background: #090d16;
+}
+.sleek-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 999px;
+  border: 1px solid #090d16;
+}
+.sleek-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #f59e0b;
+}
+

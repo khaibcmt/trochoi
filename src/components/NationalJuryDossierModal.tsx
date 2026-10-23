@@ -84,100 +84,104 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
           overflow: 'hidden'
         }}
       >
-        {/* Header Rực Rỡ & Bắt Mắt */}
+        {/* Header Rực Rỡ & Bắt Mắt - Nút [X] cố định góc trên bên phải, không bao giờ bị rớt dòng */}
         <div
           style={{
-            padding: '18px 26px',
+            position: 'relative',
+            padding: '14px 68px 14px 18px',
             background: 'linear-gradient(90deg, #1e1b4b 0%, #1e293b 45%, #0f172a 100%)',
             borderBottom: '2.5px solid #f59e0b',
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '14px',
-            flexWrap: 'wrap'
+            gap: '12px'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div
-              style={{
-                width: '54px',
-                height: '54px',
-                borderRadius: '16px',
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '30px',
-                boxShadow: '0 6px 18px rgba(245, 158, 11, 0.45)',
-                border: '2px solid #fef08a'
-              }}
-            >
-              📖
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                    color: '#ffffff',
-                    padding: '4px 12px',
-                    borderRadius: '999px',
-                    fontSize: '13px',
-                    fontWeight: 900,
-                    letterSpacing: '0.5px'
-                  }}
-                >
-                  CẨM NANG TOÀN DIỆN
-                </span>
-                <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 800 }}>
-                  🌾 Trường THPT Mang Thít • Tác giả: Hồ Tấn Khải
-                </span>
-                <span
-                  style={{
-                    background: 'rgba(16, 185, 129, 0.2)',
-                    color: '#6ee7b7',
-                    border: '1px solid #10b981',
-                    padding: '2px 9px',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    fontWeight: 800
-                  }}
-                >
-                  Chuẩn GDPT 2018
-                </span>
-              </div>
-              <h2
+          <div
+            style={{
+              width: '46px',
+              height: '46px',
+              minWidth: '46px',
+              borderRadius: '14px',
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '26px',
+              boxShadow: '0 6px 18px rgba(245, 158, 11, 0.45)',
+              border: '2px solid #fef08a'
+            }}
+          >
+            📖
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' }}>
+              <span
                 style={{
-                  margin: '6px 0 0 0',
-                  fontSize: '23px',
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: '#ffffff',
+                  padding: '2px 9px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
                   fontWeight: 900,
-                  color: '#fef08a',
-                  letterSpacing: '0.3px',
-                  textShadow: '0 2px 10px rgba(0,0,0,0.6)'
+                  letterSpacing: '0.4px'
                 }}
               >
-                HƯỚNG DẪN SỬ DỤNG ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • TỐC ĐỘ • DIỆT BOSS
-              </h2>
+                CẨM NANG TOÀN DIỆN
+              </span>
+              <span style={{ fontSize: '12.5px', color: '#38bdf8', fontWeight: 800 }}>
+                🌾 Trường THPT Mang Thít • Tác giả: Hồ Tấn Khải
+              </span>
+              <span
+                style={{
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  color: '#6ee7b7',
+                  border: '1px solid #10b981',
+                  padding: '2px 7px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 800
+                }}
+              >
+                Chuẩn GDPT 2018
+              </span>
             </div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: '17px',
+                fontWeight: 900,
+                color: '#fef08a',
+                lineHeight: 1.3,
+                letterSpacing: '0.2px',
+                textShadow: '0 2px 8px rgba(0,0,0,0.6)'
+              }}
+            >
+              HƯỚNG DẪN SỬ DỤNG ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • TỐC ĐỘ • DIỆT BOSS
+            </h2>
           </div>
 
+          {/* Nút Đóng [X] neo cố định ở góc trên bên phải tuyệt đối */}
           <button
             onClick={onClose}
             style={{
+              position: 'absolute',
+              top: '50%',
+              right: '16px',
+              transform: 'translateY(-50%)',
               background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
               border: '2px solid #fca5a5',
               color: '#ffffff',
-              width: '42px',
-              height: '42px',
-              borderRadius: '14px',
-              fontSize: '20px',
+              width: '38px',
+              height: '38px',
+              borderRadius: '12px',
+              fontSize: '19px',
               fontWeight: 900,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)',
-              transition: 'transform 0.15s ease'
+              boxShadow: '0 4px 14px rgba(239, 68, 68, 0.5)',
+              zIndex: 20
             }}
             title="Đóng cửa sổ hướng dẫn"
           >
@@ -185,123 +189,136 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Thanh Chọn Mục Hướng Dẫn Chữ To Rõ, Màu Sắc Nổi Bật */}
+        {/* Thanh Chọn Mục Hướng Dẫn: Tự co giãn theo Grid, KHÔNG BỊ THANH CUỘN NGANG CẮT CHỮ */}
         <div
           style={{
-            display: 'flex',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
             gap: '8px',
-            padding: '12px 24px',
+            padding: '10px 16px',
             background: '#030712',
-            borderBottom: '2px solid #1f2937',
-            overflowX: 'auto',
-            whiteSpace: 'nowrap'
+            borderBottom: '2px solid #1f2937'
           }}
         >
           <button
             onClick={() => setActiveTab('ALL_IN_ONE')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'ALL_IN_ONE' ? '2.5px solid #fde047' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'ALL_IN_ONE' ? '2px solid #fde047' : '1px solid #374151',
               background: activeTab === 'ALL_IN_ONE' ? 'linear-gradient(135deg, #d97706, #b45309)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'ALL_IN_ONE' ? '0 4px 14px rgba(217, 119, 6, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'ALL_IN_ONE' ? '0 4px 12px rgba(217, 119, 6, 0.45)' : 'none'
             }}
           >
-            🌟 1. Toàn Bộ Quy Trình Nhanh (Tổng Quan)
+            🌟 1. Quy Trình Nhanh
           </button>
 
           <button
             onClick={() => setActiveTab('TEACHER')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'TEACHER' ? '2.5px solid #38bdf8' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'TEACHER' ? '2px solid #38bdf8' : '1px solid #374151',
               background: activeTab === 'TEACHER' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'TEACHER' ? '0 4px 14px rgba(2, 132, 199, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'TEACHER' ? '0 4px 12px rgba(2, 132, 199, 0.45)' : 'none'
             }}
           >
-            👨‍🏫 2. Dành Cho Giáo Viên (Soạn Đề & Điều Khiển)
+            👨‍🏫 2. Dành Cho Giáo Viên
           </button>
 
           <button
             onClick={() => setActiveTab('STUDENT')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'STUDENT' ? '2.5px solid #4ade80' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'STUDENT' ? '2px solid #4ade80' : '1px solid #374151',
               background: activeTab === 'STUDENT' ? 'linear-gradient(135deg, #059669, #047857)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'STUDENT' ? '0 4px 14px rgba(5, 150, 105, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'STUDENT' ? '0 4px 12px rgba(5, 150, 105, 0.45)' : 'none'
             }}
           >
-            📱 3. Dành Cho Học Sinh (Điện Thoại & Cược Điểm)
+            📱 3. Dành Cho Học Sinh
           </button>
 
           <button
             onClick={() => setActiveTab('GAME_MODES')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'GAME_MODES' ? '2.5px solid #f472b6' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'GAME_MODES' ? '2px solid #f472b6' : '1px solid #374151',
               background: activeTab === 'GAME_MODES' ? 'linear-gradient(135deg, #db2777, #9d174d)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'GAME_MODES' ? '0 4px 14px rgba(219, 39, 119, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'GAME_MODES' ? '0 4px 12px rgba(219, 39, 119, 0.45)' : 'none'
             }}
           >
-            🎮 4. Thể Lệ 4 Trò Chơi & Yếu Tố May Rủi
+            🎮 4. Thể Lệ 4 Trò Chơi
           </button>
 
           <button
             onClick={() => setActiveTab('SYNC_BACKUP')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'SYNC_BACKUP' ? '2.5px solid #a78bfa' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'SYNC_BACKUP' ? '2px solid #a78bfa' : '1px solid #374151',
               background: activeTab === 'SYNC_BACKUP' ? 'linear-gradient(135deg, #7c3aed, #5b21b6)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'SYNC_BACKUP' ? '0 4px 14px rgba(124, 58, 237, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'SYNC_BACKUP' ? '0 4px 12px rgba(124, 58, 237, 0.45)' : 'none'
             }}
           >
-            ☁️ 5. Đồng Bộ Google & Mật Khẩu Ẩn Danh
+            ☁️ 5. Đồng Bộ Đám Mây
           </button>
 
           <button
             onClick={() => setActiveTab('GRADEBOOK')}
             style={{
-              padding: '10px 18px',
-              borderRadius: '12px',
-              border: activeTab === 'GRADEBOOK' ? '2.5px solid #fb923c' : '1.5px solid #374151',
+              padding: '9px 10px',
+              borderRadius: '10px',
+              border: activeTab === 'GRADEBOOK' ? '2px solid #fb923c' : '1px solid #374151',
               background: activeTab === 'GRADEBOOK' ? 'linear-gradient(135deg, #ea580c, #c2410c)' : '#111827',
               color: '#ffffff',
               fontWeight: 900,
-              fontSize: '14.5px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'GRADEBOOK' ? '0 4px 14px rgba(234, 88, 12, 0.45)' : 'none'
+              textAlign: 'center',
+              boxShadow: activeTab === 'GRADEBOOK' ? '0 4px 12px rgba(234, 88, 12, 0.45)' : 'none'
             }}
           >
-            📊 6. 2 Bảng Xếp Hạng & Sổ Điểm GV
+            📊 6. Sổ Điểm & BXH
           </button>
         </div>
 
-        {/* Nội Dung Hướng Dẫn Chi Tiết (Chữ To Rõ, Màu Sắc Bắt Mắt) */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', background: '#090d16' }}>
+        {/* Nội Dung Hướng Dẫn Chi Tiết (Chữ To Rõ, Màu Sắc Bắt Mắt, Thanh Cuộn Sleek Mượt) */}
+        <div
+          className="sleek-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px 24px',
+            background: '#090d16'
+          }}
+        >
           
           {/* TAB 1: TỔNG QUAN TOÀN BỘ QUY TRÌNH (ALL IN ONE) */}
           {activeTab === 'ALL_IN_ONE' && (
@@ -858,17 +875,18 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
         {/* Footer Actions: Đầy Đủ & Nổi Bật */}
         <div
           style={{
-            padding: '16px 26px',
+            padding: '12px 20px',
             background: 'linear-gradient(90deg, #030712 0%, #0f172a 100%)',
             borderTop: '2px solid #1f2937',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '12px'
+            gap: '10px',
+            flexShrink: 0
           }}
         >
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={onExportHTMLSlide}
               style={{
