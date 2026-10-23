@@ -1,9 +1,9 @@
 import { QuizItem, QuestionFormat } from '../types';
 import { cleanQuestionTitleText, parseHTMLToQuiz } from '../data/defaultSubjects';
 
-// Supported Gemini models with automatic fallback
+// Supported modern Gemini models with automatic fallback (strictly avoiding deprecated models)
 const PRIMARY_MODEL = 'gemini-2.5-flash';
-const SECONDARY_MODEL = 'gemini-1.5-flash';
+const SECONDARY_MODEL = 'gemini-3.8-flash';
 const API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export function getStoredGeminiKey(): string {
@@ -26,7 +26,7 @@ export function removeStoredGeminiKey(): void {
   } catch {}
 }
 
-// 1. Client-Side AI Soạn Đề (Direct REST call to Gemini, with zero backend dependency)
+// 1. Client-Side AI Soạn Đề Thông Minh Chuẩn GDPT 2018 (Toán, Lý, Hóa, Sinh, STEM)
 export async function generateQuestionsClientSide(params: {
   topic: string;
   subject: string;
@@ -37,38 +37,44 @@ export async function generateQuestionsClientSide(params: {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
   if (!apiKey) {
-    // Return high quality offline fallback questions if no API key
+    // Trả về ngân hàng câu hỏi STEM ngoại tuyến chuyên sâu chất lượng cao
     console.info('No Gemini API Key provided, loading rich offline fallback questions.');
     return getOfflineFallbackQuestions(params.topic, params.subject, params.count);
   }
 
-  const prompt = `Bạn là chuyên gia giáo dục THPT giàu kinh nghiệm theo chương trình GDPT 2018 tại Việt Nam (SGK Kết nối tri thức).
-Hãy tạo ${params.count} câu hỏi trắc nghiệm chất lượng cao cho môn "${params.subject || 'Sinh học'}", chủ đề: "${params.topic}", mức độ nhận thức: "${params.level}".
-Đa dạng hóa các dạng câu hỏi chuẩn cấu trúc thi tốt nghiệp THPT từ năm 2025:
-1. "MULTIPLE_CHOICE": Trắc nghiệm 4 lựa chọn (A, B, C, D) có 1 đáp án đúng duy nhất.
-2. "TRUE_FALSE": Câu hỏi đúng/sai chùm 4 ý a, b, c, d (mỗi ý có nội dung mệnh đề và đáp án boolean true/false).
-3. "SHORT_ANSWER": Câu hỏi trả lời ngắn (học sinh điền số nguyên, số thập phân hoặc từ khóa ngắn gọn).
+  const prompt = `Bạn là chuyên gia giáo dục và thẩm định đề thi Quốc gia cấp THPT theo chương trình GDPT 2018 tại Việt Nam (SGK Kết nối tri thức).
+Hãy tạo ${params.count} câu hỏi trắc nghiệm chất lượng cao, sâu sắc, có tính phân hóa cho môn "${params.subject || 'Sinh học'}", chủ đề: "${params.topic}", mức độ nhận thức: "${params.level}".
 
-Trả về định dạng JSON thuần túy (mảng các object):
+YÊU CẦU ĐẶC BIỆT VỀ CÔNG THỨC TOÁN, LÝ, HÓA, SINH (STEM) & SƠ ĐỒ:
+1. Mọi công thức toán, lý, hóa, sinh BẮT BUỘC kẹp trong cặp dấu $...$ (inline LaTeX) hoặc $$...$$ (block LaTeX). Ví dụ: $f(x) = \\frac{2x-1}{x+1}$, $T = 2\\pi\\sqrt{\\frac{l}{g}}$, $Fe_2(SO_4)_3$, $P: \\frac{AB}{ab} \\times \\frac{ab}{ab}$.
+2. Mũ số, chỉ số dưới viết đúng chuẩn LaTeX: $x^2$, $H_2SO_4$, $I^A I^B$, $2n = 46$.
+3. Nếu câu hỏi có sơ đồ/đồ thị/thí nghiệm, hãy mô tả ngắn trong ngoặc vuông đầu câu dẫn: [Sơ đồ mạch điện R-L-C nối tiếp] hoặc [Đồ thị hàm số $y=f'(x)$] hoặc [Sơ đồ phả hệ di truyền bệnh máu khó đông].
+
+ĐẢM BẢO CHUẨN CẤU TRÚC ĐỀ THI TỐT NGHIỆP THPT TỪ NĂM 2025 (3 DẠNG THỨC):
+1. "MULTIPLE_CHOICE" (Dạng thức I): Trắc nghiệm 4 lựa chọn (A, B, C, D) có đúng 1 phương án đúng duy nhất. "correct" là chỉ số từ 0 đến 3.
+2. "TRUE_FALSE" (Dạng thức II): Câu hỏi Đúng/Sai chùm đủ 4 ý a, b, c, d độc lập, logic. "tfItems" gồm đúng 4 phần tử có label ('a','b','c','d'), text mệnh đề, và isCorrect (boolean).
+3. "SHORT_ANSWER" (Dạng thức III): Câu hỏi Trả lời ngắn, yêu cầu học sinh tính toán ra kết quả là số nguyên, số thập phân hoặc từ khóa cốt lõi (ví dụ: "12.5", "4", "3120"). "shortAnswer" là chuỗi kết quả.
+
+Trả về duy nhất JSON thuần túy (mảng các object):
 [
   {
-    "q": "Nội dung câu hỏi...",
+    "q": "Nội dung câu hỏi có công thức LaTeX...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
     "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
     "tfItems": [
-      { "label": "a", "text": "Mệnh đề 1...", "isCorrect": true },
-      { "label": "b", "text": "Mệnh đề 2...", "isCorrect": false },
-      { "label": "c", "text": "Mệnh đề 3...", "isCorrect": true },
-      { "label": "d", "text": "Mệnh đề 4...", "isCorrect": false }
+      { "label": "a", "text": "Mệnh đề a...", "isCorrect": true },
+      { "label": "b", "text": "Mệnh đề b...", "isCorrect": false },
+      { "label": "c", "text": "Mệnh đề c...", "isCorrect": true },
+      { "label": "d", "text": "Mệnh đề d...", "isCorrect": false }
     ],
     "shortAnswer": "12.5",
-    "explanation": "Giải thích ngắn gọn tại sao đáp án đúng..."
+    "explanation": "Hướng dẫn giải chi tiết, chỉ rõ bản chất định luật và các bước tính..."
   }
 ]
-Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
+Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
 
-  // Try primary model then secondary model
+  // Try primary model then secondary model (gemini-2.5-flash, gemini-3.8-flash)
   const modelsToTry = [PRIMARY_MODEL, SECONDARY_MODEL];
   for (const model of modelsToTry) {
     try {
@@ -116,11 +122,11 @@ Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
     }
   }
 
-  // Graceful fallback to offline questions if API failed
+  // Graceful fallback to offline rich questions if API failed
   return getOfflineFallbackQuestions(params.topic, params.subject, params.count);
 }
 
-// 2. Client-Side AI Giải Thích (AI Tutor)
+// 2. Client-Side AI Giải Thích & Gia Sư Trực Tuyến (AI Tutor)
 export async function explainQuestionClientSide(params: {
   question: string;
   format?: QuestionFormat;
@@ -138,7 +144,7 @@ export async function explainQuestionClientSide(params: {
     return generateOfflineExplanation(params);
   }
 
-  const prompt = `Hãy phân tích ngắn gọn trong 3-4 dòng vì sao đáp án đúng là chính xác, giải thích dễ hiểu cho học sinh THPT:
+  const prompt = `Bạn là chuyên gia sư phạm THPT luyện thi tốt nghiệp Quốc gia. Hãy hướng dẫn giải chi tiết, rõ ràng và dễ hiểu cho câu hỏi sau (sử dụng LaTeX $...$ cho công thức toán lý hóa):
 Nội dung câu hỏi: ${params.question}
 Dạng thức câu hỏi: ${params.format || 'MULTIPLE_CHOICE'}
 ${params.opts && typeof params.correct === 'number' ? `4 đáp án: ${JSON.stringify(params.opts)}\nĐáp án đúng: ${params.opts[params.correct] || ''}` : ''}
@@ -146,10 +152,11 @@ ${params.tfItems ? `Mệnh đề Đúng/Sai: ${JSON.stringify(params.tfItems)}` 
 ${params.shortAnswer ? `Đáp án đúng (trả lời ngắn): ${params.shortAnswer}` : ''}
 ${params.rightCount !== undefined ? `Thống kê câu này: ${params.rightCount} học sinh trả lời đúng, ${params.wrongCount || 0} học sinh trả lời sai.` : ''}
 
-Trình bày ngắn gọn, súc tích trong 3-4 dòng dễ hiểu cho học sinh THPT ôn thi tốt nghiệp:
-- 🎯 Vì sao đáp án đúng là chính xác:
-- ⚠️ Bẫy sai thường gặp:
-- 💡 Mẹo nhớ nhanh:`;
+Trình bày theo 4 phần rõ ràng:
+🎯 Bản chất lý thuyết & Các bước giải chi tiết:
+⚠️ Bẫy sai thường gặp trong đề thi tốt nghiệp:
+💡 Mẹo giải nhanh / Phương pháp tư duy 10 giây:
+📊 Đánh giá mức độ câu hỏi:`;
 
   const modelsToTry = [PRIMARY_MODEL, SECONDARY_MODEL];
   for (const model of modelsToTry) {
@@ -182,7 +189,7 @@ Trình bày ngắn gọn, súc tích trong 3-4 dòng dễ hiểu cho học sinh 
   return generateOfflineExplanation(params);
 }
 
-// 3. Client-Side AI Bóc Tách Đề / OCR
+// 3. Client-Side AI Bóc Tách Đề / OCR với khả năng nhận diện công thức LaTeX và sơ đồ
 export async function parseDocClientSide(params: {
   textContent?: string;
   imageBase64?: string;
@@ -192,7 +199,6 @@ export async function parseDocClientSide(params: {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
   if (params.textContent && !params.imageBase64) {
-    // Ưu tiên bóc tách siêu tốc trực tiếp trên trình duyệt cho văn bản trắc nghiệm dán vào (không phụ thuộc API Key)
     const directParsed = parseHTMLToQuiz(params.textContent, undefined, params.textContent);
     if (directParsed && directParsed.length > 0 && !apiKey) {
       return directParsed;
@@ -215,11 +221,11 @@ export async function parseDocClientSide(params: {
       },
     });
     parts.push({
-      text: 'Hãy đọc ảnh chụp trang sách / đề kiểm tra này và bóc tách toàn bộ câu hỏi trắc nghiệm thành danh sách câu hỏi chuẩn GDPT 2018.',
+      text: 'Hãy đọc ảnh chụp trang sách / đề kiểm tra này và bóc tách toàn bộ câu hỏi trắc nghiệm thành danh sách câu hỏi chuẩn GDPT 2018. Mọi công thức Toán, Lý, Hóa, Sinh hãy chuyển về dạng LaTeX chuẩn kẹp trong $...$.',
     });
   } else if (params.textContent) {
     parts.push({
-      text: `Hãy phân tích đoạn văn bản sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018:\n\n${params.textContent}`,
+      text: `Hãy phân tích văn bản sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018 (giữ nguyên công thức toán lý hóa kẹp trong $...$):\n\n${params.textContent}`,
     });
   }
 
@@ -227,7 +233,7 @@ export async function parseDocClientSide(params: {
     text: `Yêu cầu trả về JSON thuần túy (mảng các object):
 [
   {
-    "q": "Nội dung câu hỏi...",
+    "q": "Nội dung câu hỏi (kẹp công thức trong $...$)...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
     "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
@@ -304,7 +310,7 @@ export async function parseDocClientSide(params: {
 }
 
 // ==========================================
-// OFFLINE INTELLIGENT FALLBACK GENERATORS
+// OFFLINE INTELLIGENT FALLBACK GENERATORS (RICH STEM BANK)
 // ==========================================
 
 function generateOfflineExplanation(params: {
@@ -354,108 +360,118 @@ function generateOfflineExplanation(params: {
 }
 
 /**
- * Rich curated question bank for Sinh học 10, 11, 12 chuẩn SGK Kết nối tri thức
- * Covers MULTIPLE_CHOICE (Phần I), TRUE_FALSE (Phần II), and SHORT_ANSWER (Phần III)
+ * Rich curated question bank across Toán, Vật lí, Hóa học, Sinh học chuẩn GDPT 2018
  */
 function getOfflineFallbackQuestions(topic: string, subject: string, count: number): QuizItem[] {
   const tLower = (topic + ' ' + subject).toLowerCase();
 
-  // 1. Sinh học 10 (Tế bào học, Enzyme, Quang hợp, Hô hấp, Phân bào)
-  const bio10Bank: QuizItem[] = [
+  // 1. NGÂN HÀNG TOÁN HỌC (Giải tích, Hình học không gian, Xác suất)
+  const mathBank: QuizItem[] = [
     {
-      qid: 1,
-      q: 'Phân tử sinh học nào sau đây đóng vai trò là nguồn năng lượng chính và trực tiếp cho các hoạt động sống của tế bào?',
+      qid: 101,
+      q: 'Cho hàm số $y = \\frac{2x - 1}{x + 1}$. Đường tiệm cận ngang của đồ thị hàm số có phương trình là:',
       format: 'MULTIPLE_CHOICE',
-      opts: ['Adenosine triphosphate (ATP)', 'Glucose', 'Acid béo', 'Protein'],
+      opts: ['$y = 2$', '$y = -1$', '$x = -1$', '$x = 2$'],
       correct: 0,
-      explanation: 'ATP là phân tử giàu năng lượng, đóng vai trò là "đồng tiền năng lượng" phổ quát của mọi tế bào.',
+      explanation: 'Tiệm cận ngang $y = \\lim_{x \\to \\pm\\infty} \\frac{2x-1}{x+1} = 2$. Do đó $y = 2$.',
       rightCount: 0,
       wrongCount: 0,
     },
     {
-      qid: 2,
-      q: 'Quá trình phân giải hiếu khí (hô hấp tế bào) diễn ra chủ yếu ở bào quan nào trong tế bào nhân thực?',
-      format: 'MULTIPLE_CHOICE',
-      opts: ['Ti thể (chất nền và màng trong)', 'Lục lạp', 'Bộ máy Golgi', 'Lysosome'],
-      correct: 0,
-      explanation: 'Giai đoạn chu trình Krebs diễn ra ở chất nền ti thể và chuỗi chuyền electron diễn ra ở màng trong ti thể.',
-      rightCount: 0,
-      wrongCount: 0,
-    },
-    {
-      qid: 3,
-      q: 'Trong các phát biểu sau về cấu trúc và chức năng của tế bào nhân thực (SGK Sinh 10 - Kết nối tri thức):',
+      qid: 102,
+      q: 'Cho hình chóp $S.ABC$ có đáy $ABC$ là tam giác vuông tại $B$, $SA \\perp (ABC)$.',
       format: 'TRUE_FALSE',
       opts: [],
       correct: -1,
       tfItems: [
-        { label: 'a', text: 'Nhân tế bào chứa vật chất di truyền là DNA liên kết với protein histone tạo thành nhiễm sắc chất.', isCorrect: true },
-        { label: 'b', text: 'Ribosome là bào quan có hai lớp màng bao bọc thực hiện chức năng tổng hợp protein.', isCorrect: false },
-        { label: 'c', text: 'Lưới nội chất hạt có đính các hạt ribosome trên bề mặt màng.', isCorrect: true },
-        { label: 'd', text: 'Thành tế bào thực vật cấu tạo chủ yếu từ cellulose giúp bảo vệ và định hình tế bào.', isCorrect: true },
+        { label: 'a', text: 'Đường thẳng $SA$ vuông góc với mặt phẳng đáy $(ABC)$.', isCorrect: true },
+        { label: 'b', text: 'Tam giác $SBC$ là tam giác vuông tại $B$.', isCorrect: true },
+        { label: 'c', text: 'Mặt phẳng $(SAB)$ vuông góc với mặt phẳng $(SBC)$.', isCorrect: false },
+        { label: 'd', text: 'Góc giữa đường thẳng $SC$ và mặt phẳng đáy là góc $\\widehat{SCA}$.', isCorrect: true },
       ],
-      explanation: 'Ribosome là bào quan không có màng bao bọc, cấu tạo từ rRNA và protein.',
+      explanation: 'Vì $BC \\perp AB$ và $BC \\perp SA \\implies BC \\perp (SAB) \\implies BC \\perp SB$.',
       rightCount: 0,
       wrongCount: 0,
     },
     {
-      qid: 4,
-      q: 'Từ một tế bào mẹ ban đầu (2n = 24), sau 4 lần nguyên phân liên tiếp sẽ tạo ra bao nhiêu tế bào con?',
+      qid: 103,
+      q: 'Tìm giá trị nhỏ nhất của hàm số $f(x) = x + \\frac{4}{x}$ trên khoảng $(0; +\\infty)$.',
       format: 'SHORT_ANSWER',
-      opts: ['16'],
+      opts: ['4'],
       correct: 0,
-      shortAnswer: '16',
-      explanation: 'Số tế bào con = 2^k = 2^4 = 16 tế bào.',
+      shortAnswer: '4',
+      explanation: 'Áp dụng bất đẳng thức Cauchy: $x + \\frac{4}{x} \\ge 2\\sqrt{x \\cdot \\frac{4}{x}} = 4$. Dấu bằng xảy ra khi $x = 2$.',
       rightCount: 0,
       wrongCount: 0,
     },
   ];
 
-  // 2. Sinh học 11 (Trao đổi nước & khoáng, Cảm ứng, Tuần hoàn, Hô hấp thực vật & động vật)
-  const bio11Bank: QuizItem[] = [
+  // 2. NGÂN HÀNG VẬT LÍ (Dao động cơ, Sóng cơ, Điện xoay chiều, Hạt nhân)
+  const physicsBank: QuizItem[] = [
     {
-      qid: 5,
-      q: 'Ở thực vật trên cạn, nước và ion khoáng từ đất được hấp thụ vào mạch gỗ của rễ theo hai con đường nào?',
-      format: 'MULTIPLE_CHOICE',
-      opts: ['Con đường gian bào và con đường tế bào chất', 'Con đường khí khổng và con đường cutin', 'Con đường mao dẫn và con đường trọng lực', 'Con đường thẩm tách và con đường ẩm bào'],
+      qid: 201,
+      q: 'Một con lắc lò xo có độ cứng $k = 100\\text{ N/m}$, gắn vật nặng khối lượng $m = 100\\text{ g}$. Chu kì dao động riêng của con lắc là bao nhiêu giây (lấy $\\pi^2 = 10$)?',
+      format: 'SHORT_ANSWER',
+      opts: ['0.2'],
       correct: 0,
-      explanation: 'Nước và khoáng đi vào qua lông hút theo 2 con đường: gian bào (bị đai Caspary chặn ở nội bì) và tế bào chất.',
+      shortAnswer: '0.2',
+      explanation: '$T = 2\\pi\\sqrt{\\frac{m}{k}} = 2\\pi\\sqrt{\\frac{0.1}{100}} = 2\\pi \\cdot \\frac{1}{10\\sqrt{10}} = 0.2\\text{ s}$.',
       rightCount: 0,
       wrongCount: 0,
     },
     {
-      qid: 6,
-      q: 'Trong các nhận định sau về pha sáng và pha tối của quang hợp ở thực vật C3:',
+      qid: 202,
+      q: '[Sơ đồ đoạn mạch điện R-L-C nối tiếp] Đặt điện áp xoay chiều $u = U_0\\cos(\\omega t)$ vào hai đầu đoạn mạch gồm $R, L, C$ mắc nối tiếp. Khi xảy ra hiện tượng cộng hưởng điện:',
       format: 'TRUE_FALSE',
       opts: [],
       correct: -1,
       tfItems: [
-        { label: 'a', text: 'Quang phân li nước diễn ra trong xoang thylakoid tạo ra O2, H+ và electron.', isCorrect: true },
-        { label: 'b', text: 'Chất nhận CO2 đầu tiên trong chu trình Calvin là phân tử RuBP (5C).', isCorrect: true },
-        { label: 'c', text: 'Sản phẩm đầu tiên của chu trình Calvin là hợp chất 4 carbon (OAA).', isCorrect: false },
-        { label: 'd', text: 'Pha tối diễn ra ở chất nền (stroma) của lục lạp mà không cần trực tiếp ánh sáng.', isCorrect: true },
+        { label: 'a', text: 'Cảm kháng bằng dung kháng ($Z_L = Z_C$).', isCorrect: true },
+        { label: 'b', text: 'Cường độ dòng điện hiệu dụng trong mạch đạt giá trị cực đại ($I_{\\max} = \\frac{U}{R}$).', isCorrect: true },
+        { label: 'c', text: 'Hệ số công suất của đoạn mạch bằng 0.', isCorrect: false },
+        { label: 'd', text: 'Điện áp giữa hai đầu đoạn mạch cùng pha với cường độ dòng điện.', isCorrect: true },
       ],
-      explanation: 'Sản phẩm đầu tiên của thực vật C3 là 3-PGA (3 carbon). Hợp chất 4C là ở thực vật C4.',
-      rightCount: 0,
-      wrongCount: 0,
-    },
-    {
-      qid: 7,
-      q: 'Một cây ngô có tổng diện tích lá là 0.5 m². Trong 1 giờ thoát ra 200 gam nước. Cường độ thoát hơi nước của cây ngô này bằng bao nhiêu g/m²/h?',
-      format: 'SHORT_ANSWER',
-      opts: ['400'],
-      correct: 0,
-      shortAnswer: '400',
-      explanation: 'Cường độ thoát hơi nước = Lượng nước thoát / (Diện tích lá * Thời gian) = 200 / (0.5 * 1) = 400 g/m²/h.',
+      explanation: 'Khi cộng hưởng, $\\cos\\varphi = 1$ chứ không phải bằng 0.',
       rightCount: 0,
       wrongCount: 0,
     },
   ];
 
-  // 3. Sinh học 12 (Di truyền, Tiến hóa, Sinh thái học - Trọng tâm thi tốt nghiệp THPT)
-  const bio12Bank: QuizItem[] = [
+  // 3. NGÂN HÀNG HÓA HỌC (Este - Lipit, Hóa học hữu cơ, Kim loại, Cân bằng hóa học)
+  const chemBank: QuizItem[] = [
     {
-      qid: 8,
+      qid: 301,
+      q: 'Thủy phân hoàn toàn $8.8\\text{ gam}$ ethyl acetate ($CH_3COOC_2H_5$) bằng dung dịch $NaOH$ dư thu được bao nhiêu gam muối sodium acetate ($CH_3COONa$)?',
+      format: 'SHORT_ANSWER',
+      opts: ['8.2'],
+      correct: 0,
+      shortAnswer: '8.2',
+      explanation: '$n_{este} = \\frac{8.8}{88} = 0.1\\text{ mol} \\implies m_{muối} = 0.1 \\times 82 = 8.2\\text{ gam}$.',
+      rightCount: 0,
+      wrongCount: 0,
+    },
+    {
+      qid: 302,
+      q: 'Xét cân bằng hóa học sau trong bình kín: $N_2(k) + 3H_2(k) \\rightleftharpoons 2NH_3(k)$, $\\Delta_r H^o_{298} < 0$.',
+      format: 'TRUE_FALSE',
+      opts: [],
+      correct: -1,
+      tfItems: [
+        { label: 'a', text: 'Phản ứng thuận là phản ứng tỏa nhiệt.', isCorrect: true },
+        { label: 'b', text: 'Khi tăng nhiệt độ của hệ, cân bằng chuyển dịch theo chiều thuận.', isCorrect: false },
+        { label: 'c', text: 'Khi tăng áp suất chung của hệ, cân bằng chuyển dịch theo chiều thuận.', isCorrect: true },
+        { label: 'd', text: 'Thêm chất xúc tác Fe làm tăng hiệu suất phản ứng tổng hợp $NH_3$.', isCorrect: false },
+      ],
+      explanation: 'Tăng nhiệt độ làm cân bằng dịch theo chiều thu nhiệt (chiều nghịch). Chất xúc tác chỉ làm tăng tốc độ đạt cân bằng chứ không làm chuyển dịch cân bằng.',
+      rightCount: 0,
+      wrongCount: 0,
+    },
+  ];
+
+  // 4. NGÂN HÀNG SINH HỌC 10, 11, 12 CHUẨN KẾT NỐI TRI THỨC
+  const bioBank: QuizItem[] = [
+    {
+      qid: 401,
       q: 'Bộ ba (codon) nào sau đây trên phân tử mRNA vừa làm tín hiệu mở đầu dịch mã, vừa mã hóa cho amino acid Methionine ở sinh vật nhân thực?',
       format: 'MULTIPLE_CHOICE',
       opts: ['5\'-AUG-3\'', '5\'-UAA-3\'', '5\'-UAG-3\'', '5\'-UGA-3\''],
@@ -465,7 +481,7 @@ function getOfflineFallbackQuestions(topic: string, subject: string, count: numb
       wrongCount: 0,
     },
     {
-      qid: 9,
+      qid: 402,
       q: 'Trong các phát biểu sau về operon Lac ở vi khuẩn E. coli (SGK Sinh học 12):',
       format: 'TRUE_FALSE',
       opts: [],
@@ -481,7 +497,7 @@ function getOfflineFallbackQuestions(topic: string, subject: string, count: numb
       wrongCount: 0,
     },
     {
-      qid: 10,
+      qid: 403,
       q: 'Một gen ở vi khuẩn có 2400 nucleotide, trong đó số nucleotide loại Adenine (A) chiếm 20%. Số liên kết hydrogen của gen này bằng bao nhiêu?',
       format: 'SHORT_ANSWER',
       opts: ['3120'],
@@ -492,8 +508,8 @@ function getOfflineFallbackQuestions(topic: string, subject: string, count: numb
       wrongCount: 0,
     },
     {
-      qid: 11,
-      q: 'Theo quy luật phân li độc lập của Mendel, phép lai P: AaBb x AaBb cho tỉ lệ cá thể mang kiểu hình trội về cả 2 tính trạng (A-B-) ở F1 là bao nhiêu phần mười sáu?',
+      qid: 404,
+      q: 'Theo quy luật phân li độc lập của Mendel, phép lai $P: AaBb \\times AaBb$ cho tỉ lệ cá thể mang kiểu hình trội về cả 2 tính trạng ($A-B-$) ở F1 là bao nhiêu phần mười sáu?',
       format: 'SHORT_ANSWER',
       opts: ['9'],
       correct: 0,
@@ -502,48 +518,20 @@ function getOfflineFallbackQuestions(topic: string, subject: string, count: numb
       rightCount: 0,
       wrongCount: 0,
     },
-    {
-      qid: 12,
-      q: 'Mối quan hệ sinh thái nào sau đây thuộc nhóm quan hệ đối kháng giữa các loài trong quần xã sinh vật?',
-      format: 'MULTIPLE_CHOICE',
-      opts: ['Cạnh tranh khác loài', 'Cộng sinh', 'Hội sinh', 'Hợp tác'],
-      correct: 0,
-      explanation: 'Cạnh tranh khác loài, kí sinh, vật ăn thịt - con mồi, ức chế cảm nhiễm thuộc quan hệ đối kháng; còn cộng sinh, hội sinh, hợp tác là hỗ trợ.',
-      rightCount: 0,
-      wrongCount: 0,
-    },
-    {
-      qid: 13,
-      q: 'Xét các nhân tố tiến hóa theo thuyết tiến hóa hiện đại:',
-      format: 'TRUE_FALSE',
-      opts: [],
-      correct: -1,
-      tfItems: [
-        { label: 'a', text: 'Đột biến là nhân tố duy nhất tạo ra nguồn nguyên liệu sơ cấp cho tiến hóa.', isCorrect: true },
-        { label: 'b', text: 'Chọn lọc tự nhiên tác động trực tiếp lên kiểu hình và gián tiếp làm biến đổi tần số alen.', isCorrect: true },
-        { label: 'c', text: 'Giao phối không ngẫu nhiên làm thay đổi tần số alen của quần thể theo hướng xác định.', isCorrect: false },
-        { label: 'd', text: 'Các yếu tố ngẫu nhiên có thể loại bỏ hoàn toàn một alen có lợi ra khỏi quần thể.', isCorrect: true },
-      ],
-      explanation: 'Giao phối không ngẫu nhiên không làm thay đổi tần số alen, chỉ làm thay đổi thành phần kiểu gen (tăng đồng hợp, giảm dị hợp).',
-      rightCount: 0,
-      wrongCount: 0,
-    },
   ];
 
-  // Select appropriate bank based on topic / grade
   let selectedBank: QuizItem[] = [];
-  if (tLower.includes('10') || tLower.includes('tế bào') || tLower.includes('nguyên phân') || tLower.includes('phân bào')) {
-    selectedBank = [...bio10Bank, ...bio12Bank];
-  } else if (tLower.includes('11') || tLower.includes('nước') || tLower.includes('khoáng') || tLower.includes('quang hợp') || tLower.includes('cảm ứng')) {
-    selectedBank = [...bio11Bank, ...bio12Bank];
-  } else if (tLower.includes('12') || tLower.includes('di truyền') || tLower.includes('tiến hóa') || tLower.includes('sinh thái') || tLower.includes('gen') || tLower.includes('adn')) {
-    selectedBank = [...bio12Bank, ...bio11Bank, ...bio10Bank];
+  if (tLower.includes('toán') || tLower.includes('giải tích') || tLower.includes('hình học') || tLower.includes('hàm số')) {
+    selectedBank = [...mathBank, ...physicsBank];
+  } else if (tLower.includes('vật lí') || tLower.includes('vật lý') || tLower.includes('dao động') || tLower.includes('điện')) {
+    selectedBank = [...physicsBank, ...mathBank];
+  } else if (tLower.includes('hóa') || tLower.includes('hóa học') || tLower.includes('este') || tLower.includes('cân bằng')) {
+    selectedBank = [...chemBank, ...bioBank];
   } else {
-    // General combined bank: mix of 10, 11, 12
-    selectedBank = [...bio12Bank, ...bio11Bank, ...bio10Bank];
+    // Default or Bio
+    selectedBank = [...bioBank, ...mathBank, ...chemBank, ...physicsBank];
   }
 
-  // Shuffle slightly or take desired count
   const result: QuizItem[] = [];
   for (let i = 0; i < count; i++) {
     const item = selectedBank[i % selectedBank.length];

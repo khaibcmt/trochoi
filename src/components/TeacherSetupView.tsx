@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings, Player } from '../types';
 import {
@@ -14,6 +14,9 @@ import {
   SAMPLE_PHAN_3_SA
 } from '../data/defaultSubjects';
 import { generateQuestionsClientSide, parseDocClientSide, getStoredGeminiKey } from '../services/geminiClient';
+import { auditQuizList, QuizAuditSummary } from '../services/quizAuditor';
+import { QuizAuditorModal } from './QuizAuditorModal';
+import { MathRenderer } from '../utils/katexHelper';
 
 interface Props {
   subjectsDB: Record<string, SubjectData>;
@@ -103,6 +106,11 @@ export const TeacherSetupView: React.FC<Props> = ({
   // Live parsed questions preview state
   const [livePreviewItems, setLivePreviewItems] = useState<QuizItem[]>([]);
   const [showPreviewList, setShowPreviewList] = useState<boolean>(true);
+
+  // AI Doctor & STEM Auditor States
+  const [showAuditorModal, setShowAuditorModal] = useState<boolean>(false);
+  const [highlightedQId, setHighlightedQId] = useState<number | null>(null);
+  const auditSummary = useMemo(() => auditQuizList(livePreviewItems), [livePreviewItems]);
 
   // Generate Room QR Code
   useEffect(() => {
@@ -491,6 +499,17 @@ export const TeacherSetupView: React.FC<Props> = ({
     const updatedHTML = formatQuizToHTML(parsed);
     populate3BoxesFromItems(parsed);
     onSaveCurrentQuizToSubject(parsed, updatedHTML, false);
+
+    // AI Question Doctor Audit
+    const report = auditQuizList(parsed);
+    if (report.criticalCount > 0) {
+      alert(`⚠️ Đã lưu đề, nhưng AI Bác Sĩ Bắt Lỗi phát hiện có ${report.criticalCount} câu cần sửa (ví dụ: chưa chọn đáp án đúng hoặc thiếu phương án). Đang mở bảng Báo Lỗi để bạn xem câu số mấy, bị lỗi gì và bấm "⚡ Tự Động Sửa Toàn Bộ" trong 1 click!`);
+      setShowAuditorModal(true);
+    } else if (report.warningCount > 0) {
+      alert(`💾 Đã lưu thành công ${parsed.length} câu hỏi! Đề thi có ${report.warningCount} cảnh báo nhỏ. Bạn có thể bấm "🩺 Bác Sĩ Bắt Lỗi Đề" để xem chi tiết.`);
+    } else {
+      alert(`💾 Đã lưu thành công ${parsed.length} câu hỏi vào môn này! Đề thi 100% chuẩn xác, hoàn hảo không có lỗi nào.`);
+    }
   };
 
   const handleStartArena = () => {
@@ -990,6 +1009,25 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 📸 AI Quét Đề Từ Ảnh / Văn Bản
               </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  background: auditSummary.criticalCount > 0 ? 'linear-gradient(135deg, #fee2e2, #fecaca)' : 'linear-gradient(135deg, #dcfce7, #bbf7d0)',
+                  borderColor: auditSummary.criticalCount > 0 ? '#ef4444' : '#16a34a',
+                  color: auditSummary.criticalCount > 0 ? '#991b1b' : '#14532d',
+                  fontWeight: 900,
+                  boxShadow: auditSummary.criticalCount > 0 ? '0 0 10px rgba(239, 68, 68, 0.35)' : 'none'
+                }}
+                onClick={() => setShowAuditorModal(true)}
+                title="Bác Sĩ Bắt Lỗi Đề: Báo lỗi câu số mấy, bị lỗi gì và hướng dẫn cách sửa chi tiết kèm nút Tự Sửa 1-Click"
+              >
+                {auditSummary.criticalCount > 0
+                  ? `🩺 Bác Sĩ Bắt Lỗi Đề (⚠️ ${auditSummary.criticalCount} câu lỗi - Xem)`
+                  : auditSummary.warningCount > 0
+                  ? `🩺 Bác Sĩ Bắt Lỗi Đề (🟡 ${auditSummary.warningCount} lưu ý)`
+                  : `🩺 Bác Sĩ Bắt Lỗi Đề (✅ 0 Lỗi)`}
+              </button>
             </div>
 
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -1363,15 +1401,25 @@ export const TeacherSetupView: React.FC<Props> = ({
                   const fmtColor =
                     item.format === 'TRUE_FALSE' ? '#6d28d9' : item.format === 'SHORT_ANSWER' ? '#047857' : '#1d4ed8';
 
+                  const qIssues = auditSummary.issues.filter(it => it.qid === qIdx);
+                  const isHighlighted = highlightedQId === qIdx;
+
                   return (
                     <div
                       key={qIdx}
+                      id={`preview-q-card-${qIdx}`}
                       style={{
-                        background: '#f8fafc',
-                        border: '1.5px solid #cbd5e1',
+                        background: isHighlighted ? '#fef3c7' : '#f8fafc',
+                        border: isHighlighted
+                          ? '2.5px solid #d97706'
+                          : qIssues.some(i => i.severity === 'CRITICAL')
+                          ? '2px solid #ef4444'
+                          : '1.5px solid #cbd5e1',
                         borderRadius: '10px',
                         padding: '9px 12px',
-                        fontSize: '12.5px'
+                        fontSize: '12.5px',
+                        transition: 'all 0.3s ease',
+                        boxShadow: isHighlighted ? '0 0 14px rgba(217, 119, 6, 0.45)' : 'none'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
@@ -1388,6 +1436,31 @@ export const TeacherSetupView: React.FC<Props> = ({
                         >
                           Câu {qIdx + 1} • {fmtLabel}
                         </span>
+
+                        {qIssues.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAuditorModal(true)}
+                            style={{
+                              background: qIssues.some(i => i.severity === 'CRITICAL') ? '#fee2e2' : '#fef3c7',
+                              color: qIssues.some(i => i.severity === 'CRITICAL') ? '#991b1b' : '#92400e',
+                              border: `1px solid ${qIssues.some(i => i.severity === 'CRITICAL') ? '#f87171' : '#fcd34d'}`,
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              fontSize: '11px',
+                              fontWeight: 900,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Bấm để mở chi tiết lỗi và cách sửa"
+                          >
+                            <span>⚠️</span>
+                            <span>{qIssues[0].badgeLabel}</span>
+                          </button>
+                        )}
+
                         <input
                           type="text"
                           value={item.q}
@@ -1424,6 +1497,14 @@ export const TeacherSetupView: React.FC<Props> = ({
                           ✕ Xóa
                         </button>
                       </div>
+
+                      {/* Live STEM Formula & Diagram Preview if text contains formulas or diagrams */}
+                      {(item.q.includes('$') || item.q.includes('\\') || item.q.includes('<img') || item.q.includes('[')) && (
+                        <div style={{ marginBottom: '8px', padding: '4px 8px', background: '#eff6ff', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '12px', color: '#1e3a8a' }}>
+                          <span style={{ fontWeight: 800, color: '#3b82f6', marginRight: '6px' }}>📐 Hiển thị thực tế:</span>
+                          <MathRenderer text={item.q} />
+                        </div>
+                      )}
 
                       {(!item.format || item.format === 'MULTIPLE_CHOICE') && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
@@ -1967,6 +2048,31 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* AI Doctor & STEM Auditor Modal */}
+      <QuizAuditorModal
+        isOpen={showAuditorModal}
+        onClose={() => setShowAuditorModal(false)}
+        auditSummary={auditSummary}
+        quizList={livePreviewItems}
+        onApplyFixedQuiz={(fixedList, msg) => {
+          populate3BoxesFromItems(fixedList);
+          if (msg) alert(msg);
+        }}
+        onJumpToQuestion={(qIdx) => {
+          setShowPreviewList(true);
+          setHighlightedQId(qIdx);
+          setTimeout(() => {
+            const el = document.getElementById(`preview-q-card-${qIdx}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 150);
+          setTimeout(() => {
+            setHighlightedQId(null);
+          }, 4000);
+        }}
+      />
     </main>
   );
 };
