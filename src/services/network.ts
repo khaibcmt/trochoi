@@ -225,7 +225,7 @@ class NetworkService {
         if (Array.isArray(data.players)) {
           data.players.forEach((p: any) => {
             if (p && p.playerId) {
-              const synthMid = `srv_p_${p.playerId}_${p.ready ? 'R' : 'A'}_${p.savedScore || 0}_${p.savedCorrect || 0}`;
+              const synthMid = `srv_p_${p.playerId}_${encodeURIComponent(p.playerName || '')}_${p.ready ? 'R' : 'A'}_${p.savedScore || 0}_${p.savedCorrect || 0}`;
               if (!this.seenMsgIds.has(synthMid)) {
                 this.recordMsgId(synthMid);
                 if (this.onMessageCallback) {
@@ -298,6 +298,8 @@ class NetworkService {
         'PLAYER_FINISH_QUIZ',
         'AUTO_ENTER_ARENA',
         'PLAYER_READY_ROPE',
+        'PLAYER_UPDATE_NAME',
+        'FORCE_PULL_TO_WAITING',
         'ENTER_CONFIRMED',
         'QUESTION_START',
         'MATCH_START',

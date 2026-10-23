@@ -1419,6 +1419,27 @@ export const HostArenaView: React.FC<Props> = ({
     }, 2500);
   };
 
+  // Giáo viên bấm nút Kéo học sinh vào phòng chờ chuẩn bị thi đấu
+  const handlePullAllStudentsToWaiting = () => {
+    AudioFX.bonusLifeChime();
+    confetti({ particleCount: 120, spread: 80, origin: { y: 0.4 } });
+    CloudNetwork.sendMessage({
+      type: 'FORCE_PULL_TO_WAITING',
+      roomId: activeRoomId,
+      gameType: matchState.gameType,
+      status: matchState.status
+    });
+    setTimeout(() => {
+      CloudNetwork.sendMessage({
+        type: 'FORCE_PULL_TO_WAITING',
+        roomId: activeRoomId,
+        gameType: matchState.gameType,
+        status: matchState.status
+      });
+    }, 250);
+    triggerRescueBanner('🧲 ĐÃ KÉO TẤT CẢ HỌC SINH VÀO PHÒNG CHỜ SẴN SÀNG THI ĐẤU!');
+  };
+
   // Kích hoạt Sự Kiện Bất Ngờ Toàn Sân (World Chaos Event - Chuẩn Game Show Quốc Tế)
   const handleTriggerWorldEvent = (evType: WorldEventType) => {
     AudioFX.worldEventSiren();
@@ -2229,6 +2250,24 @@ export const HostArenaView: React.FC<Props> = ({
           <button
             className="b3d-btn"
             style={{
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#0f172a',
+              border: '1.5px solid #fef08a',
+              padding: '5px 11px',
+              fontSize: '11.5px',
+              fontWeight: 900,
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.45)',
+              cursor: 'pointer'
+            }}
+            onClick={handlePullAllStudentsToWaiting}
+            title="Kéo tất cả học sinh đang online/sảnh vào phòng chờ chuẩn bị thi đấu"
+          >
+            🧲 Kéo HS Vào Chờ
+          </button>
+
+          <button
+            className="b3d-btn"
+            style={{
               background: demoBotsActive ? 'linear-gradient(135deg, #10b981, #047857)' : '#1e293b',
               border: demoBotsActive ? '1.5px solid #fef08a' : '1px solid #38bdf8',
               color: demoBotsActive ? '#fef08a' : '#7dd3fc',
@@ -2748,22 +2787,47 @@ export const HostArenaView: React.FC<Props> = ({
               <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#e2e8f0' }}>
                 📣 Sảnh tập hợp học sinh • Phòng <b style={{ color: '#fde047' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b> đã vào sân)
               </div>
-              <button
-                onClick={handleStartContest}
-                style={{
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#ffffff',
-                  border: '1.5px solid #a7f3d0',
-                  borderRadius: '10px',
-                  padding: '6px 14px',
-                  fontSize: '13px',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                🚀 BẮT ĐẦU THI NGAY
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={handlePullAllStudentsToWaiting}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#0f172a',
+                    border: '1.5px solid #fef08a',
+                    borderRadius: '10px',
+                    padding: '6px 14px',
+                    fontSize: '13px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Gom kéo tất cả học sinh vào phòng chờ chuẩn bị thi đấu"
+                >
+                  <span>🧲</span>
+                  <span>KÉO HS VÀO PHÒNG CHỜ</span>
+                </button>
+                <button
+                  onClick={handleStartContest}
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#ffffff',
+                    border: '1.5px solid #a7f3d0',
+                    borderRadius: '10px',
+                    padding: '6px 14px',
+                    fontSize: '13px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🚀 BẮT ĐẦU THI NGAY
+                </button>
+              </div>
             </div>
 
             {allPlayers.length > 0 && (

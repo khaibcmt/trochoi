@@ -374,18 +374,18 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                       1
                     </span>
                     <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#38bdf8' }}>
-                      BƯỚC 1: CHỌN HOẶC NẠP ĐỀ THI
+                      BƯỚC 1: SOẠN ĐỀ & KIỂM TOÁN AI
                     </h4>
                   </div>
                   <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
                     <div style={{ marginBottom: '8px' }}>
-                      <b style={{ color: '#fde047' }}>• Cách 1:</b> Bấm chọn ngay <b>12 Môn THPT có sẵn</b> (Sinh học, Công nghệ, Toán, Lý, Hóa, Văn, Anh, Sử, Địa, GDCD, Tin học, GDQP).
+                      <b style={{ color: '#fde047' }}>• Nạp đề linh hoạt:</b> Chọn sẵn <b>12 Môn THPT chuẩn</b> hoặc dán đề từ Word/PDF vào <b>3 Khung Dạng Thức Chia Sẵn</b> (Dạng I: 4 lựa chọn, Dạng II: Đúng/Sai chùm, Dạng III: Điền đáp số).
                     </div>
                     <div style={{ marginBottom: '8px' }}>
-                      <b style={{ color: '#4ade80' }}>• Cách 2:</b> Dán đề từ Word/PDF vào <b>3 Khung Dạng Thức Chia Sẵn</b> (Dạng I: 4 lựa chọn, Dạng II: Đúng/Sai chùm, Dạng III: Điền đáp số).
+                      <b style={{ color: '#4ade80' }}>• Nhận dạng Toán, Lý, Hóa, Sinh & Hình ảnh:</b> Hỗ trợ trọn vẹn công thức LaTeX, KaTeX, ký hiệu <code>{'$\\sqrt{x}$'}</code>, phân số, phương trình phản ứng hóa học (H₂SO₄, ⇌) và sơ đồ hình ảnh trực quan.
                     </div>
                     <div>
-                      <b style={{ color: '#f472b6' }}>• Cách 3:</b> Bấm nút <b>&ldquo;🤖 AI Soạn Đề&rdquo;</b> hoặc <b>&ldquo;📸 AI Quét Đề Từ Ảnh&rdquo;</b> để máy tự tạo đề thi trong 5 giây!
+                      <b style={{ color: '#f472b6' }}>• 🔍 Kiểm Toán & Báo Lỗi Câu Hỏi (AI Doctor):</b> Quét tự động phát hiện chính xác <i>câu số mấy bị thiếu đáp án, lỗi cú pháp</i> và bấm nút <b>&ldquo;⚡ Tự Động Sửa Toàn Bộ Lỗi&rdquo;</b> chỉ bằng 1 cú nhấp!
                     </div>
                   </div>
                 </div>
@@ -423,7 +423,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   </div>
                   <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
                     <div style={{ marginBottom: '8px' }}>
-                      <b style={{ color: '#f87171' }}>• Chế độ 1:</b> ⚔️ <b>Kéo Co 3D</b> (Chia 2 đội Đỏ - Xanh đối kháng tranh tài).
+                      <b style={{ color: '#f87171' }}>• Chế độ 1:</b> ⚔️ <b>Kéo Co 3D</b> (Chia 2 đội Đỏ - Xanh đối kháng kịch tính).
                     </div>
                     <div style={{ marginBottom: '8px' }}>
                       <b style={{ color: '#fde047' }}>• Chế độ 2:</b> 🔔 <b>Rung Chuông Vàng 3D</b> (Mỗi HS có 3 Tim ❤️, sống sót đến câu cuối).
@@ -432,7 +432,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                       <b style={{ color: '#38bdf8' }}>• Chế độ 3:</b> ⚡ <b>Ai Nhanh Nhất</b> (Đua tốc độ cá nhân, phản xạ cực nhanh).
                     </div>
                     <div>
-                      <b style={{ color: '#c084fc' }}>• Chế độ 4:</b> 🐉 <b>Diệt Boss Kiến Thức</b> (Cả lớp hợp sức giải toán trừ máu Rồng).
+                      <b style={{ color: '#c084fc' }}>• Chế độ 4:</b> 🐉 <b>Diệt Boss Kiến Thức</b> (Cả lớp hợp sức giải toán trừ máu Rồng 3D).
                     </div>
                   </div>
                 </div>
@@ -465,18 +465,18 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                       3
                     </span>
                     <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#fde047' }}>
-                      BƯỚC 3: HS QUÉT QR & THI ĐẤU
+                      BƯỚC 3: QUÉT QR VÀO NGAY & VẬN HÀNH
                     </h4>
                   </div>
                   <div style={{ fontSize: '15px', color: '#f1f5f9', lineHeight: 1.65 }}>
                     <div style={{ marginBottom: '8px' }}>
-                      • Bấm <b>&ldquo;📱 Hiện Mã QR&rdquo;</b> trên màn hình lớn máy chiếu cho học sinh quét vào phòng trong 10 giây.
+                      • <b>Vào phòng trực tiếp & Quét mã vào ngay:</b> Quét QR là vào thẳng <b>Phòng Chờ (WAITING ROOM)</b>, tự cấp tên tạm <code>Thí sinh #...</code>, khóa câu trả lời chống bấm nhầm, nhập tên ngay trong phòng chờ.
                     </div>
                     <div style={{ marginBottom: '8px' }}>
-                      • Bấm <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b>: Đếm ngược 30 giây, tự động đọc đề bằng giọng MC, hiển thị kết quả trực quan.
+                      • <b>Nút của Giáo viên &ldquo;🧲 Kéo học sinh vào phòng chờ&rdquo;:</b> 1-Click kéo 100% học sinh online vào phòng sẵn sàng thi đấu!
                     </div>
                     <div>
-                      • Khi kết thúc: Tự động mở <b>Vinh Danh Top 10</b> và <b>Sổ Điểm Giáo Viên</b>, có thể bấm <b>&ldquo;💾 Tải Excel (.CSV)&rdquo;</b> để nộp nhà trường!
+                      • <b>Hệ thống 2 BXH & Xuất sổ Thông tư 22:</b> Màn hình trực tiếp hiện Top 10 kèm nút mở rộng xem toàn bộ lớp. Bảng 2 tính điểm chuẩn <code>(Đúng / Tổng câu) * 10</code> làm tròn 1 số lẻ, sắp xếp từ cao xuống thấp để vào sổ vnEdu / SMAS.
                     </div>
                   </div>
                 </div>
@@ -486,29 +486,30 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
               <div
                 style={{
                   background: 'linear-gradient(90deg, #831843 0%, #311042 50%, #1e1b4b 100%)',
-                  border: '2px solid #f43f5e',
+                  border: '2.5px solid #f43f5e',
                   borderRadius: '20px',
-                  padding: '20px 24px'
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(244, 63, 94, 0.25)'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                   <span style={{ fontSize: '26px' }}>🎲</span>
                   <h3 style={{ margin: 0, fontSize: '19px', color: '#fecdd3', fontWeight: 900 }}>
-                    TÍNH NĂNG ĐỈNH CAO: YẾU TỐ NHANH • BẤT NGỜ • MAY RỦI TOÀN CẦU
+                    TÍNH NĂNG ĐỈNH CAO: NHANH • BẤT NGỜ • MAY RỦI & BẢO TOÀN ĐIỂM SỔ
                   </h3>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', fontSize: '14.5px', color: '#ffe4e6', lineHeight: 1.6 }}>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#fef08a' }}>⚡ Tia Chớp Đầu Tiên (+500đ):</b> HS trả lời đúng nhanh nhất lớp nhận vinh danh Tia Chớp và cộng nóng +500 điểm.
+                    <b style={{ color: '#fef08a' }}>⚡ Tia Chớp Đầu Tiên (+500đ):</b> HS trả lời đúng nhanh nhất lớp nhận vinh danh Tia Chớp và cộng nóng +500 điểm thi đấu.
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#67e8f9' }}>🎲 Cược Bản Lĩnh:</b> HS tự chọn mức cược trước khi chốt đáp án: <b>An Toàn (x1)</b> • <b>Liều Lĩnh (x1.5)</b> • <b>Tất Tay (x2.5)</b>.
+                    <b style={{ color: '#67e8f9' }}>🎲 Cược Bản Lĩnh (Dùng 1 lần):</b> Chọn mức cược trước khi chốt đáp án: <b>An Toàn (x1)</b> • <b>Liều Lĩnh (x1.5 / -300đ)</b> • <b>Tất Tay (x2.5 / -800đ)</b>.
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#a7f3d0' }}>🎁 3 Rương Bí Ẩn:</b> Khi trả lời đúng được chọn 1 trong 3 rương: Nổ Hũ +1500đ, Đạo chích cướp 500đ của Top 1, Tim hồi sinh, Khiên bất tử!
+                    <b style={{ color: '#a7f3d0' }}>🎁 Rương Bí Ẩn (Streak = 5, dùng 1 lần):</b> Trả lời đúng liên tiếp 5 câu, có 4s chọn 1 trong 3 rương: Nổ Hũ +1500đ, Đạo chích hút 500đ Top 1, Tim hồi sinh, Khiên bất tử!
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#fed7aa' }}>🌪️ Vòng Quay Bất Ngờ:</b> Giáo viên có thể bấm nút <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để kích hoạt Câu hỏi vàng x2, Phép màu cứu trợ, Bão đảo chiều!
+                    <b style={{ color: '#fed7aa' }}>📊 Chuẩn Thông Tư 22/BGDĐT:</b> Thang điểm 10 = <code>(Đúng / Tổng câu) * 10</code> làm tròn 1 số lẻ, xếp thứ tự từ cao xuống thấp để vào sổ vnEdu / SMAS.
                   </div>
                 </div>
               </div>
@@ -530,47 +531,63 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   👨‍🏫 HƯỚNG DẪN ĐẦY ĐỦ DÀNH CHO GIÁO VIÊN SOẠN BÀI & DẠY HỌC
                 </h3>
                 <p style={{ margin: 0, fontSize: '15px', color: '#e2e8f0', lineHeight: 1.65 }}>
-                  Giao diện Giáo viên được thiết kế chuyên biệt để hỗ trợ cấu trúc đề thi <b>3 Dạng thức chuẩn GDPT 2018</b> (Quyết định 764/QĐ-BGDĐT) và lưu điểm theo <b>Thông tư 22/2021/TT-BGDĐT</b>.
+                  Giao diện Giáo viên được thiết kế chuyên biệt để hỗ trợ cấu trúc đề thi <b>3 Dạng thức chuẩn GDPT 2018</b> (Quyết định 764/QĐ-BGDĐT), nhận diện chuyên sâu Toán - Lý - Hóa - Sinh và quản lý điểm số theo <b>Thông tư 22/2021/TT-BGDĐT</b>.
                 </p>
               </div>
 
               {/* Chi Tiết Từng Tính Năng Giáo Viên */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* 1. Bộ 3 Khung Dạng Thức */}
+                {/* 1. Bộ 3 Khung Dạng Thức & Nhận diện STEM */}
                 <div style={{ background: '#111827', border: '2px solid #334155', borderRadius: '16px', padding: '18px 22px' }}>
                   <div style={{ fontSize: '17px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
-                    1️⃣ Bộ 3 Khung Soạn Đề Riêng Biệt (Không Bao Giờ Bị Lẫn Câu)
+                    1️⃣ Bộ 3 Khung Soạn Đề Riêng Biệt & Nhận Diện Công Thức Toán - Lý - Hóa - Sinh
                   </div>
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
                     • <b>Khung Dạng thức I (4 lựa chọn):</b> Dành cho câu hỏi trắc nghiệm truyền thống A, B, C, D có 1 đáp án đúng duy nhất. Giáo viên gạch chân <u>A</u> hoặc tô đậm <b>A</b> để hệ thống tự nhận diện đáp án đúng.<br />
                     • <b>Khung Dạng thức II (Đúng/Sai chùm):</b> Mỗi câu gồm 4 mệnh đề a, b, c, d. Giáo viên ghi chú <code>(Đúng)</code> hoặc <code>(Sai)</code> ở cuối dòng mệnh đề.<br />
                     • <b>Khung Dạng thức III (Trả lời ngắn):</b> Học sinh tự điền số hoặc từ khóa (ví dụ: <code>Đáp án: 12.5</code>).<br />
+                    • <b>Nhận diện sơ đồ, hình ảnh & công thức khoa học (LaTeX, KaTeX, Phản ứng hóa học):</b> Hỗ trợ trọn vẹn các công thức toán học (<code>{'$\\sqrt{x}$'}</code>, <code>{'$\\frac{a}{b}$'}</code>, <code>{'$\\int$'}</code>), phương trình phản ứng hóa học (H₂SO₄, ⇌, chỉ số trên dưới) và thẻ hình ảnh minh họa <code>&lt;img src="..." /&gt;</code>.<br />
                     • <b>Lọc sạch rác Word/PDF:</b> Khi copy từ Word hoặc Zalo, hệ thống tự động bóc sạch các mã rác như <code>font-family, mso-, span</code> và tự ngắt dòng A. B. C. D. thông minh.
                   </div>
                 </div>
 
-                {/* 2. Soạn Đề Bằng AI */}
+                {/* 2. Soạn Đề Bằng AI & Kiểm Toán Lỗi */}
                 <div style={{ background: '#111827', border: '2px solid #818cf8', borderRadius: '16px', padding: '18px 22px' }}>
                   <div style={{ fontSize: '17px', fontWeight: 900, color: '#a5b4fc', marginBottom: '8px' }}>
-                    2️⃣ AI Soạn Đề Tự Động & Quét Đề Từ Ảnh (OCR Document)
+                    2️⃣ AI Soạn Đề Tự Động & &ldquo;🔍 Kiểm Toán &amp; Báo Lỗi Câu Hỏi&rdquo; (AI Doctor &amp; STEM Auditor)
                   </div>
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
-                    • Bấm <b>&ldquo;🤖 AI Soạn Đề 3 Dạng Thức&rdquo;</b>: Chỉ cần nhập chủ đề (ví dụ: <i>&ldquo;Quang hợp ở thực vật C3, C4, CAM&rdquo;</i>) và chọn mức độ nhận thức (Nhận biết, Thông hiểu, Vận dụng). AI sẽ tự tạo bộ câu hỏi chất lượng cao.<br />
-                    • Bấm <b>&ldquo;📸 AI Quét Đề Từ Ảnh / Văn Bản&rdquo;</b>: Tải ảnh chụp trang sách giáo khoa hoặc đề thi in trên giấy, AI sẽ tự động đọc chữ (OCR) và nạp vào 3 khung.<br />
-                    • Có sẵn ngân hàng chuẩn 12 môn THPT để dùng ngay cả khi không có kết nối Internet.
+                    • Bấm <b>&ldquo;🤖 AI Soạn Đề 3 Dạng Thức&rdquo;</b>: Nhập chủ đề (ví dụ: <i>&ldquo;Quang hợp ở thực vật C3, C4, CAM&rdquo;</i> hoặc <i>&ldquo;Cực trị hàm số&rdquo;</i>) và chọn mức độ nhận thức. AI sẽ tự tạo bộ câu hỏi hoàn chỉnh.<br />
+                    • Bấm <b>&ldquo;📸 AI Quét Đề Từ Ảnh / Văn Bản&rdquo;</b>: Tải ảnh chụp trang sách hoặc đề in trên giấy, AI tự động OCR và nạp vào 3 khung.<br />
+                    • <b>🔍 Tính năng Kiểm Toán &amp; Báo Lỗi Câu Hỏi (AI Doctor):</b> Bấm <b>&ldquo;🔍 Kiểm Toán &amp; Báo Lỗi&rdquo;</b> để hệ thống quét toàn diện đề thi. Nếu phát hiện câu nào thiếu đáp án, sai mệnh đề hoặc lỗi cú pháp, màn hình sẽ chỉ rõ <i>&ldquo;Câu X bị lỗi Y&rdquo;</i> kèm nút <b>&ldquo;⚡ Tự Động Sửa Toàn Bộ Lỗi&rdquo;</b> để sửa chuẩn trong 1 giây!
                   </div>
                 </div>
 
-                {/* 3. Điều Khiển Sân Đấu 3D */}
+                {/* 3. Điều Khiển Sân Đấu & Nút Kéo Học Sinh */}
                 <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '16px', padding: '18px 22px' }}>
                   <div style={{ fontSize: '17px', fontWeight: 900, color: '#6ee7b7', marginBottom: '8px' }}>
-                    3️⃣ Bảng Điều Khiển Trên Màn Hình Máy Chiếu Lớp Học
+                    3️⃣ Bảng Điều Khiển Sân Đấu &amp; Nút &ldquo;🧲 Kéo Học Sinh Vào Phòng Chờ&rdquo;
                   </div>
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
-                    • <b>Tối ưu hiển thị 10 nhân vật 3D:</b> Dù lớp có 40 đến 100 học sinh, màn hình chính chỉ hiển thị 10 nhân vật đại diện tiêu biểu để sân khấu thoáng đãng, không bị che khuất câu hỏi.<br />
+                    • <b>🧲 Nút &ldquo;Kéo HS Vào Chờ&rdquo; (1-Click):</b> Nằm ngay trên thanh điều khiển phòng đấu và thanh sảnh chờ. Khi học sinh đã vào sảnh hoặc quét mã, giáo viên chỉ cần bấm nút này để kéo 100% học sinh vào thẳng phòng chờ (WAITING) sẵn sàng thi đấu, xóa bỏ hoàn toàn tình trạng học sinh phân vân ở sảnh.<br />
+                    • <b>Tối ưu hiển thị 10 nhân vật 3D:</b> Màn hình máy chiếu chỉ hiển thị 10 nhân vật đại diện tiêu biểu để sân khấu thoáng đãng, không che khuất câu hỏi.<br />
                     • <b>🔊 Đọc Đề Tự Động:</b> Giọng MC chuyên nghiệp đọc to câu hỏi và các phương án cho cả lớp cùng nghe.<br />
-                    • <b>💡 AI Giải Thích:</b> Khi hết giờ, giáo viên có thể bấm để AI hiện tóm tắt bản chất kiến thức và mẹo nhớ nhanh cho học sinh.<br />
-                    • <b>🌟 Vòng Quay Định Mệnh:</b> Bấm <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để tạo bất ngờ toàn sân (Nhân đôi điểm, Tiếp sức đội yếu, Cứu sinh học sinh bị loại).
+                    • <b>💡 AI Giải Thích:</b> Khi hết giờ, giáo viên bấm để AI hiện tóm tắt bản chất kiến thức và mẹo nhớ nhanh cho học sinh.<br />
+                    • <b>🌟 Vòng Quay Định Mệnh:</b> Bấm <b>&ldquo;🎲 Sự Kiện Bất Ngờ&rdquo;</b> để kích hoạt các tình huống cứu sinh, nhân đôi điểm toàn sân.
+                  </div>
+                </div>
+
+                {/* 4. Sổ Điểm & Bảng Xếp Hạng Chuẩn Thông Tư 22/BGDĐT */}
+                <div style={{ background: '#111827', border: '2px solid #f59e0b', borderRadius: '16px', padding: '18px 22px' }}>
+                  <div style={{ fontSize: '17px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
+                    4️⃣ Hệ Thống 2 Bảng Xếp Hạng &amp; Sổ Điểm Giáo Viên (Thông Tư 22/BGDĐT)
+                  </div>
+                  <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
+                    • <b>Bảng 1 (BXH Trò Chơi):</b> Giữ nguyên cấu trúc, tính điểm tốc độ, cược bản lĩnh, streak, rương thưởng để vinh danh Top 1, 2, 3 trao giải thưởng.<br />
+                    • <b>Bảng 2 (BXH GV Ghi Điểm):</b> Tính điểm theo chuẩn Thông tư 22/BGDĐT: Thang điểm 10 = <code>(Số câu đúng / Tổng câu) * 10</code> làm tròn 1 chữ số thập phân. Xếp thứ tự thực tế từ cao xuống thấp để giáo viên dễ dàng ghi vào sổ điểm vnEdu hoặc SMAS.<br />
+                    • <b>Thống kê đủ 100% học sinh:</b> Cả 2 bảng đều lưu trữ trọn vẹn 100% học sinh tham gia phòng thi.<br />
+                    • <b>Hiển thị trực tiếp Top 10:</b> Màn hình chính mặc định hiện Top 10 học sinh xuất sắc nhất kèm nút mở rộng xem toàn bộ lớp.<br />
+                    • <b>1-Click Sao chép &amp; Xuất dữ liệu:</b> Bấm nút sao chép để dán ngay vào Excel / Google Sheets, xuất file CSV và in bằng khen danh dự!
                   </div>
                 </div>
               </div>
@@ -622,25 +639,26 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
 
               {/* Các Bước Dành Cho Học Sinh */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '16px' }}>
-                <div style={{ background: '#111827', border: '1.5px solid #334155', borderRadius: '16px', padding: '18px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#fde047', marginBottom: '8px' }}>
-                    1. Quét Mã QR & Vào Phòng Nhanh
+                <div style={{ background: '#111827', border: '2px solid #38bdf8', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#38bdf8', marginBottom: '8px' }}>
+                    1. Quét Mã Vào Ngay Phòng Chờ (Không Lo Bị Chặn)
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
-                    • Mở Camera, Zalo hoặc trình duyệt quét mã QR trên máy chiếu.<br />
-                    • Hoặc truy cập đường link và nhập <b>Mã phòng 5 chữ số</b> do Thầy/Cô cung cấp.<br />
-                    • Kết nối qua cùng máy chủ nội bộ giúp đường truyền mượt mà 100%, <b>không bao giờ bị văng</b> kể cả khi dùng mạng 3G/4G yếu.
+                    • <b>Quét mã QR là vào ngay:</b> Dùng Zalo, Camera hoặc trình duyệt quét mã là vào thẳng <b>Phòng Chờ (WAITING ROOM)</b> ngay lập tức, không bị chặn bởi bất kỳ form hay thông báo nào.<br />
+                    • <b>Tự động cấp tên tạm:</b> Hệ thống tự cấp tên dạng <code>Thí sinh #...</code>, câu trả lời tự động khóa an toàn để bạn không bấm nhầm trước giờ thi đấu.<br />
+                    • <b>Đổi tên trực tiếp trong phòng chờ:</b> Có sẵn ô nhập Họ Tên chính thức kèm nút <b>&ldquo;💾 Lưu Tên Của Bạn&rdquo;</b> ngay trong phòng chờ.<br />
+                    • <b>Nút tại sảnh:</b> Tại màn hình sảnh có nút bấm to nổi bật <b>&ldquo;🚪 VÀO TRỰC TIẾP PHÒNG CHỜ (KHÓA ĐÁP ÁN - NHẬP TÊN SAU)&rdquo;</b>.
                   </div>
                 </div>
 
-                <div style={{ background: '#111827', border: '1.5px solid #334155', borderRadius: '16px', padding: '18px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#38bdf8', marginBottom: '8px' }}>
-                    2. Đặt Họ Tên & Tạo Nhân Vật Nam / Nữ
+                <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 900, color: '#4ade80', marginBottom: '8px' }}>
+                    2. Chống Văng Mạng &amp; Tự Động Khôi Phục Phiên Đấu 100%
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
-                    • Nhập đúng <b>Họ và tên học sinh</b> (để thầy cô lưu điểm chính xác vào sổ).<br />
-                    • Chọn giới tính <b>👦 Nam</b> hoặc <b>👧 Nữ</b>, chọn kiểu mũ (Mũ cử nhân, Vương miện, Băng đô) và trang phục yêu thích.<br />
-                    • Nhân vật 3D của bạn sẽ xuất hiện trên sân khấu chính của lớp học!
+                    • <b>Cơ chế lưu trữ kép bảo toàn:</b> Tích hợp công nghệ sao lưu kép (<code>localStorage + sessionStorage</code>) bảo vệ an toàn 100% phiên đấu của học sinh.<br />
+                    • <b>Bảo toàn điểm số khi gặp sự cố:</b> Dù bạn vô tình tắt mở màn hình, xoay máy, chuyển sang ứng dụng khác, reload trang hay mạng 3G/4G yếu: Khi mở lại, hệ thống sẽ tự động khôi phục đúng phòng, bảo toàn nguyên vẹn <b>điểm số, số câu đúng, streak và cược bản lĩnh</b>.<br />
+                    • <b>Nút &ldquo;⚡ Kết Nối Ngay&rdquo;:</b> Nếu thanh trạng thái báo kết nối chậm, chỉ cần bấm nút này để tái kết nối tức thì.
                   </div>
                 </div>
 
@@ -655,11 +673,11 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.65 }}>
                     Trước khi bấm chọn đáp án, học sinh có thể chọn mức cược chiến thuật:<br />
-                    • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm (mức mặc định).<br />
-                    • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm, sai bị trừ <b>-300đ</b>.<br />
-                    • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm, sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!<br />
+                    • <b>🛡️ An Toàn (x1):</b> Đúng cộng điểm chuẩn, sai không bị trừ điểm (mức mặc định).<br />
+                    • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm (+1.500đ), sai bị trừ <b>-300đ</b>.<br />
+                    • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để bứt phá lên Top 1)!<br />
                     <span style={{ color: '#fde047', fontWeight: 800 }}>
-                      ⚠️ Lưu ý: Khi đã bấm chọn Liều Lĩnh hoặc Tất Tay, bạn đã dùng hết lượt cược duy nhất của trận đấu; các câu sau sẽ tự động trở về An Toàn (x1)!
+                      ⚠️ Lưu ý quan trọng: Mỗi học sinh chỉ được chọn Liều Lĩnh hoặc Tất Tay đúng 1 lần duy nhất trong cả trận đấu. Sau lượt cược này, hệ thống tự động khóa và trở về An Toàn (x1)!
                     </span>
                   </div>
                 </div>
@@ -674,12 +692,12 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     </span>
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.65 }}>
-                    <b style={{ color: '#f87171' }}>• Điều kiện bắt buộc:</b> Phải trả lời đúng <b>liên tiếp 5 câu</b> (Streak = 5) mới được mở rương (mỗi học sinh chỉ mở 1 lần duy nhất trong cả trận).<br />
-                    • Màn hình xuất hiện <b>3 Rương Kho Báu</b>. Bạn có <b>4 giây</b> để chọn mở 1 rương ngẫu nhiên:<br />
+                    <b style={{ color: '#f87171' }}>• Điều kiện bắt buộc:</b> Phải trả lời đúng <b>liên tiếp 5 câu</b> (Streak = 5) mới được kích hoạt (mỗi học sinh chỉ mở đúng 1 lần duy nhất cả trận).<br />
+                    • Xuất hiện <b>3 Rương Kho Báu</b>, đếm ngược <b>4 giây</b> để bạn chạm chọn 1 rương ngẫu nhiên:<br />
                     &nbsp;&nbsp;💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
                     &nbsp;&nbsp;🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của bạn đang dẫn đầu Top 1.<br />
                     &nbsp;&nbsp;💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
-                    &nbsp;&nbsp;🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn tuyệt đối không bị phạt nếu câu sau sai!
+                    &nbsp;&nbsp;🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn tuyệt đối không bị trừ điểm nếu câu sau trả lời sai!
                   </div>
                 </div>
               </div>
@@ -771,7 +789,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                 }}
               >
                 <div style={{ fontSize: '17px', fontWeight: 900, color: '#fde047', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span>⚡ 2 CƠ CHẾ ĐẶC BIỆT TOÀN DIỆN: MỖI HỌC SINH CHỈ DÙNG 1 LẦN DUY NHẤT!</span>
+                  <span>⚡ 2 CƠ CHẾ ĐẶC BIỆT TOÀN DIỆN: MỖI HỌC SINH CHỈ DÙNG 1 LẦN DUY NHẤT TRONG CẢ TRẬN ĐẤU!</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginTop: '10px' }}>
                   <div style={{ background: '#0b0f19', border: '1.5px solid #ef4444', borderRadius: '14px', padding: '14px' }}>
@@ -781,20 +799,21 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     <div style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.55 }}>
                       • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm (mặc định an tâm).<br />
                       • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm (+1.500đ), sai bị trừ <b>-300đ</b>.<br />
-                      • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!
+                      • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!<br />
+                      <i>* Sau khi dùng 1 lần, các câu sau hệ thống tự động khóa và trở về An Toàn (x1).</i>
                     </div>
                   </div>
 
                   <div style={{ background: '#0b0f19', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '14px' }}>
                     <div style={{ color: '#fde047', fontWeight: 900, fontSize: '15px', marginBottom: '6px' }}>
-                      🎁 2. Mở Rương Bí Ẩn Định Mệnh (Bắt Buộc Đúng 5 Câu Liên Tiếp - 4s Chọn):
+                      🎁 2. Mở Rương Bí Ẩn Định Mệnh (Streak = 5, Đếm Ngược 4s Chọn, Dùng 1 Lần):
                     </div>
                     <div style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.55 }}>
-                      Xuất hiện 3 Rương, có 4 giây để chọn 1 rương ngẫu nhiên:<br />
+                      Khi trả lời đúng 5 câu liên tiếp, học sinh có 4 giây để chọn 1 trong 3 rương bí ẩn:<br />
                       • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
                       • 🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của đối thủ đang Top 1.<br />
                       • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
-                      • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị phạt nếu câu sau sai!
+                      • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị trừ điểm nếu câu sau trả lời sai!
                     </div>
                   </div>
                 </div>
@@ -892,17 +911,21 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
 
                 <div style={{ background: '#111827', border: '2px solid #10b981', borderRadius: '18px', padding: '20px' }}>
                   <div style={{ fontSize: '18px', fontWeight: 900, color: '#4ade80', marginBottom: '8px' }}>
-                    📒 BẢNG 2: SỐ CÂU ĐÚNG GHI SỔ ĐIỂM GV
+                    📒 BẢNG 2: SỔ ĐIỂM GIÁO VIÊN (THÔNG TƯ 22/BGDĐT)
                   </div>
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
-                    • <b>Tuyệt đối không bị trừ điểm câu sai:</b> Đánh giá công bằng dựa trên tổng số câu học sinh làm đúng.<br />
-                    • <b>Quy đổi thang điểm 10 theo chuẩn Thông tư 22:</b><br />
-                    &nbsp;&nbsp;⭐ Top 1: 10.0 điểm<br />
-                    &nbsp;&nbsp;⭐ Top 2 - 3: 9.5 điểm<br />
-                    &nbsp;&nbsp;⭐ Top 4 - 6: 9.0 điểm<br />
-                    &nbsp;&nbsp;⭐ Top 7 - 10: 8.5 điểm<br />
-                    &nbsp;&nbsp;⭐ Các em có câu đúng đều đạt từ 7.5 - 8.0 điểm trở lên.<br />
-                    • Bấm <b>&ldquo;💾 Xuất File Excel (.CSV)&rdquo;</b> để nộp hồ sơ kiểm tra đánh giá thường xuyên.
+                    • <b>Tuyệt đối không bị trừ điểm câu sai:</b> Đánh giá năng lực thực chất dựa trên tổng số câu học sinh làm đúng.<br />
+                    • <b>Công thức chuẩn Thông tư 22/2021/TT-BGDĐT:</b> Tất cả trả về thang điểm 10 theo công thức: <code>Điểm = Làm tròn 1 số lẻ ((Số câu đúng / Tổng câu) * 10)</code>.<br />
+                    &nbsp;&nbsp;⭐ Đúng 12/12 câu: <b>10.0 điểm</b><br />
+                    &nbsp;&nbsp;⭐ Đúng 10/12 câu: <b>8.3 điểm</b><br />
+                    &nbsp;&nbsp;⭐ Đúng 9/12 câu: <b>7.5 điểm</b><br />
+                    &nbsp;&nbsp;⭐ Đúng 8/12 câu: <b>6.7 điểm</b><br />
+                    &nbsp;&nbsp;⭐ Đúng 7/12 câu: <b>5.8 điểm</b><br />
+                    &nbsp;&nbsp;⭐ Đúng 6/12 câu: <b>5.0 điểm</b><br />
+                    • <b>Xếp thứ tự thực tế từ cao xuống thấp:</b> Giúp giáo viên chỉ việc mở sổ điểm điện tử <b>vnEdu</b> hoặc <b>SMAS</b> và vào điểm ngay lập tức.<br />
+                    • <b>Thống kê 100% học sinh:</b> Cả 2 BXH đều lấy trọn vẹn toàn bộ học sinh tham gia, không bỏ sót bất kỳ em nào.<br />
+                    • <b>Hiển thị trực tiếp Top 10:</b> Màn hình thi đấu ưu tiên hiện Top 10 dẫn đầu để vinh danh và giữ màn hình thông thoáng, kèm nút chuyển đổi xem đầy đủ 100% học sinh.<br />
+                    • <b>1-Click Sao chép vào Excel:</b> Nút <b>&ldquo;📋 Sao Chép Bảng Điểm&rdquo;</b> dán tức thì vào Excel/Sheets, kèm nút <b>&ldquo;💾 Xuất File CSV&rdquo;</b> và <b>&ldquo;📜 In Minh Chứng&rdquo;</b>!
                   </div>
                 </div>
               </div>

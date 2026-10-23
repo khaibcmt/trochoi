@@ -96,11 +96,21 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const [studentName, setStudentName] = useState(() => {
     try {
-      return sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '';
+      const saved = sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || localStorage.getItem('kc3d_last_name') || '';
+      if (saved) return saved;
+      // Quét mã QR hoặc vào link trực tiếp: Tự sinh tên tạm thời thân thiện để vào phòng ngay!
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.has('r') || searchParams.has('room') || searchParams.get('role') === 'player') {
+          return 'Thí sinh #' + Math.floor(100 + Math.random() * 900);
+        }
+      }
+      return '';
     } catch {
       return '';
     }
   });
+  const [tempInputName, setTempInputName] = useState<string>(studentName);
   const [team, setTeam] = useState<PlayerTeam>(initialTeam || 'RED');
   const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'TUG');
   const [role, setRole] = useState<PlayerRole>('PULLER');
@@ -177,7 +187,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
   const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED' | 'ENDED'>(() => {
     try {
-      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '').trim();
+      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || localStorage.getItem('kc3d_last_name') || '').trim();
       const joined = sessionStorage.getItem(`kc3d_joined_${tabSessionId}`);
       const savedScr = sessionStorage.getItem(`kc3d_screen_${tabSessionId}`);
       if (savedName && joined === '1') {
@@ -185,6 +195,13 @@ export const StudentMobileView: React.FC<Props> = ({
           return savedScr;
         }
         return 'QUIZ';
+      }
+      // Quét mã QR hoặc vào link trực tiếp: Vào thẳng phòng chờ luôn rồi mới nhập tên!
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.has('r') || searchParams.has('room') || searchParams.get('role') === 'player') {
+          return 'WAITING';
+        }
       }
     } catch {}
     return 'LOBBY';
@@ -211,9 +228,16 @@ export const StudentMobileView: React.FC<Props> = ({
   const [matchStatText, setMatchStatText] = useState('Đang kết nối thông suốt...');
   const hasJoinedArenaRef = useRef<boolean>((() => {
     try {
-      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || '').trim();
+      const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || localStorage.getItem('kc3d_last_name') || '').trim();
       const joined = sessionStorage.getItem(`kc3d_joined_${tabSessionId}`);
-      return Boolean(savedName && joined === '1');
+      if (savedName && joined === '1') return true;
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.has('r') || searchParams.has('room') || searchParams.get('role') === 'player') {
+          return true;
+        }
+      }
+      return false;
     } catch {
       return false;
     }
@@ -342,7 +366,19 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Track Teacher Match Status & whether student chose Waiting Room mode
   const [hostMatchStatus, setHostMatchStatus] = useState<'LOBBY' | 'PLAYING' | 'PAUSED' | 'ROUND_BREAK' | 'ENDED'>('PLAYING');
-  const waitingRoomLockedRef = useRef<boolean>(false);
+  const waitingRoomLockedRef = useRef<boolean>((() => {
+    try {
+      const savedScr = sessionStorage.getItem(`kc3d_screen_${tabSessionId}`);
+      if (savedScr === 'WAITING') return true;
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.has('r') || searchParams.has('room') || searchParams.get('role') === 'player') {
+          return true;
+        }
+      }
+    } catch {}
+    return false;
+  })());
 
   // Keep refs in sync with latest profile & score so network callbacks NEVER use stale closure values
   const studentNameRef = useRef<string>(studentName);
@@ -426,8 +462,15 @@ export const StudentMobileView: React.FC<Props> = ({
   }, [myPlayerId]);
 
   const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
-    const cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
+    let cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
     if (!cleanName && !hasJoinedArenaRef.current) return;
+
+    if (!cleanName && hasJoinedArenaRef.current) {
+      cleanName = `Thí sinh #${Math.floor(100 + Math.random() * 900)}`;
+      studentNameRef.current = cleanName;
+      setStudentName(cleanName);
+      setTempInputName(cleanName);
+    }
 
     const finalName = cleanName || 'Học sinh';
     const finalTeam = overrideTeam || teamRef.current;
@@ -710,6 +753,30 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     if (typeof d.maxBossHP === 'number') {
       setMaxBossHP(d.maxBossHP);
+    }
+
+    if (d.type === 'FORCE_PULL_TO_WAITING') {
+      hasJoinedArenaRef.current = true;
+      waitingRoomLockedRef.current = true;
+      let curName = studentNameRef.current.trim();
+      if (!curName) {
+        curName = `Thí sinh #${Math.floor(100 + Math.random() * 900)}`;
+        setStudentName(curName);
+        studentNameRef.current = curName;
+        setTempInputName(curName);
+        try {
+          sessionStorage.setItem(`kc3d_name_${tabSessionId}`, curName);
+          localStorage.setItem('kc3d_last_name', curName);
+          sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
+        } catch {}
+      }
+      sendEnter(curName);
+      if (screenRef.current === 'LOBBY') {
+        setScreen('WAITING');
+        AudioFX.bonusLifeChime();
+        triggerBonusToast('🧲 Thầy/Cô đã kéo bạn vào phòng chờ! Vui lòng sẵn sàng thi đấu!');
+      }
+      return;
     }
 
     // Chỉ khi Giáo viên chủ động bấm KẾT THÚC TRẬN (MATCH_ENDED) mới dừng toàn phòng;
@@ -1132,7 +1199,7 @@ export const StudentMobileView: React.FC<Props> = ({
       () => {
         setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
         setNetworkState('CONNECTED');
-        if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+        if (hasJoinedArenaRef.current) {
           sendEnter();
         }
       },
@@ -1140,21 +1207,21 @@ export const StudentMobileView: React.FC<Props> = ({
         setNetworkState(newStatus);
         if (newStatus === 'CONNECTED') {
           setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-          if (hasJoinedArenaRef.current && studentNameRef.current.trim()) {
+          if (hasJoinedArenaRef.current) {
             sendEnter();
           }
         }
       }
     );
 
-    // Đồng bộ nhẹ nhàng: Nếu chưa được Host xác nhận thì gửi sau 3s, khi đã xác nhận chỉ gửi định kỳ mỗi 10s để tránh nghẽn mạng khi mở 40+ Tab
+    // Đồng bộ định kỳ chống rớt mạng / chống văng
     let lastSyncTs = Date.now();
     let lastSyncedScore = fastScoreRef.current;
     const interval = setInterval(() => {
-      if (!hasJoinedArenaRef.current || !studentNameRef.current.trim()) return;
+      if (!hasJoinedArenaRef.current) return;
       const now = Date.now();
       const scoreChanged = fastScoreRef.current !== lastSyncedScore;
-      const neededDelay = hasConfirmedEnterRef.current ? 10000 : 3000;
+      const neededDelay = hasConfirmedEnterRef.current ? 6000 : 2500;
       if (scoreChanged || now - lastSyncTs >= neededDelay) {
         lastSyncTs = now;
         lastSyncedScore = fastScoreRef.current;
@@ -1622,6 +1689,36 @@ export const StudentMobileView: React.FC<Props> = ({
     }
   };
 
+  // Cập nhật Họ và Tên trực tiếp ngay trong Phòng chờ
+  const handleUpdateNameInWaiting = (nameToSave?: string) => {
+    const finalName = (nameToSave ?? tempInputName ?? '').trim();
+    if (!finalName) {
+      triggerBonusToast('⚠️ Vui lòng nhập Họ và Tên hoặc Số báo danh của bạn!');
+      return;
+    }
+    setStudentName(finalName);
+    studentNameRef.current = finalName;
+    setTempInputName(finalName);
+    try {
+      sessionStorage.setItem(`kc3d_name_${tabSessionId}`, finalName);
+      localStorage.setItem('kc3d_last_name', finalName);
+      sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
+    } catch {}
+
+    sendEnter(finalName);
+    CloudNetwork.sendMessage({
+      type: 'PLAYER_UPDATE_NAME',
+      playerId: myPlayerIdRef.current,
+      playerName: finalName,
+      preferredTeam: teamRef.current,
+      avatar: avatarRef.current,
+      savedScore: fastScoreRef.current,
+      savedCorrect: myCorrectCountRef.current
+    });
+    AudioFX.bonusLifeChime();
+    triggerBonusToast(`✅ Đã lưu Họ và Tên: "${finalName}"!`);
+  };
+
   // Vào trực tiếp phòng có câu hỏi (QUIZ) hoặc vào Phòng chờ (WAITING)
   const handleReadyInRope = (
     targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ',
@@ -1629,8 +1726,12 @@ export const StudentMobileView: React.FC<Props> = ({
     overrideAvatar?: AvatarConfig,
     overrideTeam?: PlayerTeam
   ) => {
-    const cleanName = (overrideName ?? studentName ?? '').trim();
-    if (!cleanName) {
+    let cleanName = (overrideName ?? studentName ?? '').trim();
+    // Nếu vào phòng chờ (WAITING) mà chưa có tên -> Tự cấp tên tạm thời để học sinh vào phòng ngay, không bao giờ chặn!
+    if (!cleanName && targetScreen === 'WAITING') {
+      cleanName = `Thí sinh #${Math.floor(100 + Math.random() * 900)}`;
+      setTempInputName(cleanName);
+    } else if (!cleanName) {
       setShowNameAlert(true);
       return;
     }
@@ -1646,6 +1747,7 @@ export const StudentMobileView: React.FC<Props> = ({
 
     try {
       sessionStorage.setItem(`kc3d_name_${tabSessionId}`, cleanName);
+      localStorage.setItem('kc3d_last_name', cleanName);
       sessionStorage.setItem(`kc3d_avatar_${tabSessionId}`, JSON.stringify(finalAv));
       sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
     } catch {}
@@ -2164,6 +2266,48 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Floating Reconnect Banner if disconnected */}
+      {networkState !== 'CONNECTED' && (
+        <div style={{
+          position: 'fixed',
+          top: '12px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'linear-gradient(135deg, #b45309, #d97706)',
+          border: '2px solid #fde047',
+          color: '#ffffff',
+          borderRadius: '14px',
+          padding: '8px 14px',
+          zIndex: 99999,
+          boxShadow: '0 8px 25px rgba(0,0,0,0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          maxWidth: '92%'
+        }}>
+          <span style={{ fontSize: '12px', fontWeight: 800 }}>
+            🟡 Đang tự động kết nối lại... Điểm số ({fastScore}đ • {myCorrectCount} đúng) luôn được bảo toàn!
+          </span>
+          <button
+            type="button"
+            onClick={handleManualReconnect}
+            style={{
+              background: '#0f172a',
+              border: '1.5px solid #fde047',
+              color: '#fde047',
+              borderRadius: '8px',
+              padding: '4px 10px',
+              fontSize: '11px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            ⚡ Kết Nối Ngay
+          </button>
+        </div>
+      )}
+
       {/* Persistent Student Top Header: Logo & Tác giả Hồ Tấn Khải - Trường THPT Mang Thít */}
       <header
         style={{
@@ -2524,54 +2668,54 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
             <button
-              onClick={() => handleReadyInRope('QUIZ')}
+              onClick={() => handleReadyInRope('WAITING')}
               style={{
                 width: '100%',
                 padding: '15px 14px',
                 borderRadius: '14px',
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                color: '#ffffff',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#0f172a',
                 fontWeight: 900,
-                fontSize: '16px',
-                border: '2px solid #6ee7b7',
+                fontSize: '15.5px',
+                border: '2px solid #fef08a',
                 cursor: 'pointer',
-                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.45)',
+                boxShadow: '0 8px 22px rgba(245, 158, 11, 0.45)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: '3px'
               }}
             >
-              <span>🚀 VÀO TRỰC TIẾP PHÒNG CÓ CÂU HỎI (THI NGAY)</span>
-              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#d1fae5' }}>
-                (Hiện câu hỏi &amp; đáp án trả lời ngay lập tức)
+              <span>🚪 VÀO TRỰC TIẾP PHÒNG CHỜ (KHÓA ĐÁP ÁN - NHẬP TÊN SAU)</span>
+              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#1e293b' }}>
+                (Vào phòng thi ngay lập tức không bị lỗi • Tự do đổi tên trong phòng chờ)
               </span>
             </button>
 
             <button
-              onClick={() => handleReadyInRope('WAITING')}
+              onClick={() => handleReadyInRope('QUIZ')}
               style={{
                 width: '100%',
-                padding: '12px 14px',
+                padding: '13px 14px',
                 borderRadius: '14px',
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                color: '#0f172a',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#ffffff',
                 fontWeight: 900,
                 fontSize: '14.5px',
-                border: '2px solid #fef08a',
+                border: '2px solid #6ee7b7',
                 cursor: 'pointer',
-                boxShadow: '0 6px 16px rgba(245, 158, 11, 0.35)',
+                boxShadow: '0 6px 16px rgba(16, 185, 129, 0.35)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: '2px'
               }}
             >
-              <span>🚪 BẤM VÀO PHÒNG CHỜ (CHỈ XEM CÂU HỎI)</span>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: '#1e293b' }}>
-                (Chỉ thấy câu hỏi • Khi nào Giáo viên bấm Bắt đầu mới mở trả lời)
+              <span>🚀 VÀO THI ĐẤU NGAY (MỞ KHÓA TRẢ LỜI)</span>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#d1fae5' }}>
+                (Cần có Họ &amp; Tên • Mở khóa đáp án để trả lời ngay lập tức)
               </span>
             </button>
           </div>
@@ -2700,6 +2844,106 @@ export const StudentMobileView: React.FC<Props> = ({
               </button>
             </div>
           </div>
+
+          {/* Card Nhập/Cập nhật Họ Tên Trực Tiếp trong Phòng Chờ */}
+          <div style={{
+            background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)',
+            border: '2px solid #818cf8',
+            borderRadius: '16px',
+            padding: '12px 14px',
+            marginBottom: '10px',
+            boxShadow: '0 4px 18px rgba(99, 102, 241, 0.3)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '4px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 900, color: '#c7d2fe' }}>
+                ✏️ HỌ VÀ TÊN THÍ SINH (ĐỂ GV GHI ĐIỂM SỔ SÁCH):
+              </span>
+              {studentName && !studentName.startsWith('Thí sinh #') ? (
+                <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: 900, background: 'rgba(74, 222, 128, 0.15)', padding: '2px 8px', borderRadius: '6px', border: '1px solid #4ade80' }}>
+                  ✅ Đã lưu chính thức
+                </span>
+              ) : (
+                <span style={{ fontSize: '11px', color: '#fde047', fontWeight: 900, background: 'rgba(250, 204, 21, 0.15)', padding: '2px 8px', borderRadius: '6px', border: '1px solid #facc15' }}>
+                  ⏳ Tên tạm: Hãy nhập họ tên bạn
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                value={tempInputName}
+                onChange={(e) => setTempInputName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateNameInWaiting(); }}
+                placeholder="Nhập Họ và Tên (VD: Nguyễn Văn An - 12A1)..."
+                style={{
+                  flex: 1,
+                  background: '#020617',
+                  border: '1.5px solid #6366f1',
+                  borderRadius: '10px',
+                  padding: '9px 12px',
+                  color: '#ffffff',
+                  fontSize: '13.5px',
+                  fontWeight: 700,
+                  outline: 'none'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => handleUpdateNameInWaiting()}
+                style={{
+                  background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                  border: '1.5px solid #a5b4fc',
+                  borderRadius: '10px',
+                  padding: '9px 14px',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 10px rgba(99, 102, 241, 0.4)'
+                }}
+              >
+                💾 LƯU TÊN
+              </button>
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '6px', lineHeight: 1.4 }}>
+              🔒 <i>Câu trả lời đang được khóa an toàn. Bạn có thể sửa tên bất cứ lúc nào trước hoặc trong trận đấu.</i>
+            </div>
+          </div>
+
+          {/* Nút Chuyển Vào Thi Ngay nếu Giáo Viên đã Bắt Đầu Trận Đấu */}
+          {hostMatchStatus === 'PLAYING' && (
+            <div style={{ marginBottom: '10px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  waitingRoomLockedRef.current = false;
+                  setScreen('QUIZ');
+                  AudioFX.pullHeave();
+                  triggerBonusToast('🚀 Đã mở khóa đáp án! Chúc em làm bài thật tốt!');
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#ffffff',
+                  borderRadius: '14px',
+                  border: '2px solid #86efac',
+                  fontWeight: 900,
+                  fontSize: '14.5px',
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 18px rgba(16, 185, 129, 0.45)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                <span>🚀</span>
+                <span>GIÁO VIÊN ĐÃ BẮT ĐẦU • BẤM VÀO THI NGAY (MỞ KHÓA ĐÁP ÁN)</span>
+              </button>
+            </div>
+          )}
 
           {/* Banner Trạng Thái Phòng Chờ */}
           <div style={{

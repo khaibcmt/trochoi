@@ -488,8 +488,8 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ') {
-      const isReady = d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ';
+    if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ' || d.type === 'PLAYER_UPDATE_NAME') {
+      const isReady = d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ' || d.type === 'PLAYER_UPDATE_NAME';
       setMatchState(prev => {
         const existingRedIdx = prev.redPlayers.findIndex(x => x.id === d.playerId);
         const existingBlueIdx = prev.bluePlayers.findIndex(x => x.id === d.playerId);
@@ -497,8 +497,8 @@ export const App: React.FC = () => {
 
         if (existing) {
           const incomingName = (d.playerName || '').trim();
-          const isIncomingGeneric = !incomingName || incomingName === 'Học sinh' || /^HS\s+\d+$/i.test(incomingName);
-          const hasRealExistingName = existing.label && existing.label !== 'Học sinh' && !/^HS\s+\d+$/i.test(existing.label);
+          const isIncomingGeneric = !incomingName || incomingName === 'Học sinh' || /^HS\s+\d+$/i.test(incomingName) || /^Thí sinh\s*#?\d*$/i.test(incomingName);
+          const hasRealExistingName = existing.label && existing.label !== 'Học sinh' && !/^HS\s+\d+$/i.test(existing.label) && !/^Thí sinh\s*#?\d*$/i.test(existing.label);
 
           const nextLabel = (!isIncomingGeneric && incomingName)
             ? incomingName

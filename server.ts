@@ -490,7 +490,8 @@ app.post('/api/room/:roomId/publish', (req, res) => {
       if (
         (payload.type === 'AUTO_ENTER_ARENA' ||
           payload.type === 'PLAYER_READY_ROPE' ||
-          payload.type === 'PLAYER_FINISH_QUIZ') &&
+          payload.type === 'PLAYER_FINISH_QUIZ' ||
+          payload.type === 'PLAYER_UPDATE_NAME') &&
         payload.playerId
       ) {
         const prevP = room.players[payload.playerId];
@@ -505,7 +506,8 @@ app.post('/api/room/:roomId/publish', (req, res) => {
           prevP.savedScore === nextScore &&
           prevP.savedCorrect === nextCorrect &&
           prevP.playerName === nextName &&
-          payload.type !== 'PLAYER_FINISH_QUIZ'
+          payload.type !== 'PLAYER_FINISH_QUIZ' &&
+          payload.type !== 'PLAYER_UPDATE_NAME'
         ) {
           isDuplicatePlayerPing = true;
         }

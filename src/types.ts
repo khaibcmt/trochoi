@@ -130,6 +130,7 @@ export interface MatchState {
 export interface CloudMessage {
   _mid?: string;
   type: string;
+  roomId?: string;
   playerId?: string;
   targetPlayerId?: string;
   team?: PlayerTeam;
