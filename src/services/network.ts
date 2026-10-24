@@ -72,7 +72,7 @@ class NetworkService {
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden && !this.isIntentionalDisconnect && this.currentRoomId) {
           this.pollHttpRoomNow();
-          if (!this.client || !this.client.connected) {
+          if (!this.httpHealthy && (!this.client || !this.client.connected)) {
             this.initMqttClient();
           }
         }
@@ -147,9 +147,12 @@ class NetworkService {
     this.consecutiveHttpFailures = 0;
     this.setStatus('CONNECTED');
 
-    // Khởi chạy đồng thời: (1) Kênh HTTP Server cùng tên miền 100% xuyên tường lửa + (2) Kênh MQTT WebSockets
+    // Khởi chạy kênh HTTP Server cùng tên miền 100% xuyên tường lửa;
+    // Chỉ kích hoạt MQTT dự phòng nếu chạy trên môi trường tĩnh không có backend HTTP (như GitHub Pages)
     this.startHttpPolling();
-    this.initMqttClient();
+    if (typeof window !== 'undefined' && /github\.io$/i.test(window.location.hostname)) {
+      this.initMqttClient();
+    }
 
     // Đọc ngay dữ liệu đồng bộ trực tiếp trong localStorage nếu cùng thiết bị
     try {
@@ -259,9 +262,15 @@ class NetworkService {
         }
       } else {
         this.consecutiveHttpFailures++;
+        if (this.consecutiveHttpFailures >= 3 && !this.client) {
+          this.initMqttClient();
+        }
       }
     } catch {
       this.consecutiveHttpFailures++;
+      if (this.consecutiveHttpFailures >= 3 && !this.client) {
+        this.initMqttClient();
+      }
       if (this.consecutiveHttpFailures >= 18 && (!this.client || !this.client.connected)) {
         this.httpHealthy = false;
         this.setStatus('RECONNECTING');
@@ -318,29 +327,53 @@ class NetworkService {
     }
   }
 
+  /**
+   * Đóng kết nối MQTT an toàn: Hủy các listener dữ liệu ('connect', 'message', 'close')
+   * nhưng luôn giữ 1 listener 'error' rỗng để ngăn EventEmitter ném lỗi Uncaught "connack timeout".
+   */
+  private safeCloseMqttClient() {
+    if (!this.client) return;
+    const oldClient = this.client;
+    this.client = null;
+    try {
+      oldClient.removeAllListeners('connect');
+      oldClient.removeAllListeners('message');
+      oldClient.removeAllListeners('close');
+      oldClient.removeAllListeners('reconnect');
+      oldClient.removeAllListeners('offline');
+      oldClient.removeAllListeners('error');
+      // Bắt buộc giữ no-op error listener để mqtt.js không bao giờ ném Uncaught Error: connack timeout
+      oldClient.on('error', () => {});
+      oldClient.end(true);
+    } catch (e) {}
+  }
+
   private initMqttClient() {
-    if (this.client) {
-      try {
-        this.client.end(true);
-      } catch (e) {}
-      this.client = null;
-    }
+    this.safeCloseMqttClient();
 
     const brokerUrl = PRIMARY_BROKERS[this.brokerIndex % PRIMARY_BROKERS.length];
     const clientId = 'kc3d_' + Math.random().toString(16).substring(2, 10);
 
     try {
-      this.client = mqtt.connect(brokerUrl, {
+      const client = mqtt.connect(brokerUrl, {
         clientId,
         clean: true,
-        connectTimeout: 4500,
-        reconnectPeriod: 5000,
+        connectTimeout: 15000,
+        reconnectPeriod: 0, // Tắt auto-reconnect nội bộ của mqtt.js để quản lý chủ động và không bị connack timeout
         keepalive: 30
       });
+      this.client = client;
 
-      this.client.on('connect', () => {
-        if (!this.client || !this.currentRoomTopic) return;
-        this.client.subscribe(this.currentRoomTopic, { qos: 0 }, (err) => {
+      // Đăng ký trình bắt lỗi ngay lập tức để không bao giờ rò rỉ ngoại lệ connack timeout ra toàn cục
+      client.on('error', (_err) => {
+        if (!this.isIntentionalDisconnect && !this.httpHealthy) {
+          this.switchBrokerFallback();
+        }
+      });
+
+      client.on('connect', () => {
+        if (!this.client || this.client !== client || !this.currentRoomTopic) return;
+        client.subscribe(this.currentRoomTopic, { qos: 0 }, (err) => {
           if (!err) {
             this.setStatus('CONNECTED');
             if (this.onConnectedCallback) {
@@ -351,28 +384,25 @@ class NetworkService {
         });
       });
 
-      this.client.on('error', (_err) => {
-        if (!this.isIntentionalDisconnect) {
-          this.switchBrokerFallback();
-        }
-      });
-
-      this.client.on('message', (_topic, message) => {
+      client.on('message', (_topic, message) => {
         try {
           const data = JSON.parse(message.toString()) as CloudMessage;
           this.deliverIncomingMessage(data);
         } catch (e) {}
       });
     } catch (e) {
-      this.switchBrokerFallback();
+      if (!this.httpHealthy) {
+        this.switchBrokerFallback();
+      }
     }
   }
 
   private switchBrokerFallback() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    const delay = this.httpHealthy ? 12000 : 3500;
+    if (this.httpHealthy) return;
+    const delay = 6000;
     this.reconnectTimer = setTimeout(() => {
-      if (!this.isIntentionalDisconnect && this.currentRoomId) {
+      if (!this.isIntentionalDisconnect && this.currentRoomId && !this.httpHealthy) {
         this.brokerIndex++;
         this.initMqttClient();
       }
@@ -380,13 +410,16 @@ class NetworkService {
   }
 
   public reconnectImmediate() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.httpHealthy = true;
     this.consecutiveHttpFailures = 0;
     this.setStatus('CONNECTED');
     this.pollHttpRoomNow();
     this.flushOfflineQueue();
-    if (!this.client || !this.client.connected) {
+    if (!this.httpHealthy && (!this.client || !this.client.connected)) {
       this.initMqttClient();
     }
   }
@@ -435,17 +468,15 @@ class NetworkService {
 
   disconnect() {
     this.isIntentionalDisconnect = true;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.httpPollTimer) {
       clearInterval(this.httpPollTimer);
       this.httpPollTimer = null;
     }
-    if (this.client) {
-      try {
-        this.client.end(true);
-      } catch (e) {}
-      this.client = null;
-    }
+    this.safeCloseMqttClient();
     this.currentRoomTopic = '';
     this.currentRoomId = '';
     this.offlineQueue = [];

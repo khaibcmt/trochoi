@@ -26,6 +26,40 @@ export function removeStoredGeminiKey(): void {
   } catch {}
 }
 
+/**
+ * HOTFIX 3.1: Bộ lọc JSON trích xuất tự động (Fault-tolerant AI Response Sanitizer)
+ * Tự động loại bỏ text rác ngoài khối JSON ("Dưới đây là câu hỏi:", markdown backticks ```json ... ```)
+ * và trích xuất chuỗi nằm giữa { ... } hoặc [ ... ] trước khi gọi JSON.parse().
+ */
+export function sanitizeAndExtractJSON<T = any>(rawText: string): T {
+  const cleaned = String(rawText || '')
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const firstBracket = cleaned.indexOf('[');
+  const lastBracket = cleaned.lastIndexOf(']');
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  let candidate = cleaned;
+  if (firstBracket !== -1 && lastBracket > firstBracket && (firstBrace === -1 || firstBracket < firstBrace)) {
+    candidate = cleaned.slice(firstBracket, lastBracket + 1);
+  } else if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidate = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  try {
+    return JSON.parse(candidate) as T;
+  } catch {
+    const match = cleaned.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+    if (match && match[1]) {
+      return JSON.parse(match[1]) as T;
+    }
+    throw new Error('Không thể trích xuất khối JSON hợp lệ từ phản hồi AI.');
+  }
+}
+
 // 1. Client-Side AI Soạn Đề Thông Minh Chuẩn GDPT 2018 (Toán, Lý, Hóa, Sinh, STEM)
 export async function generateQuestionsClientSide(params: {
   topic: string;
@@ -87,6 +121,8 @@ Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
+            // HOTFIX 3.2: Đặt temperature: 0.3 cho tác vụ tạo câu hỏi để AI ổn định, giảm ảo giác
+            temperature: 0.3,
             responseMimeType: 'application/json',
           },
         }),
@@ -100,8 +136,7 @@ Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
 
       const data = await res.json();
       const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-      const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
+      const parsed = sanitizeAndExtractJSON<any[]>(rawText);
 
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((item: any, i: number) => ({
@@ -169,6 +204,10 @@ Trình bày theo 4 phần rõ ràng:
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ chấm điểm tự luận / giải thích
+            temperature: 0.2,
+          },
         }),
       });
 
@@ -261,6 +300,8 @@ export async function parseDocClientSide(params: {
         body: JSON.stringify({
           contents: [{ parts }],
           generationConfig: {
+            // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ bóc tách & chấm điểm đề thi
+            temperature: 0.2,
             responseMimeType: 'application/json',
           },
         }),
@@ -272,8 +313,7 @@ export async function parseDocClientSide(params: {
 
       const data = await res.json();
       const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-      const cleanJson = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
+      const parsed = sanitizeAndExtractJSON<any[]>(raw);
 
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((item: any, i: number) => ({

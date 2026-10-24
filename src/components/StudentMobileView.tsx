@@ -5,6 +5,7 @@ import { CloudNetwork, NetworkConnStatus } from '../services/network';
 import {
   cleanQuestionTitleText,
   cleanTFStatementText,
+  cleanText,
   repairQuizItemIfCorrupted,
   getStableShuffledQuestion,
   getTeacherGradebookScore,
@@ -323,6 +324,17 @@ export const StudentMobileView: React.FC<Props> = ({
   const [shuffledOpts, setShuffledOpts] = useState<StudentShuffledOption[]>([]);
   const [selectedOptionOriginalIdx, setSelectedOptionOriginalIdx] = useState<number | null>(null);
   const [isAnswerLocked, setIsAnswerLocked] = useState<boolean>(false);
+  // HOTFIX 1.3: Cơ chế Lock State tạm thời khi đang đồng bộ trạng thái (syncState) để chống bấm đúp đáp án do lag mạng
+  const [isSyncingState, setIsSyncingState] = useState<boolean>(false);
+  const syncLockTimerRef = useRef<any>(null);
+  const triggerSyncStateLock = (durationMs: number = 350) => {
+    setIsSyncingState(true);
+    if (syncLockTimerRef.current) clearTimeout(syncLockTimerRef.current);
+    syncLockTimerRef.current = setTimeout(() => {
+      setIsSyncingState(false);
+      syncLockTimerRef.current = null;
+    }, durationMs);
+  };
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
   const lastShuffledKeyRef = useRef<string>('');
 
@@ -847,6 +859,8 @@ export const StudentMobileView: React.FC<Props> = ({
     }
 
     if (d.type === 'WELCOME_ACK' || d.type === 'HOST_STATE_SYNC') {
+      // HOTFIX 1.3: Khóa tạm thời nút bấm khi nhận gói đồng bộ trạng thái (syncState)
+      triggerSyncStateLock(300);
       if (d.status) {
         setHostMatchStatus(d.status);
         hostMatchStatusRef.current = d.status;
@@ -927,6 +941,7 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'FORCE_START_MATCH' || d.type === 'MATCH_START') {
       // Giáo viên bấm BẮT ĐẦU THI -> Kéo 100% học sinh vào phòng, mở đáp án và đồng bộ tất cả về cùng câu hỏi!
+      triggerSyncStateLock(350);
       hasJoinedArenaRef.current = true;
       hasFinishedAllQuestionsRef.current = false;
       maxReachedQIndexRef.current = 0;
@@ -1177,6 +1192,8 @@ export const StudentMobileView: React.FC<Props> = ({
         maxReachedQIndexRef.current = d.qIndex;
         setCurrentGlobalQIndex(d.qIndex);
         if (isNewQuestion || d.qIndex === 0) {
+          // HOTFIX 1.3: Khóa tạm thời nút bấm khi chuyển sang câu hỏi mới đồng bộ từ giáo viên
+          triggerSyncStateLock(350);
           activeStudentTimerQIndexRef.current = -1;
           setLastCompletedQIndex(-1);
           clearFreeze();
@@ -1254,8 +1271,13 @@ export const StudentMobileView: React.FC<Props> = ({
     }, 1500);
 
     return () => {
+      // HOTFIX 1.2: Dọn dẹp toàn bộ timer và kết nối mạng khi component unmount để chống Memory Leak
       clearInterval(interval);
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (freezeIntervalRef.current) clearInterval(freezeIntervalRef.current);
+      if (chestTimerRef.current) clearInterval(chestTimerRef.current);
       if (finishTransitionTimerRef.current) clearTimeout(finishTransitionTimerRef.current);
+      if (syncLockTimerRef.current) clearTimeout(syncLockTimerRef.current);
       CloudNetwork.disconnect();
     };
   }, [roomId]);
@@ -1332,19 +1354,43 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
-    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
     setSelectedOptionOriginalIdx(origIdx);
 
-    const isCorrect = Number(origIdx) === Number(resolvedCurrentQ.correct);
+    // HOTFIX 2.3: So khớp linh hoạt chuẩn hóa cùng kiểu dữ liệu (Number chỉ số 0-3 HOẶC String cleanText())
+    const normalizedSelectedIdx = Number(origIdx);
+    const normalizedCorrectIdx =
+      typeof resolvedCurrentQ.correct === 'number' && !isNaN(resolvedCurrentQ.correct)
+        ? Number(resolvedCurrentQ.correct)
+        : typeof resolvedCurrentQ.correct === 'string' && /^[A-Da-d]$/.test(String(resolvedCurrentQ.correct).trim())
+        ? String(resolvedCurrentQ.correct).trim().toUpperCase().charCodeAt(0) - 65
+        : Number(resolvedCurrentQ.correct);
+
+    const isIndexMatch =
+      normalizedSelectedIdx >= 0 &&
+      normalizedSelectedIdx <= 3 &&
+      normalizedSelectedIdx === normalizedCorrectIdx;
+
+    const selectedTextClean = cleanText(resolvedCurrentQ.opts?.[normalizedSelectedIdx] ?? '');
+    const correctTextClean = cleanText(
+      resolvedCurrentQ.opts?.[normalizedCorrectIdx] ??
+      (typeof resolvedCurrentQ.correct === 'string' ? resolvedCurrentQ.correct : '')
+    );
+    const isCleanTextMatch =
+      selectedTextClean.length > 0 &&
+      correctTextClean.length > 0 &&
+      selectedTextClean === correctTextClean;
+
+    const isCorrect = isIndexMatch || isCleanTextMatch;
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0);
   };
 
   // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
-    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -1354,8 +1400,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
     let correctCount = 0;
     items.forEach(item => {
-      const userChoice = tfAnswers[item.label] ?? false;
-      if (userChoice === item.isCorrect) {
+      const userChoice = Boolean(tfAnswers[item.label] ?? false);
+      if (userChoice === Boolean(item.isCorrect)) {
         correctCount++;
       }
     });
@@ -1366,27 +1412,25 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
-    if (screen !== 'QUIZ' || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
+    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const correctVal = (resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '')
-      .replace(/^(?:Đáp\s*án|ĐA|KQ|Kết\s*quả|Đáp\s*số)\s*(?:đúng\s*)?(?:là\s*)?[:.=]?\s*/i, '')
-      .replace(/\.+$/, '')
-      .trim()
-      .toLowerCase();
-    const userVal = shortAnswerInput
-      .replace(/^(?:Đáp\s*án|ĐA|KQ|Kết\s*quả|Đáp\s*số)\s*(?:đúng\s*)?(?:là\s*)?[:.=]?\s*/i, '')
-      .replace(/\.+$/, '')
-      .trim()
-      .toLowerCase();
+    // HOTFIX 2.3: So khớp linh hoạt bằng hàm chuẩn hóa cleanText() và ép kiểu Number
+    const correctVal = cleanText(resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '');
+    const userVal = cleanText(shortAnswerInput);
 
     // Check numerical or string equivalence (support comma/dot decimal)
     const normCorrect = correctVal.replace(',', '.');
     const normUser = userVal.replace(',', '.');
-    const isNumEqual = !isNaN(Number(normCorrect)) && !isNaN(Number(normUser)) && Number(normCorrect) === Number(normUser);
-    const isStrEqual = correctVal === userVal;
+    const isNumEqual =
+      normCorrect.length > 0 &&
+      normUser.length > 0 &&
+      !isNaN(Number(normCorrect)) &&
+      !isNaN(Number(normUser)) &&
+      Number(normCorrect) === Number(normUser);
+    const isStrEqual = correctVal.length > 0 && correctVal === userVal;
     const isCorrect = isNumEqual || isStrEqual;
 
     processAnswerOutcome(isCorrect, isCorrect ? 1 : 0, `Kết quả "${shortAnswerInput.trim()}"`);
@@ -3606,7 +3650,7 @@ export const StudentMobileView: React.FC<Props> = ({
                       'linear-gradient(135deg, #d97706, #b45309)',
                       'linear-gradient(135deg, #059669, #047857)'
                     ];
-                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen);
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen);
 
                     return (
                       <button
@@ -3661,7 +3705,7 @@ export const StudentMobileView: React.FC<Props> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {(currentQItem.tfItems || []).map(item => {
                     const currentVal = tfAnswers[item.label] ?? false;
-                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen);
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen);
                     return (
                       <div
                         key={item.label}
@@ -3718,7 +3762,7 @@ export const StudentMobileView: React.FC<Props> = ({
                   })}
 
                   <button
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen)}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen)}
                     onClick={handleSubmitTrueFalse}
                     style={{
                       marginTop: '6px',
@@ -3746,7 +3790,7 @@ export const StudentMobileView: React.FC<Props> = ({
                   </label>
                   <input
                     type="text"
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen)}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen)}
                     placeholder="VD: 3 hoặc 12.5..."
                     value={shortAnswerInput}
                     onChange={e => setShortAnswerInput(e.target.value)}
@@ -3765,7 +3809,7 @@ export const StudentMobileView: React.FC<Props> = ({
                     }}
                   />
                   <button
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || (gameType === 'TUG' && isFrozen) || !shortAnswerInput.trim()}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || !shortAnswerInput.trim()}
                     onClick={handleSubmitShortAnswer}
                     style={{
                       width: '100%',

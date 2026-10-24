@@ -489,6 +489,7 @@ export const App: React.FC = () => {
     }
 
     if (d.type === 'AUTO_ENTER_ARENA' || d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ' || d.type === 'PLAYER_UPDATE_NAME') {
+      if (!d.playerId) return;
       const isReady = d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ' || d.type === 'PLAYER_UPDATE_NAME';
       setMatchState(prev => {
         const existingRedIdx = prev.redPlayers.findIndex(x => x.id === d.playerId);
@@ -509,11 +510,13 @@ export const App: React.FC = () => {
             AudioFX.stepInRope();
           }
 
+          // HOTFIX 1.1: Ghi đè trạng thái mới vào đúng playerId cũ và bảo lưu điểm cao nhất (không bao giờ reset điểm về 0 khi rớt mạng vào lại)
           const nextFastScore = d.type === 'PLAYER_FINISH_QUIZ' && typeof d.savedScore === 'number'
-            ? d.savedScore
-            : ((existing.correct || 0) > 0 || (existing.wrongTotal || 0) > 0
-                ? existing.fastScore
-                : (typeof d.savedScore === 'number' ? d.savedScore : existing.fastScore));
+            ? Math.max(existing.fastScore || 0, d.savedScore)
+            : Math.max(
+                existing.fastScore || 0,
+                typeof d.savedScore === 'number' ? d.savedScore : (existing.fastScore || 0)
+              );
           const nextCorrect = Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0);
 
           const updatedPlayer: Player = {
@@ -540,7 +543,8 @@ export const App: React.FC = () => {
             existing.label !== nextLabel ||
             existing.ready !== nextReady ||
             existing.fastScore !== nextFastScore ||
-            existing.correct !== nextCorrect;
+            existing.correct !== nextCorrect ||
+            (existingRedIdx !== -1 && existingBlueIdx !== -1);
 
           // Chỉ phản hồi ENTER_CONFIRMED khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi mở 40+ Tab
           if (d.type !== 'PLAYER_FINISH_QUIZ' && (playerChanged || now - lastAckAt > 8000)) {
@@ -570,12 +574,13 @@ export const App: React.FC = () => {
             return prev;
           }
 
+          // Đảm bảo không bao giờ bị trùng playerId ở cả 2 mảng redPlayers và bluePlayers
           const nextRed = existingRedIdx !== -1
             ? prev.redPlayers.map((p, idx) => idx === existingRedIdx ? updatedPlayer : p)
-            : prev.redPlayers;
-          const nextBlue = existingBlueIdx !== -1
+            : prev.redPlayers.filter(p => p.id !== updatedPlayer.id);
+          const nextBlue = existingRedIdx === -1 && existingBlueIdx !== -1
             ? prev.bluePlayers.map((p, idx) => idx === existingBlueIdx ? updatedPlayer : p)
-            : prev.bluePlayers;
+            : prev.bluePlayers.filter(p => p.id !== updatedPlayer.id);
 
           return {
             ...prev,

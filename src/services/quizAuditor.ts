@@ -139,7 +139,24 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
       }
     }
 
-    // 4. Kiểm tra theo từng Dạng thức THPT 2018
+    // 4. Kiểm tra theo từng Dạng thức THPT 2018 (kèm cảnh báo dòng cụ thể từ Parser nếu có)
+    const linePrefix = q.sourceLine ? `[Dòng ${q.sourceLine}] ` : '';
+    if (q.parseWarning) {
+      issues.push({
+        id: `err_parse_warn_${idx}`,
+        qid: idx,
+        questionNumber: qNum,
+        questionTitle: qTitle,
+        format,
+        severity: 'WARNING',
+        errorType: 'PARSE_LINE_WARNING',
+        badgeLabel: q.sourceLine ? `🟡 Cảnh báo Dòng ${q.sourceLine}` : '🟡 Cảnh báo cú pháp',
+        description: `${linePrefix}${q.parseWarning}`,
+        howToFix: 'Kiểm tra lại dòng câu hỏi tương ứng hoặc bấm "⚡ AI Tự Động Sửa" để chuẩn hóa đủ 4 phương án và đáp án đúng.',
+        autoFixable: true,
+      });
+    }
+
     if (format === 'MULTIPLE_CHOICE') {
       const opts = q.opts || [];
       const correct = typeof q.correct === 'number' ? q.correct : -1;
@@ -155,7 +172,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           severity: 'CRITICAL',
           errorType: 'MISSING_CHOICES',
           badgeLabel: '🔴 Thiếu phương án',
-          description: `Dạng thức I (4 lựa chọn) cần đủ ít nhất 2 đến 4 phương án A, B, C, D nhưng hiện tại chỉ có ${opts.length} phương án.`,
+          description: `${linePrefix}Dạng thức I (4 lựa chọn) cần đủ ít nhất 2 đến 4 phương án A, B, C, D nhưng hiện tại chỉ có ${opts.length} phương án.`,
           howToFix: 'Bổ sung thêm các dòng A. B. C. D. hoặc bấm "⚡ AI Tự Động Sửa" để sinh đủ 4 phương án.',
           autoFixable: true,
         });
@@ -169,7 +186,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           severity: 'SUGGESTION',
           errorType: 'FEW_CHOICES',
           badgeLabel: '🟢 Khuyên đủ 4 lựa chọn',
-          description: `Hiện có ${opts.length} lựa chọn. Cấu trúc thi tốt nghiệp THPT chuẩn luôn có đủ 4 lựa chọn A, B, C, D.`,
+          description: `${linePrefix}Hiện có ${opts.length} lựa chọn. Cấu trúc thi tốt nghiệp THPT chuẩn luôn có đủ 4 lựa chọn A, B, C, D.`,
           howToFix: 'Bổ sung thêm phương án để học sinh quen với đề thi tốt nghiệp chính thức.',
           autoFixable: true,
         });
@@ -186,7 +203,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           severity: 'CRITICAL',
           errorType: 'NO_CORRECT_ANSWER',
           badgeLabel: '🔴 Chưa chọn ĐA đúng',
-          description: 'Chưa có đáp án đúng nào được chọn hoặc gạch chân cho câu hỏi 4 lựa chọn này.',
+          description: `${linePrefix}Chưa có đáp án đúng nào được chọn hoặc gạch chân cho câu hỏi 4 lựa chọn này.`,
           howToFix: 'Bôi đen phương án đúng rồi bấm nút "U Gạch chân ĐA", hoặc bấm chọn trực tiếp vào phương án đúng trong bảng kiểm tra.',
           autoFixable: true,
         });

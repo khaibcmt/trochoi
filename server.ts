@@ -41,6 +41,39 @@ function getGenAIClient(customKey?: string) {
   });
 }
 
+/**
+ * HOTFIX 3.1: Bộ lọc JSON trích xuất tự động (Fault-tolerant AI JSON Sanitizer)
+ * Tự động loại bỏ markdown backticks (```json ... ```) và text rác ngoài khối { ... } hoặc [ ... ] trước khi JSON.parse()
+ */
+function sanitizeAndParseAIJson(rawText: string): any {
+  const cleaned = String(rawText || '')
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const firstBracket = cleaned.indexOf('[');
+  const lastBracket = cleaned.lastIndexOf(']');
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  let candidate = cleaned;
+  if (firstBracket !== -1 && lastBracket > firstBracket && (firstBrace === -1 || firstBracket < firstBrace)) {
+    candidate = cleaned.slice(firstBracket, lastBracket + 1);
+  } else if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidate = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const match = cleaned.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+    if (match && match[1]) {
+      return JSON.parse(match[1]);
+    }
+    throw new Error('Không thể bóc tách dữ liệu JSON hợp lệ từ phản hồi AI.');
+  }
+}
+
 // 1. Sinh câu hỏi tự động theo chủ đề & mức độ nhận thức (GDPT 2018)
 app.post('/api/ai/generate-questions', async (req, res) => {
   try {
@@ -80,12 +113,14 @@ Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
+        // HOTFIX 3.2: Đặt temperature: 0.3 cho tác vụ tạo câu hỏi để giảm thiểu ảo giác
+        temperature: 0.3,
         responseMimeType: 'application/json',
       },
     });
 
     const text = response.text || '[]';
-    const parsed = JSON.parse(text);
+    const parsed = sanitizeAndParseAIJson(text);
     return res.json({ success: true, questions: parsed });
   } catch (error: any) {
     console.error('Error generating questions:', error);
@@ -142,12 +177,14 @@ app.post('/api/ai/parse-doc', async (req, res) => {
       model: 'gemini-2.5-flash',
       contents: { parts },
       config: {
+        // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ bóc tách / chấm điểm ổn định
+        temperature: 0.2,
         responseMimeType: 'application/json',
       },
     });
 
     const text = response.text || '[]';
-    const parsed = JSON.parse(text);
+    const parsed = sanitizeAndParseAIJson(text);
     return res.json({ success: true, questions: parsed });
   } catch (error: any) {
     console.error('Error parsing document with AI:', error);
@@ -178,6 +215,10 @@ Hãy chỉ rõ:
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
+      config: {
+        // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ chấm điểm / giải thích tự luận
+        temperature: 0.2,
+      },
     });
 
     return res.json({ success: true, explanation: response.text });
@@ -500,8 +541,18 @@ app.post('/api/room/:roomId/publish', (req, res) => {
       ) {
         const prevP = room.players[payload.playerId];
         const nextReady = payload.type === 'PLAYER_READY_ROPE' || payload.type === 'PLAYER_FINISH_QUIZ' || Boolean(prevP?.ready);
-        const nextScore = typeof payload.savedScore === 'number' ? payload.savedScore : prevP?.savedScore;
-        const nextCorrect = typeof payload.savedCorrect === 'number' ? payload.savedCorrect : prevP?.savedCorrect;
+        // HOTFIX 1.1: Khi học sinh rớt mạng vào lại (reconnect), ghi đè socketId mới vào playerId cũ và giữ nguyên điểm số cao nhất (không bị reset về 0)
+        const nextScore =
+          payload.type === 'PLAYER_FINISH_QUIZ' && typeof payload.savedScore === 'number'
+            ? payload.savedScore
+            : Math.max(
+                typeof prevP?.savedScore === 'number' ? prevP.savedScore : 0,
+                typeof payload.savedScore === 'number' ? payload.savedScore : 0
+              );
+        const nextCorrect = Math.max(
+          typeof prevP?.savedCorrect === 'number' ? prevP.savedCorrect : 0,
+          typeof payload.savedCorrect === 'number' ? payload.savedCorrect : 0
+        );
         const nextName = payload.playerName || prevP?.playerName || 'Học sinh';
 
         if (
@@ -519,6 +570,7 @@ app.post('/api/room/:roomId/publish', (req, res) => {
         room.players[payload.playerId] = {
           ...(prevP || {}),
           playerId: payload.playerId,
+          socketId: payload.senderId || prevP?.socketId || payload.playerId,
           playerName: nextName,
           preferredTeam: payload.preferredTeam || payload.team || prevP?.preferredTeam || 'RED',
           avatar: payload.avatar || prevP?.avatar,

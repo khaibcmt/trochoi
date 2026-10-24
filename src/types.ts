@@ -26,6 +26,8 @@ export interface QuizItem {
   rightCount?: number;
   wrongCount?: number;
   aiSelected?: boolean;
+  parseWarning?: string;
+  sourceLine?: number;
 }
 
 export interface SubjectData {
