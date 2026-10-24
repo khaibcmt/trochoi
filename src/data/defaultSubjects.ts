@@ -302,18 +302,131 @@ export const AI_KNOWLEDGE_KEYWORDS = [
   'dân quân tự vệ', '22 tháng 12', 'báo ngay cho cơ quan quân sự', 'cố định tạm thời xương gãy', 'hết 25 tuổi'
 ];
 
-// Loại bỏ triệt để mọi mảnh vỡ thuộc tính CSS / Microsoft Word (MSO) bị đứt dòng như:
-// font-family:"Times New Roman",serif"> , mso-fareast-font-family:"Times New Roman""> , "Times New Roman",serif"> , family:"Times New Roman"">
+// Chuẩn hóa ký tự Toán học Unicode (Mathematical Alphanumeric Symbols U+1D400..U+1D7FF từ Word Equation Editor)
+// về chữ cái/số chuẩn để không bao giờ bị lỗi ô vuông hay rớt công thức khi copy từ Word 365
+export function normalizeWordMathUnicode(raw: string): string {
+  if (!raw) return '';
+  let out = '';
+  for (const ch of raw) {
+    const cp = ch.codePointAt(0) || 0;
+    if (cp >= 0x1d400 && cp <= 0x1d7ff) {
+      if (cp >= 0x1d7ce && cp <= 0x1d7ff) {
+        out += String.fromCharCode(48 + ((cp - 0x1d7ce) % 10));
+        continue;
+      }
+      const latinOffsets: [number, number][] = [
+        [0x1d400, 0x1d433], // Bold
+        [0x1d434, 0x1d467], // Italic
+        [0x1d468, 0x1d49b], // Bold Italic
+        [0x1d5a0, 0x1d5d3], // Sans-Serif
+        [0x1d5d4, 0x1d607], // Sans-Serif Bold
+        [0x1d608, 0x1d63b], // Sans-Serif Italic
+        [0x1d63c, 0x1d66f], // Sans-Serif Bold Italic
+        [0x1d670, 0x1d6a3], // Monospace
+      ];
+      let mapped = false;
+      for (const [start, end] of latinOffsets) {
+        if (cp >= start && cp <= end) {
+          const offset = cp - start;
+          out += offset < 26 ? String.fromCharCode(65 + offset) : String.fromCharCode(97 + (offset - 26));
+          mapped = true;
+          break;
+        }
+      }
+      if (mapped) continue;
+      if (cp === 0x210e) {
+        out += 'h';
+        continue;
+      }
+      const greekLowerMap: Record<number, string> = {
+        0x1d6fc: 'α', 0x1d6fd: 'β', 0x1d6fe: 'γ', 0x1d6ff: 'δ', 0x1d700: 'ε',
+        0x1d703: 'θ', 0x1d706: 'λ', 0x1d707: 'μ', 0x1d70b: 'π', 0x1d70e: 'σ', 0x1d714: 'ω',
+      };
+      if (greekLowerMap[cp]) {
+        out += greekLowerMap[cp];
+        continue;
+      }
+      if (cp === 0x1d6e5) {
+        out += 'Δ';
+        continue;
+      }
+      if (cp === 0x1d6f4) {
+        out += 'Ω';
+        continue;
+      }
+    }
+    if (cp === 0x2212) {
+      out += '-';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+// Chuyển đổi các thẻ phương trình Toán học của Microsoft Word (<m:oMath>, <m:f>, <m:rad>, <m:sSub>, <m:sSup>) sang LaTeX chuẩn
+function convertWordOMMLToLatex(html: string): string {
+  if (!html || !/<m:/i.test(html)) return html;
+  let s = html;
+  // Phân số <m:f>...<m:num>A</m:num><m:den>B</m:den></m:f>
+  s = s.replace(/<m:f\b[^>]*>[\s\S]*?<m:num\b[^>]*>([\s\S]*?)<\/m:num>[\s\S]*?<m:den\b[^>]*>([\s\S]*?)<\/m:den>[\s\S]*?<\/m:f>/gi, (_m, num, den) => {
+    const cleanNum = num.replace(/<[^>]+>/g, '').trim();
+    const cleanDen = den.replace(/<[^>]+>/g, '').trim();
+    return ` $\\frac{${cleanNum}}{${cleanDen}}$ `;
+  });
+  // Căn thức <m:rad>...<m:deg>n</m:deg><m:e>X</m:e></m:rad>
+  s = s.replace(/<m:rad\b[^>]*>[\s\S]*?<m:deg\b[^>]*>([\s\S]*?)<\/m:deg>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<\/m:rad>/gi, (_m, deg, expr) => {
+    const cleanDeg = deg.replace(/<[^>]+>/g, '').trim();
+    const cleanExpr = expr.replace(/<[^>]+>/g, '').trim();
+    return cleanDeg ? ` $\\sqrt[${cleanDeg}]{${cleanExpr}}$ ` : ` $\\sqrt{${cleanExpr}}$ `;
+  });
+  // Chỉ số trên & dưới <m:sSubSup>
+  s = s.replace(/<m:sSubSup\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub\b[^>]*>([\s\S]*?)<\/m:sub>[\s\S]*?<m:sup\b[^>]*>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSubSup>/gi, (_m, base, sub, sup) => {
+    const b = base.replace(/<[^>]+>/g, '').trim();
+    const sb = sub.replace(/<[^>]+>/g, '').trim();
+    const sp = sup.replace(/<[^>]+>/g, '').trim();
+    return `${b}<sub>${sb}</sub><sup>${sp}</sup>`;
+  });
+  // Chỉ số dưới <m:sSub>
+  s = s.replace(/<m:sSub\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub\b[^>]*>([\s\S]*?)<\/m:sub>[\s\S]*?<\/m:sSub>/gi, (_m, base, sub) => {
+    const b = base.replace(/<[^>]+>/g, '').trim();
+    const sb = sub.replace(/<[^>]+>/g, '').trim();
+    return `${b}<sub>${sb}</sub>`;
+  });
+  // Chỉ số trên <m:sSup>
+  s = s.replace(/<m:sSup\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sup\b[^>]*>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSup>/gi, (_m, base, sup) => {
+    const b = base.replace(/<[^>]+>/g, '').trim();
+    const sp = sup.replace(/<[^>]+>/g, '').trim();
+    return `${b}<sup>${sp}</sup>`;
+  });
+  return s;
+}
+
+// Loại bỏ triệt để mọi mảnh vỡ thuộc tính CSS / Microsoft Word (MSO) bị đứt dòng trong văn bản,
+// ĐỒNG THỜI BẢO VỆ 100% các thẻ đa phương tiện hợp lệ (<img>, <table>, <sub>, <sup>, <u>, <b>)
 export function stripWordStyleGarbage(raw: string): string {
   if (!raw) return '';
-  return raw
+
+  const protectedVault: string[] = [];
+  const shield = (match: string) => {
+    const idx = protectedVault.length;
+    protectedVault.push(match);
+    return `⟦SAFE_TAG_${idx}⟧`;
+  };
+
+  let working = normalizeWordMathUnicode(raw)
+    .replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, shield)
+    .replace(/<img\b[^>]*\/?>/gi, shield)
+    .replace(/<\/?(?:sub|sup|u|ins|b|strong)\b[^>]*>/gi, shield);
+
+  working = working
     .replace(/&quot;/gi, '"')
-    // 1. Mảnh vỡ bắt đầu bằng tên thuộc tính CSS/MSO (font-family:, mso-fareast-font-family:, family:, mso-ansi-language:, ...) kết thúc bằng >
+    // 1. Mảnh vỡ bắt đầu bằng tên thuộc tính CSS/MSO kết thúc bằng >
     .replace(
       /(?:[a-z0-9\-]*?(?:font-family|family|font-size|line-height|mso-[a-z0-9\-]+|text-align|font-weight|font-style|mso-ansi-language|mso-fareast-language|mso-bidi-language))\s*:\s*[^<>]{0,220}?(?:>|&gt;)/gi,
       ' '
     )
-    // 2. Mảnh vỡ bắt đầu bằng tên phông chữ trong dấu nháy ("Times New Roman",serif"> , "Times New Roman""> , ...) kết thúc bằng >
+    // 2. Mảnh vỡ bắt đầu bằng tên phông chữ trong dấu nháy kết thúc bằng >
     .replace(
       /["'“”‘’]+(?:Times\s+New\s+Roman|Arial|Calibri|Cambria|Tahoma|Verdana|Helvetica|Courier\s+New|Segoe\s+UI|Roboto)["'“”‘’]*[^<>]{0,220}?(?:>|&gt;)/gi,
       ' '
@@ -333,11 +446,19 @@ export function stripWordStyleGarbage(raw: string): string {
     // 6. Thu gọn khoảng trắng thừa trước dấu phẩy / dấu chấm do thẻ span bị cắt giữa câu
     .replace(/\s+([,.;:?!])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ');
+
+  working = working.replace(/⟦SAFE_TAG_(\d+)⟧/g, (_m, idxStr) => {
+    const idx = parseInt(idxStr, 10);
+    return protectedVault[idx] !== undefined ? protectedVault[idx] : '';
+  });
+
+  return working;
 }
 
 export function cleanTFStatementText(rawText: string): string {
   return stripWordStyleGarbage(rawText || '')
-    .replace(/⟦\/?U⟧/g, '')
+    .replace(/⟦\/?[UB]⟧/g, '')
+    .replace(/<\/?(?:u|ins|b|strong)\b[^>]*>/gi, '')
     .replace(/^(?:(?:Ý|Mệnh\s*đề|Phát\s*biểu)\s+)?[a-dA-D]\s*\*?\s*[\)\.\:\-]\s*/i, '')
     .replace(/^(?:(?:Ý|Mệnh\s*đề|Phát\s*biểu)\s+)?[a-dA-D]\s*\*?\s*[\)\.\:\-]\s*/i, '')
     .replace(/\s*(?:\(\s*(?:Đúng|Sai|Đ|S|True|False)\s*\)|\[\s*(?:Đúng|Sai|Đ|S|True|False)\s*\]|(?:->|=>|-|:)\s*(?:Đúng|Sai|Đ|S|True|False)\s*[.;,]*$|✓|✔)\s*$/gi, '')
@@ -345,7 +466,10 @@ export function cleanTFStatementText(rawText: string): string {
 }
 
 export function cleanQuestionTitleText(rawText: string): string {
-  let cleaned = stripWordStyleGarbage(rawText || '').replace(/⟦\/?U⟧/g, '').trim();
+  let cleaned = stripWordStyleGarbage(rawText || '')
+    .replace(/⟦\/?[UB]⟧/g, '')
+    .replace(/<\/?(?:u|ins)\b[^>]*>/gi, '')
+    .trim();
   // Lặp tối đa 3 lần để bóc sạch trường hợp lồng nhau như: "Câu 46 [Đúng/Sai]: Câu 1. Một khu rừng keo..."
   for (let i = 0; i < 3; i++) {
     const next = cleaned
@@ -361,7 +485,8 @@ export function cleanQuestionTitleText(rawText: string): string {
 
 export function cleanShortAnswerValue(rawVal: string): string {
   return (rawVal || '')
-    .replace(/⟦\/?U⟧/g, '')
+    .replace(/⟦\/?[UB]⟧/g, '')
+    .replace(/<\/?(?:u|ins|b|strong)\b[^>]*>/gi, '')
     .replace(/^(?:Đáp\s*án(?:\s*đúng)?|Đáp\s*số|ĐA|ĐS|TL|Trả\s*lời|Kết\s*quả|KQ|ShortAnswer|Answer)\s*[:=.]?\s*/i, '')
     .replace(/^(?:=>|=)\s*/, '')
     .trim();
@@ -373,14 +498,29 @@ export function aiAutoDetectCorrectIndex(questionText: string, optionsArray: str
   let bestIdx = 0;
   let highestScore = -999;
 
+  // Hệ thống giải nhanh biểu thức Toán học cơ bản nếu câu hỏi chứa phép tính
+  let computedMathValue: string | null = null;
+  const simpleEqMatch = qLower.match(/(\d+)\s*([\+\-\*x×:\/])\s*(\d+)\s*=\s*\?/);
+  if (simpleEqMatch) {
+    const a = parseFloat(simpleEqMatch[1]);
+    const op = simpleEqMatch[2];
+    const b = parseFloat(simpleEqMatch[3]);
+    const val = op === '+' ? a + b : op === '-' ? a - b : (op === '*' || op === 'x' || op === '×') ? a * b : b !== 0 ? a / b : null;
+    if (val !== null) computedMathValue = String(val);
+  }
+
   optionsArray.forEach((opt, idx) => {
     const oLower = (opt || '').toLowerCase().trim();
     let score = 0;
 
-    if (/(\(đúng\)|✓|✔|\*$|đáp án đúng)/i.test(oLower)) score += 100;
+    if (/(\(đúng\)|\[đúng\]|✓|✔|\*$|đáp án đúng|<u>)/i.test(oLower)) score += 200;
+
+    if (computedMathValue && oLower.replace(/[^0-9.\-]/g, '') === computedMathValue) {
+      score += 150;
+    }
 
     AI_KNOWLEDGE_KEYWORDS.forEach(kw => {
-      if (oLower.includes(kw)) score += 35;
+      if (oLower.includes(kw)) score += 40;
     });
 
     if (/(tất cả.*đều đúng|cả a, b, c đều đúng|cả a và b đều đúng|cả ba phương án)/i.test(oLower)) {
@@ -390,7 +530,7 @@ export function aiAutoDetectCorrectIndex(questionText: string, optionsArray: str
       score -= 10;
     }
 
-    score += Math.min(oLower.length * 0.18, 12);
+    score += Math.min(oLower.length * 0.15, 10);
 
     const qWords = qLower.split(/\s+/).filter(w => w.length > 4);
     qWords.forEach(w => {
@@ -423,9 +563,8 @@ export function cleanText(raw: unknown): string {
 }
 
 // Phân tích dòng tổng hợp đáp án Đúng/Sai (VD: "Đáp án: Đ - S - Đ - S", "a) Đúng, b) Sai, c) Đúng, d) Sai", "a-Đ, b-S, c-S, d-Đ", "ĐSĐS")
-// Không dùng \b cạnh chữ Tiếng Việt (Đ, Đúng) vì JS RegExp coi ký tự có dấu là non-word!
 function parseTrueFalseSummaryLine(rawAns: string): Record<string, boolean> | null {
-  const cleaned = (rawAns || '').replace(/⟦\/?U⟧/g, '').trim();
+  const cleaned = (rawAns || '').replace(/⟦\/?[UB]⟧/g, '').trim();
   if (!cleaned) return null;
 
   const result: Record<string, boolean> = {};
@@ -472,9 +611,81 @@ function parseTrueFalseSummaryLine(rawAns: string): Record<string, boolean> | nu
   return null;
 }
 
-// Tách dòng thông minh từ HTML hoặc văn bản thuần (Word, PDF, Google Docs, Zalo, Bảng Table Word):
-// 1. Loại bỏ hoàn toàn rác <style>, <xml>, <script>, comment và mảnh vỡ font-family từ Microsoft Word.
-// 2. Đánh dấu mọi phần tử gạch chân <u> / underline / tô màu đỏ-xanh-vàng bằng token ⟦U⟧...⟦/U⟧ trước khi lấy text.
+// Chuẩn hóa và truyền thẻ ⟦U⟧...⟦/U⟧, ⟦B⟧...⟦/B⟧ qua các dấu cách và dấu xuống dòng (\n)
+// Đảm bảo:
+// 1. Nếu giáo viên bôi đen dính khoảng trắng trước phương án B ("A. Hà Nội<u>   B. Hải Phòng</u>"), ⟦U⟧ được đẩy sang đúng phương án B.
+// 2. Nếu 1 thẻ <u>...</u> bao trùm nhiều dòng (VD: bôi đen cả 2 ý a) và b) rồi bấm Ctrl+U), mỗi dòng đều nhận được ⟦U⟧...⟦/U⟧ riêng!
+function propagateUnderlineMarkersAcrossLines(input: string): string {
+  if (!input) return '';
+  const s = input
+    .replace(/⟦U⟧([ \t\n]+)/g, '$1⟦U⟧')
+    .replace(/([ \t\n]+)⟦\/U⟧/g, '⟦/U⟧$1')
+    .replace(/⟦B⟧([ \t\n]+)/g, '$1⟦B⟧')
+    .replace(/([ \t\n]+)⟦\/B⟧/g, '⟦/B⟧$1')
+    .replace(/⟦U⟧\s*⟦\/U⟧/g, '')
+    .replace(/⟦B⟧\s*⟦\/B⟧/g, '');
+
+  const lines = s.split('\n');
+  let uDepth = 0;
+  let bDepth = 0;
+  const processedLines = lines.map(line => {
+    let curLine = line;
+    const prefixU = uDepth > 0 ? '⟦U⟧' : '';
+    const prefixB = bDepth > 0 ? '⟦B⟧' : '';
+
+    const openU = (curLine.match(/⟦U⟧/g) || []).length;
+    const closeU = (curLine.match(/⟦\/U⟧/g) || []).length;
+    const openB = (curLine.match(/⟦B⟧/g) || []).length;
+    const closeB = (curLine.match(/⟦\/B⟧/g) || []).length;
+
+    uDepth = Math.max(0, uDepth + openU - closeU);
+    bDepth = Math.max(0, bDepth + openB - closeB);
+
+    const suffixU = uDepth > 0 ? '⟦/U⟧' : '';
+    const suffixB = bDepth > 0 ? '⟦/B⟧' : '';
+
+    curLine = `${prefixB}${prefixU}${curLine}${suffixU}${suffixB}`
+      .replace(/⟦U⟧\s*⟦\/U⟧/g, '')
+      .replace(/⟦B⟧\s*⟦\/B⟧/g, '');
+    return curLine;
+  });
+
+  return processedLines.join('\n');
+}
+
+// Chuyển đổi bảng HTML <table> thực sự (Bảng số liệu Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê)
+// thành bảng HTML chuẩn gọn sạch để hiển thị trực tiếp trong câu hỏi mà không bị vỡ thành từng dòng rời rạc.
+function serializeCleanDataTable(tableEl: Element): string {
+  const rows = Array.from(tableEl.querySelectorAll('tr'));
+  if (rows.length === 0) return '';
+  let tableHTML = '<table class="stem-data-table">';
+  rows.forEach((tr, rIdx) => {
+    const cells = Array.from(tr.querySelectorAll(':scope > th, :scope > td'));
+    if (cells.length === 0) return;
+    tableHTML += '<tr>';
+    cells.forEach(cell => {
+      const isHeader = cell.tagName.toLowerCase() === 'th' || rIdx === 0;
+      const tag = isHeader ? 'th' : 'td';
+      const colspan = cell.getAttribute('colspan');
+      const rowspan = cell.getAttribute('rowspan');
+      const attrs = `${colspan && colspan !== '1' ? ` colspan="${colspan}"` : ''}${rowspan && rowspan !== '1' ? ` rowspan="${rowspan}"` : ''}`;
+      let cellInner = cell.innerHTML
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<\/?(?:span|p|div|font|o:p|w:[a-z0-9]+|v:[a-z0-9]+)[^>]*>/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      cellInner = stripWordStyleGarbage(cellInner);
+      tableHTML += `<${tag}${attrs}>${cellInner}</${tag}>`;
+    });
+    tableHTML += '</tr>';
+  });
+  tableHTML += '</table>';
+  return tableHTML;
+}
+
+// Tách dòng thông minh từ HTML hoặc văn bản thuần (Word, PDF, Google Docs, Zalo, Bảng Table Word/Excel):
+// 1. Giữ nguyên 100% hình ảnh <img>, sơ đồ, bản đồ Địa lý, bảng số liệu <table>, công thức <sub>/<sup> và LaTeX.
+// 2. Nhận diện triệt để mọi kiểu gạch chân (<u>, <ins>, text-decoration:underline, text-underline:single/words của Word, border-bottom) bằng token ⟦U⟧...⟦/U⟧.
 // 3. Tách chính xác nhiều câu hỏi Câu X., đáp án A. B. C. D. hoặc mệnh đề a) b) c) d) nằm trên cùng 1 hàng!
 export function extractNormalizedLines(
   htmlString: string,
@@ -486,31 +697,124 @@ export function extractNormalizedLines(
   const parseRawSegment = (rawInput: string, isPlainMode: boolean): { text: string; isU: boolean; isBold?: boolean; raw: string }[] => {
     if (!rawInput || !rawInput.trim()) return [];
 
+    const mediaVault: string[] = [];
+    const storeMedia = (htmlSnippet: string): string => {
+      const idx = mediaVault.length;
+      mediaVault.push(htmlSnippet);
+      return `⟦MEDIA_${idx}⟧`;
+    };
+    const restoreMedia = (str: string): string =>
+      str
+        .replace(/⟦SUB⟧/g, '<sub>')
+        .replace(/⟦\/SUB⟧/g, '</sub>')
+        .replace(/⟦SUP⟧/g, '<sup>')
+        .replace(/⟦\/SUP⟧/g, '</sup>')
+        .replace(/⟦MEDIA_(\d+)⟧/g, (_m, idxStr) => {
+          const idx = parseInt(idxStr, 10);
+          return mediaVault[idx] !== undefined ? mediaVault[idx] : '';
+        });
+
     let fullMarkedText = '';
 
-    const hasRealHtmlTags = !isPlainMode && /<(?:div|p|br|span|u|ins|b|strong|em|i|table|tr|td|th|ol|ul|li|font|h[1-6]|section|article|blockquote|style|xml|meta|o:p)\b/i.test(rawInput);
+    const hasRealHtmlTags =
+      !isPlainMode &&
+      /<(?:div|p|br|span|u|ins|b|strong|em|i|img|svg|table|tr|td|th|sub|sup|math|m:omath|ol|ul|li|font|h[1-6]|section|article|blockquote|style|xml|meta|o:p)\b/i.test(rawInput);
 
     if (!hasRealHtmlTags) {
-      // Văn bản thuần túy: giữ nguyên 100% ký tự <, > (như pH < 7, x > 0) và dấu xuống dòng
-      fullMarkedText = stripWordStyleGarbage(
-        rawInput
-          .replace(/\r\n|\r/g, '\n')
-          .replace(/\u00A0/g, ' ')
-      );
+      let plainNorm = normalizeWordMathUnicode(rawInput)
+        .replace(/\r\n|\r/g, '\n')
+        .replace(/\u00A0/g, ' ');
+
+      const rawPlainLines = plainNorm.split('\n');
+      const rebuiltPlainLines: string[] = [];
+      let tabTableBuffer: string[][] = [];
+
+      const flushTabTableBuffer = () => {
+        if (tabTableBuffer.length >= 2) {
+          let tbl = '<table class="stem-data-table">';
+          tabTableBuffer.forEach((rowCells, rIdx) => {
+            const tag = rIdx === 0 ? 'th' : 'td';
+            tbl += '<tr>' + rowCells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+          });
+          tbl += '</table>';
+          rebuiltPlainLines.push(storeMedia(tbl));
+        } else if (tabTableBuffer.length === 1) {
+          rebuiltPlainLines.push(tabTableBuffer[0].join('   '));
+        }
+        tabTableBuffer = [];
+      };
+
+      rawPlainLines.forEach(l => {
+        if (l.includes('\t')) {
+          const cells = l.split('\t').map(c => c.trim()).filter(Boolean);
+          const isOptionRow = cells.some(c => /^[A-Da-d]\s*\*?\s*[.:\)\/]\s*\S/.test(c));
+          if (!isOptionRow && cells.length >= 2) {
+            tabTableBuffer.push(cells);
+            return;
+          }
+        }
+        flushTabTableBuffer();
+        rebuiltPlainLines.push(l);
+      });
+      flushTabTableBuffer();
+
+      fullMarkedText = stripWordStyleGarbage(rebuiltPlainLines.join('\n'));
     } else {
-      // Bước 1: Loại bỏ hoàn toàn thẻ <style>, <script>, <xml>, <head>, <title>, <o:p> và dọn mảnh vỡ MSO
-      const cleanedHTML = stripWordStyleGarbage(
-        rawInput
-          .replace(/<!--[\s\S]*?-->/g, '')
-          .replace(/<(style|script|xml|head|title|o:p)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-          .replace(/<\/?(?:meta|link|o:p|w:[a-z0-9]+|v:[a-z0-9]+|m:[a-z0-9]+)[^>]*\/?>/gi, '')
-      );
+      // Bước 1: Mở khóa comment danh sách tự động của Word <!--[if !supportLists]-->...<!--[endif]-->
+      // để giữ nguyên nhãn A., B., C., D., a), b), c), d) và thẻ <u> gạch chân bên trong danh sách Word!
+      const cleanedHTML = convertWordOMMLToLatex(normalizeWordMathUnicode(rawInput))
+        .replace(/<!--\[if\s+!supportLists\]-->/gi, '')
+        .replace(/<!--\[endif\]-->/gi, '')
+        .replace(/<!\[if\s+!supportLists\]>/gi, '')
+        .replace(/<!\[endif\]>/gi, '')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<(style|script|xml|head|title)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<\/?(?:meta|link|o:p|w:[a-z0-9]+|v:[a-z0-9]+|m:[a-z0-9]+)[^>]*\/?>/gi, '');
 
       const container = document.createElement('div');
       container.innerHTML = cleanedHTML;
 
+      // Bước 1.5: Bảo vệ Hình ảnh / Sơ đồ / Bản đồ Địa lý (<img>) và Bảng số liệu (<table>)
+      Array.from(container.querySelectorAll('table')).forEach(tableEl => {
+        if (!container.contains(tableEl)) return;
+        const cells = Array.from(tableEl.querySelectorAll('td, th'));
+        const optOrQuestionCells = cells.filter(c => {
+          const txt = (c.textContent || '').trim();
+          return (
+            /^(?:\[\s*[A-Da-d]\s*\]|\(\s*[A-Da-d]\s*\)|[A-Da-d]\s*\*?\s*[.:\)\/\-])(\s+\S|$)/.test(txt) ||
+            /^(?:Câu|Bài|Question)\s*\d+/i.test(txt)
+          );
+        });
+        if (cells.length >= 2 && optOrQuestionCells.length < 2) {
+          const cleanTableHTML = serializeCleanDataTable(tableEl);
+          if (cleanTableHTML) {
+            const token = storeMedia(cleanTableHTML);
+            tableEl.replaceWith(document.createTextNode(` ${token} `));
+          }
+        }
+      });
+
+      Array.from(container.querySelectorAll('img')).forEach(imgEl => {
+        const src = (imgEl.getAttribute('src') || '').trim();
+        if (src && (src.startsWith('data:image/') || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('blob:') || src.startsWith('/'))) {
+          const alt = (imgEl.getAttribute('alt') || 'Hình minh họa').replace(/"/g, '&quot;');
+          const token = storeMedia(`<img src="${src}" alt="${alt}" class="stem-inline-img" />`);
+          imgEl.replaceWith(document.createTextNode(` ${token} `));
+        } else {
+          imgEl.remove();
+        }
+      });
+
+      Array.from(container.querySelectorAll('sub')).forEach(subEl => {
+        subEl.insertBefore(document.createTextNode('⟦SUB⟧'), subEl.firstChild);
+        subEl.appendChild(document.createTextNode('⟦/SUB⟧'));
+      });
+      Array.from(container.querySelectorAll('sup')).forEach(supEl => {
+        supEl.insertBefore(document.createTextNode('⟦SUP⟧'), supEl.firstChild);
+        supEl.appendChild(document.createTextNode('⟦/SUP⟧'));
+      });
+
       // Bước 2: Chuyển các danh sách tự động <ol>/<ul> của Word thành dòng có ký hiệu chuẩn
-      // CHỈ đánh A. B. C. D. khi danh sách có <= 4 mục và không chứa từ khóa Câu/Bài. Nếu > 4 mục thì đánh Câu 1, Câu 2...
       container.querySelectorAll('ol, ul').forEach(listEl => {
         const tag = listEl.tagName.toLowerCase();
         const typeAttr = (listEl.getAttribute('type') || '').trim();
@@ -541,17 +845,27 @@ export function extractNormalizedLines(
         });
       });
 
-      // Bước 3: Đánh dấu ⟦U⟧...⟦/U⟧ cho mọi phần tử có gạch chân / tô màu đáp án đúng, và ⟦B⟧...⟦/B⟧ cho in đậm
+      // Bước 3: Đánh dấu ⟦U⟧...⟦/U⟧ cho MỌI phần tử có gạch chân (<u>, <ins>, text-decoration:underline,
+      // text-underline:single/words/double của Word, border-bottom, class underline) hoặc tô màu đáp án đúng
       const allElements = Array.from(container.querySelectorAll('*'));
       allElements.forEach(el => {
         const tag = el.tagName.toLowerCase();
         const styleAttr = (el.getAttribute('style') || '').toLowerCase();
         const colorAttr = (el.getAttribute('color') || '').toLowerCase();
+        const classAttr = (el.getAttribute('class') || '').toLowerCase();
 
-        const isUnderlinedTag = tag === 'u' || tag === 'ins';
+        const hasExplicitNoUnderline =
+          /text-decoration(?:-line)?\s*:\s*none/i.test(styleAttr) ||
+          /(?:mso-)?text-underline\s*:\s*none/i.test(styleAttr);
+
+        const isUnderlinedTag = (tag === 'u' || tag === 'ins') && !hasExplicitNoUnderline;
         const isUnderlinedStyle =
-          /text-decoration(?:-line)?\s*:\s*[^;]*underline/i.test(styleAttr) ||
-          /border-bottom\s*:/i.test(styleAttr);
+          !hasExplicitNoUnderline &&
+          (/text-decoration(?:-line)?\s*:\s*[^;]*underline/i.test(styleAttr) ||
+            /(?:mso-)?text-underline\s*:\s*(?!none)[a-z0-9\-]+/i.test(styleAttr) ||
+            /border-bottom(?:-style|-width)?\s*:\s*(?!none|0(?:px|pt|em|rem)?(?:\s*;|\s*$))/i.test(styleAttr) ||
+            /\bunderline\b/i.test(classAttr));
+
         const isHighlightedColor =
           /(?:^|;|\s)color\s*:\s*(?:red|#ff0000|#f00|#ef4444|#dc2626|#c00000|#e11d48|#b91c1c|green|#008000|#00b050|#10b981|#059669|blue|#0000ff|#0070c0|#2563eb)/i.test(styleAttr) ||
           /background(?:-color)?\s*:\s*(?:yellow|#ffff00|#fef08a|#fde047|#dcfce7|#bbf7d0)/i.test(styleAttr) ||
@@ -578,11 +892,11 @@ export function extractNormalizedLines(
         block.appendChild(document.createTextNode('\n'));
       });
 
-      fullMarkedText = stripWordStyleGarbage(
-        (container.textContent || '')
-          .replace(/\r\n|\r/g, '\n')
-          .replace(/\u00A0/g, ' ')
-      );
+      const rawTextFromDOM = (container.textContent || '')
+        .replace(/\r\n|\r/g, '\n')
+        .replace(/\u00A0/g, ' ');
+
+      fullMarkedText = stripWordStyleGarbage(propagateUnderlineMarkersAcrossLines(rawTextFromDOM));
     }
 
     const rawLines = fullMarkedText.split('\n');
@@ -593,7 +907,7 @@ export function extractNormalizedLines(
       const trimmed = stripWordStyleGarbage(rawLine).replace(/[ \t]+/g, ' ').trim();
       if (!trimmed) return;
 
-      let working = trimmed;
+      let working = propagateUnderlineMarkersAcrossLines(trimmed);
 
       // 5.1. Nếu một dòng bị lặp 2 nhãn mệnh đề đầu dòng (VD: "b) d) Sử dụng...") -> giữ nhãn thật phía sau
       working = working.replace(
@@ -621,8 +935,7 @@ export function extractNormalizedLines(
 
       const plainNoMarker = working.replace(/⟦\/?[UB]⟧/g, '');
 
-      // 5.5. HOTFIX 2.1: Tách phương án trắc nghiệm chịu lỗi (Fault-tolerant Regex):
-      // Hỗ trợ viết hoa/thường A., a., A), [A], (A), và cả trường hợp KHÔNG có dấu cách sau ký tự đáp án (VD: "A.Hà Nội", "B)Đà Nẵng", "[C]Huế")
+      // 5.5. Tách phương án trắc nghiệm chịu lỗi (Fault-tolerant Regex):
       const hasInlineMCPair =
         /(?:^|[\s:?;!)\]])\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S[\s\S]*?\s+\*?(?:\[\s*[B-Db-d]\s*\]|[B-Db-d]\s*\*?\s*[.:\)\/])\s*\S/.test(plainNoMarker) ||
         /(?:^|[\s:?;!)\]])\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S[\s\S]*?(?:\t|\s{2,})\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S/.test(plainNoMarker) ||
@@ -630,18 +943,18 @@ export function extractNormalizedLines(
 
       if (hasInlineMCPair) {
         working = working.replace(
-          /(?:[\s\t]+|(?<=[?:;!)])\s*)((?:⟦\/?[UB]⟧\s*)*\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*[.:\)\/])(?:⟦\/?[UB]⟧\s*)*(?:\s*|(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[-])))/g,
+          /(?:[\s\t]+|(?<=[?:;!)])\s*)((?:⟦U⟧\s*|⟦B⟧\s*)*\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*[.:\)\/])(?:⟦\/?[UB]⟧\s*)*(?:\s*|(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[-])))/g,
           '\n$1'
         );
       }
 
-      // 5.6. Tách mệnh đề Đúng/Sai chữ thường a), b), c), d) nằm trên cùng dòng (KHÔNG dùng cờ /i để tránh ăn nhầm A. B. C. D. hoa)
+      // 5.6. Tách mệnh đề Đúng/Sai chữ thường a), b), c), d) nằm trên cùng dòng
       const hasInlineTFPair =
         /(?:^|[\s:.;?!>])\*?[a-d]\s*\*?\s*[\)\.]\s*\S[\s\S]*?[\s:.;?!>]\*?[a-d]\s*\*?\s*[\)\.]\s*\S/.test(plainNoMarker);
 
       if (hasInlineTFPair) {
         working = working.replace(
-          /([\s:.;?!>]+)((?:⟦\/?[UB]⟧\s*)*\*?[a-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*[\)\.](?:⟦\/?[UB]⟧\s*)*\s+)/g,
+          /([\s:.;?!>]+)((?:⟦U⟧\s*|⟦B⟧\s*)*\*?[a-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*[\)\.](?:⟦\/?[UB]⟧\s*)*\s+)/g,
           (_match, sep, labelPart) => {
             const cleanSep = sep.trim();
             return `${cleanSep ? cleanSep : ''}\n${labelPart}`;
@@ -649,10 +962,12 @@ export function extractNormalizedLines(
         );
       } else {
         working = working.replace(
-          /([:.;?!)\]]\s*)((?:⟦\/?[UB]⟧\s*)*\*?[a-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*\)(?:⟦\/?[UB]⟧\s*)*\s+(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[]))/g,
+          /([:.;?!)\]]\s*)((?:⟦U⟧\s*|⟦B⟧\s*)*\*?[a-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*\)(?:⟦\/?[UB]⟧\s*)*\s+(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[]))/g,
           '$1\n$2'
         );
       }
+
+      working = propagateUnderlineMarkersAcrossLines(working);
 
       working.split('\n').forEach(sub => {
         const s = stripWordStyleGarbage(sub).trim();
@@ -664,23 +979,25 @@ export function extractNormalizedLines(
     expandedLines.forEach(lineWithMarkers => {
       const hasMarkerU = lineWithMarkers.includes('⟦U⟧');
       const hasMarkerB = lineWithMarkers.includes('⟦B⟧');
-      const cleanText = stripWordStyleGarbage(
-        lineWithMarkers
-          .replace(/⟦\/?[UB]⟧/g, '')
-          .replace(/\s+/g, ' ')
-      ).trim();
-      if (!cleanText) return;
+      const cleanTextLine = restoreMedia(
+        stripWordStyleGarbage(
+          lineWithMarkers
+            .replace(/⟦\/?[UB]⟧/g, '')
+            .replace(/\s+/g, ' ')
+        ).trim()
+      );
+      if (!cleanTextLine) return;
 
       const hasStarMarker =
-        /^([A-Da-d])\s*\*+\s*[.:\)\/\-]/.test(cleanText) ||
-        /^\*+\s*[A-Da-d]\s*[.:\)\/\-]/.test(cleanText) ||
-        /^[A-Da-d]\s*[.:\)\/\-]\s*\*+/.test(cleanText);
+        /^([A-Da-d])\s*\*+\s*[.:\)\/\-]/.test(cleanTextLine) ||
+        /^\*+\s*[A-Da-d]\s*[.:\)\/\-]/.test(cleanTextLine) ||
+        /^[A-Da-d]\s*[.:\)\/\-]\s*\*+/.test(cleanTextLine);
 
       parsed.push({
-        text: cleanText,
+        text: cleanTextLine,
         isU: hasMarkerU || hasStarMarker,
         isBold: hasMarkerB,
-        raw: lineWithMarkers.replace(/⟦\/?B⟧/g, '')
+        raw: restoreMedia(lineWithMarkers.replace(/⟦\/?B⟧/g, ''))
       });
     });
 
@@ -692,12 +1009,14 @@ export function extractNormalizedLines(
     return htmlParsed;
   }
 
+  const htmlHasMediaOrUnderline = htmlParsed.some(
+    x => x.isU || x.text.includes('<img') || x.text.includes('<table') || x.text.includes('<sub>') || x.text.includes('<sup>')
+  );
+
   const plainParsed = parseRawSegment(plainTextFallback, true);
   if (plainParsed.length === 0) return htmlParsed;
   if (htmlParsed.length === 0) return plainParsed;
 
-  // Khi copy từ Microsoft Word có đánh số tự động (Numbering A. B. C. D. hoặc Câu 1, 2...),
-  // text/plain giữ nguyên "A. ", "B. ", "C. ", "D. " trong khi text/html thường bị mất nhãn A. B. C. D.
   const countOptionMarkers = (arr: { text: string }[]) =>
     arr.filter(x => /^[A-Da-d]\s*\*?\s*[.:\)\/\-]\s*\S/.test(x.text)).length;
   const countQuestionMarkers = (arr: { text: string }[]) =>
@@ -708,8 +1027,7 @@ export function extractNormalizedLines(
   const htmlQCount = countQuestionMarkers(htmlParsed);
   const plainQCount = countQuestionMarkers(plainParsed);
 
-  if (plainOptCount > htmlOptCount || (plainOptCount === htmlOptCount && plainQCount > htmlQCount)) {
-    // Chuyển trạng thái gạch chân / tô màu (isU) và in đậm (isBold) từ htmlParsed sang plainParsed
+  if (!htmlHasMediaOrUnderline && (plainOptCount > htmlOptCount || (plainOptCount === htmlOptCount && plainQCount > htmlQCount))) {
     const normalizeForMatch = (s: string) =>
       s
         .replace(/^(?:(?:Câu|Bài|Question)\s*\d+\s*[:.)\/\-]?\s*|[A-Da-d]\s*\*?\s*[.:\)\/\-]\s*|\d{1,3}\s*[.:\)\/]\s*)/i, '')
@@ -717,20 +1035,24 @@ export function extractNormalizedLines(
         .replace(/\s+/g, ' ')
         .trim();
 
-    const uSet = new Set<string>();
-    const bSet = new Set<string>();
+    const uNormList: string[] = [];
+    const bNormList: string[] = [];
     htmlParsed.forEach(hp => {
       const norm = normalizeForMatch(hp.text);
       if (norm.length >= 1) {
-        if (hp.isU) uSet.add(norm);
-        if (hp.isBold) bSet.add(norm);
+        if (hp.isU) uNormList.push(norm);
+        if (hp.isBold) bNormList.push(norm);
       }
     });
 
     return plainParsed.map(pp => {
       const norm = normalizeForMatch(pp.text);
-      const isMarkedU = pp.isU || (norm.length >= 1 && uSet.has(norm));
-      const isMarkedB = pp.isBold || (norm.length >= 1 && bSet.has(norm));
+      const isMarkedU =
+        pp.isU ||
+        (norm.length >= 1 && uNormList.some(uNorm => uNorm === norm || (uNorm.length >= 3 && norm.includes(uNorm)) || (norm.length >= 3 && uNorm.includes(norm))));
+      const isMarkedB =
+        pp.isBold ||
+        (norm.length >= 1 && bNormList.some(bNorm => bNorm === norm));
       return {
         text: pp.text,
         isU: isMarkedU,
@@ -740,21 +1062,60 @@ export function extractNormalizedLines(
     });
   }
 
+  if (htmlHasMediaOrUnderline && plainOptCount > htmlOptCount && plainParsed.length === htmlParsed.length) {
+    return htmlParsed.map((hp, idx) => {
+      const pp = plainParsed[idx];
+      const hpHasPrefix = /^([A-Da-d]\s*\*?\s*[.:\)\/\-]|\d{1,3}\s*[.:\)\/\-]|(?:Câu|Bài|Question)\b)/i.test(hp.text);
+      const ppPrefixMatch = pp.text.match(/^([A-Da-d]\s*\*?\s*[.:\)\/\-]\s*|(?:Câu|Bài|Question)\s*\d+\s*[:.)\/\-]?\s*)/i);
+      if (!hpHasPrefix && ppPrefixMatch) {
+        const mergedText = `${ppPrefixMatch[1]}${hp.text}`;
+        return {
+          ...hp,
+          text: mergedText,
+          raw: hp.isU ? `⟦U⟧${mergedText}⟦/U⟧` : mergedText
+        };
+      }
+      return hp;
+    });
+  }
+
   return htmlParsed;
 }
 
-// Hàm kiểm tra mệnh đề Đúng/Sai không dùng \b lỗi Tiếng Việt
-function detectStatementTrueFalse(rawStmt: string, lineIsU: boolean, hasStar: boolean): { textContent: string; isTrue: boolean } {
+/**
+ * QUY TẮC SỐNG CÒN DẠNG THỨC II (ĐÚNG / SAI):
+ * - Mặc định mệnh đề CÓ GẠCH CHÂN (lineIsU === true) hoặc đánh dấu sao (*) là ĐÚNG (isTrue = true), bất chấp cuối câu có chữ cũ hay không!
+ * - Mặc định mệnh đề KHÔNG GẠCH CHÂN (lineIsU === false) là SAI (isTrue = false),
+ *   trừ khi toàn bộ câu hỏi chưa dùng gạch chân và giáo viên ghi rõ chữ "(Đúng)" ở cuối mệnh đề.
+ */
+function detectStatementTrueFalse(
+  rawStmt: string,
+  lineIsU: boolean,
+  hasStar: boolean,
+  questionUsesUnderline: boolean = false
+): { textContent: string; isTrue: boolean } {
   const cleanedStmt = stripWordStyleGarbage(rawStmt);
-  const hasExplicitTrue =
-    /(?:\(\s*(?:đúng|đ|true)\s*\)|\[\s*(?:đúng|đ|true)\s*\]|(?:->|=>|-|:)\s*(?:đúng|đ|true)\s*[.;,]*$|(?:\s|^)đúng\s*[.;,]*$|✓|✔)/i.test(cleanedStmt);
+  const textContent = cleanTFStatementText(cleanedStmt) || cleanedStmt.trim();
+
+  // Ưu tiên số 1 tuyệt đối: Nếu được gạch chân (<u>) hoặc có dấu * -> MẶC ĐỊNH LÀ ĐÚNG!
+  if (lineIsU || hasStar) {
+    return { textContent, isTrue: true };
+  }
+
+  if (questionUsesUnderline) {
+    return { textContent, isTrue: false };
+  }
+
   const hasExplicitFalse =
     /(?:\(\s*(?:sai|s|false)\s*\)|\[\s*(?:sai|s|false)\s*\]|(?:->|=>|-|:)\s*(?:sai|s|false)\s*[.;,]*$|(?:\s|^)sai\s*[.;,]*$)/i.test(cleanedStmt);
+  if (hasExplicitFalse) {
+    return { textContent, isTrue: false };
+  }
 
-  const isTrue = hasExplicitFalse ? false : (hasExplicitTrue || lineIsU || hasStar);
-  const textContent = cleanTFStatementText(cleanedStmt);
+  const hasExplicitTrue =
+    /(?:\(\s*(?:đúng|đ|true)\s*\)|\[\s*(?:đúng|đ|true)\s*\]|(?:->|=>|-|:)\s*(?:đúng|đ|true)\s*[.;,]*$|(?:\s|^)đúng\s*[.;,]*$|✓|✔)/i.test(cleanedStmt);
 
-  return { textContent: textContent || cleanedStmt.trim(), isTrue };
+  return { textContent, isTrue: hasExplicitTrue };
 }
 
 // Bóc tách bảng đáp án tổng hợp cuối đề (VD: "1A 2B 3C 4D" hoặc "1.A  2.B  3.C  4.D" hoặc "Câu 1: A, Câu 2: B")
@@ -794,23 +1155,53 @@ export function parseHTMLToQuiz(
   if (parsed.length === 0) return [];
 
   const res: QuizItem[] = [];
-  let cur: (QuizItem & { _boldOptIndices?: number[] }) | null = null;
+  let cur: (QuizItem & {
+    _boldOptIndices?: number[];
+    _underlinedOptIndices?: number[];
+    _tfUnderlinedFlags?: boolean[];
+  }) | null = null;
   let pendingOptionPrefix: { letter: string; isU: boolean; isBold?: boolean } | null = null;
   let currentSectionFormat: QuestionFormat | undefined = forcedFormat;
   const globalAnswerKeyMap: Record<number, number> = {};
 
   const pushCurrentIfValid = () => {
     if (!cur) return;
-    // Nếu chưa có đáp án gạch chân/màu sắc mà có đúng 1 phương án được in đậm (Bold) -> nhận diện phương án in đậm đó là đáp án đúng!
-    if (
+
+    // QUY TẮC TỐI THƯỢNG (DẠNG I - TRẮC NGHIỆM 4 LỰA CHỌN):
+    // Nếu có phương án được GẠCH CHÂN (<u>, style underline, hoặc dấu *), BẮT BUỘC nhận phương án gạch chân đó là ĐÚNG!
+    // Nếu giáo viên vừa sửa lại (gạch chân phương án mới), lấy phương án gạch chân cuối cùng hoặc duy nhất.
+    if ((!cur.format || cur.format === 'MULTIPLE_CHOICE') && cur._underlinedOptIndices && cur._underlinedOptIndices.length > 0) {
+      cur.correct = cur._underlinedOptIndices[cur._underlinedOptIndices.length - 1];
+      cur.aiSelected = false;
+    } else if (
       (!cur.format || cur.format === 'MULTIPLE_CHOICE') &&
       cur.correct === -1 &&
       cur._boldOptIndices &&
       cur._boldOptIndices.length === 1
     ) {
+      // Nếu chưa có gạch chân mà có đúng 1 phương án in đậm -> nhận phương án in đậm đó là đáp án đúng
       cur.correct = cur._boldOptIndices[0];
+      cur.aiSelected = false;
     }
+
+    // QUY TẮC TỐI THƯỢNG (DẠNG II - ĐÚNG / SAI 4 MỆNH ĐỀ a, b, c, d):
+    // Nếu bất kỳ mệnh đề nào trong câu được gạch chân, áp dụng quy tắc tuyệt đối:
+    // GẠCH CHÂN = ĐÚNG (true), KHÔNG GẠCH CHÂN = SAI (false) (trừ khi dòng đó ghi rõ tường minh "(Sai)" hoặc "(Đúng)").
+    if (cur.format === 'TRUE_FALSE' && cur.tfItems && cur.tfItems.length > 0 && cur._tfUnderlinedFlags) {
+      const anyUnderlined = cur._tfUnderlinedFlags.some(Boolean);
+      if (anyUnderlined) {
+        cur.tfItems.forEach((tf, idx) => {
+          if (typeof cur!._tfUnderlinedFlags![idx] === 'boolean') {
+            tf.isCorrect = cur!._tfUnderlinedFlags![idx];
+          }
+        });
+        cur.opts = cur.tfItems.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`);
+      }
+    }
+
     delete cur._boldOptIndices;
+    delete cur._underlinedOptIndices;
+    delete cur._tfUnderlinedFlags;
 
     // HOTFIX 2.2: Bắt lỗi đáp án rỗng / thiếu phương án (Fallback kèm cờ cảnh báo dòng cụ thể thay vì crash âm thầm)
     const lineNum = cur.sourceLine || 1;
@@ -820,7 +1211,7 @@ export function parseHTMLToQuiz(
         warnings.push(`Cảnh báo dòng ${lineNum}: Câu hỏi chỉ nhận diện được ${cur.opts.length}/4 phương án (đã tự động điền phương án dự phòng).`);
       }
       if (cur.correct < 0 || cur.correct >= Math.max(cur.opts.length, 4)) {
-        warnings.push(`Cảnh báo dòng ${lineNum}: Chưa đánh dấu đáp án đúng (hệ thống tạm gán đáp án dự phòng để tránh crash).`);
+        warnings.push(`Cảnh báo dòng ${lineNum}: Chưa gạch chân hoặc chọn đáp án đúng.`);
       }
     } else if (cur.format === 'TRUE_FALSE') {
       if (!cur.tfItems || cur.tfItems.length < 4) {
@@ -846,8 +1237,15 @@ export function parseHTMLToQuiz(
     cur = null;
   };
 
-  const createBlankQuestion = (titleText: string, detectedFormat?: QuestionFormat, lineNumber: number = 1): QuizItem & { _boldOptIndices?: number[] } => {
-    // Lưu ý: KHÔNG dùng "các phát biểu sau" hay "các mệnh đề sau" để ép sang TRUE_FALSE vì rất nhiều câu Trắc nghiệm 4 lựa chọn (Dạng I) có cụm từ này!
+  const createBlankQuestion = (
+    titleText: string,
+    detectedFormat?: QuestionFormat,
+    lineNumber: number = 1
+  ): QuizItem & {
+    _boldOptIndices?: number[];
+    _underlinedOptIndices?: number[];
+    _tfUnderlinedFlags?: boolean[];
+  } => {
     const fmt: QuestionFormat =
       forcedFormat ||
       detectedFormat ||
@@ -869,7 +1267,9 @@ export function parseHTMLToQuiz(
       rightCount: 0,
       wrongCount: 0,
       sourceLine: lineNumber,
-      _boldOptIndices: []
+      _boldOptIndices: [],
+      _underlinedOptIndices: [],
+      _tfUnderlinedFlags: []
     };
   };
 
@@ -904,7 +1304,7 @@ export function parseHTMLToQuiz(
 
     // Kiểm tra xem dòng có phải là Bảng đáp án cuối đề (VD: "1.A 2.B 3.C 4.D" hoặc "1. A") không
     const batchKey = extractBatchAnswerKeyMap(cleanLine);
-    if (batchKey && cleanLine.length < 200 && !/[?]/.test(cleanLine)) {
+    if (batchKey && cleanLine.length < 200 && !/[?]/.test(cleanLine) && !/<table|<img/i.test(cleanLine)) {
       Object.assign(globalAnswerKeyMap, batchKey);
       continue;
     }
@@ -915,9 +1315,12 @@ export function parseHTMLToQuiz(
       const pref = pendingOptionPrefix;
       pendingOptionPrefix = null;
       if (activeFmt === 'TRUE_FALSE') {
-        const { textContent, isTrue } = detectStatementTrueFalse(cleanLine, pref.isU || p.isU, false);
+        const isLineUnderlined = pref.isU || p.isU;
+        const { textContent, isTrue } = detectStatementTrueFalse(cleanLine, isLineUnderlined, false);
         cur.tfItems = cur.tfItems || [];
         cur.tfItems.push({ label: pref.letter.toLowerCase(), text: textContent, isCorrect: isTrue });
+        cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
+        cur._tfUnderlinedFlags.push(isTrue);
         cur.opts.push(`${pref.letter.toLowerCase()}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
         continue;
       } else {
@@ -927,7 +1330,12 @@ export function parseHTMLToQuiz(
           .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
           .trim();
         cur.opts.push(cleanOpt || cleanLine);
-        if (isMarked && cur.correct === -1) cur.correct = oIdx;
+        if (isMarked) {
+          cur.correct = oIdx;
+          cur.aiSelected = false;
+          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+          cur._underlinedOptIndices.push(oIdx);
+        }
         if (pref.isBold || p.isBold) {
           cur._boldOptIndices = cur._boldOptIndices || [];
           cur._boldOptIndices.push(oIdx);
@@ -950,22 +1358,20 @@ export function parseHTMLToQuiz(
 
     // Nhận diện dòng tiêu đề Câu hỏi: "Câu 1:", "Câu 1.", "Câu 1/", "Câu 1 -", "Câu 1 Bào quan...", "Bài 1:", "Question 1:", "Câu:"
     const explicitQMatch = cleanLine.match(
-      /^(?:Câu\s*(?:hỏi)?\s*(?:\d+\s*(?:[:.)\/\-]|\s+(?=[A-ZÀ-Ỹ"“'(\[]))|[:.\-\[])|Bài\s*(?:tập)?\s*\d+\s*[:.)\/\-]?|Question\s*\d+\s*[:.)\/\-]?)\s*(.*)/i
+      /^(?:Câu\s*(?:hỏi)?\s*(?:\d+\s*(?:[:.)\/\-]|\s+(?=[A-ZÀ-Ỹ"“'(\[<]))|[:.\-\[])|Bài\s*(?:tập)?\s*\d+\s*[:.)\/\-]?|Question\s*\d+\s*[:.)\/\-]?)\s*([\s\S]*)/i
     );
     // Số thứ tự đầu dòng (VD: "1. ", "2) ", "3/ ", "4: " hoặc "1.Hà Nội" khi đang chờ phương án)
-    const numberedQMatch = cleanLine.match(/^(\d{1,3})\s*[.):\/]\s*(?!\d)(.+)/);
+    const numberedQMatch = cleanLine.match(/^(\d{1,3})\s*[.):\/]\s*(?!\d)([\s\S]+)/);
 
     // Nhận diện dòng Đáp án trực tiếp (VD: "Đáp án: 25", "Đáp án: A", "ĐS: 12,5", "Kết quả: 3", "Đáp án: Đ-S-Đ-S")
     const saM = cleanLine.match(
-      /^(?:Đáp\s*án(?:\s*đúng)?|Đáp\s*số|ĐA|ĐS|TL|Trả\s*lời|Kết\s*quả|KQ|ShortAnswer|Answer)\s*[:=.]?\s*(.*)/i
+      /^(?:Đáp\s*án(?:\s*đúng)?|Đáp\s*số|ĐA|ĐS|TL|Trả\s*lời|Kết\s*quả|KQ|ShortAnswer|Answer)\s*[:=.]?\s*([\s\S]*)/i
     );
 
     // HOTFIX 2.1: Regex chịu lỗi (Fault-tolerant) cho phương án A., a., A), [A], (A), hoặc 1., 2., 3., 4. (khi đã có câu dẫn cur.q)
-    // Hỗ trợ cả trường hợp KHÔNG có dấu cách sau ký tự đáp án (ví dụ: "A.Hà Nội", "a)Đúng", "[B]Hải Phòng", "1.Hà Nội")
     const rawBracketOrLetterOpt = cleanLine.match(
-      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[.:\)\/]|\s+-\s+))\s*\*?\s*(.+)/
+      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[.:\)\/]|\s+-\s+))\s*\*?\s*([\s\S]+)/
     );
-    // Nếu giáo viên gõ phương án dạng "1. Hà Nội", "2. Huế", "3. Đà Nẵng", "4. TP.HCM" ngay dưới câu hỏi đã có lời dẫn (cur.q) và chưa đủ 4 phương án
     const isNumericOptionForCurrentQ =
       !rawBracketOrLetterOpt &&
       !explicitQMatch &&
@@ -978,7 +1384,7 @@ export function parseHTMLToQuiz(
       Number(cleanLine.match(/^([1-4])/)?.[1] || 0) === cur.opts.length + 1;
 
     const numericOptMatch = isNumericOptionForCurrentQ
-      ? cleanLine.match(/^([1-4])\s*\*?\s*[.):\/]\s*(.+)/)
+      ? cleanLine.match(/^([1-4])\s*\*?\s*[.):\/]\s*([\s\S]+)/)
       : null;
 
     const optM: [string, string, string] | null = rawBracketOrLetterOpt
@@ -996,7 +1402,7 @@ export function parseHTMLToQuiz(
       : null;
 
     const tfM = cleanLine.match(
-      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|([a-dA-D])\s*\*?\s*[\)\.\:\-\/])\s*\*?\s*(.+)/i
+      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|([a-dA-D])\s*\*?\s*[\)\.\:\-\/])\s*\*?\s*([\s\S]+)/i
     );
 
     // 1. Nếu là dòng bắt đầu câu hỏi mới
@@ -1025,7 +1431,6 @@ export function parseHTMLToQuiz(
     // 2. Nếu là dòng "Đáp án: ..."
     if (saM) {
       if (!cur) {
-        // Kiểm tra xem có phải bảng đáp án "Đáp án: 1A 2B 3C" không
         const inlineBatch = extractBatchAnswerKeyMap(saM[1]);
         if (inlineBatch) {
           Object.assign(globalAnswerKeyMap, inlineBatch);
@@ -1058,6 +1463,7 @@ export function parseHTMLToQuiz(
               item.isCorrect = tfSummary[fallbackKey];
             }
           });
+          cur._tfUnderlinedFlags = cur.tfItems.map(it => it.isCorrect);
           cur.opts = cur.tfItems.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`);
         }
         continue;
@@ -1070,7 +1476,11 @@ export function parseHTMLToQuiz(
         (activeFmt === 'MULTIPLE_CHOICE' || cur.opts.length >= 2) &&
         forcedFormat !== 'SHORT_ANSWER'
       ) {
-        cur.correct = singleLetterMatch[1].toUpperCase().charCodeAt(0) - 65;
+        const chosenIdx = singleLetterMatch[1].toUpperCase().charCodeAt(0) - 65;
+        cur.correct = chosenIdx;
+        cur.aiSelected = false;
+        cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+        cur._underlinedOptIndices.push(chosenIdx);
         continue;
       }
 
@@ -1099,6 +1509,7 @@ export function parseHTMLToQuiz(
               item.isCorrect = standaloneSummary[fallbackKey];
             }
           });
+          cur._tfUnderlinedFlags = cur.tfItems.map(it => it.isCorrect);
           cur.opts = cur.tfItems.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`);
           continue;
         }
@@ -1121,6 +1532,8 @@ export function parseHTMLToQuiz(
 
         cur.tfItems = cur.tfItems || [];
         cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
+        cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
+        cur._tfUnderlinedFlags.push(isTrue);
         cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
         continue;
       }
@@ -1130,16 +1543,21 @@ export function parseHTMLToQuiz(
         (cur?.tfItems || []).some(it => it.label === 'd');
 
       if (!cur) {
-        cur = createBlankQuestion(cleanLine, 'TRUE_FALSE');
+        cur = createBlankQuestion(cleanLine, 'TRUE_FALSE', currentLineNumber);
       } else if (!cur.tfItems || cur.tfItems.length === 0) {
+        // Nếu dòng là bảng số liệu <table> hoặc hình ảnh/bản đồ <img> -> nối vào câu dẫn cur.q
         cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
       } else if (!hasFinishedStatements) {
         const lastIdx = cur.tfItems.length - 1;
         cur.tfItems[lastIdx].text = cleanTFStatementText(`${cur.tfItems[lastIdx].text} ${cleanLine}`);
+        if (p.isU) {
+          cur.tfItems[lastIdx].isCorrect = true;
+          if (cur._tfUnderlinedFlags) cur._tfUnderlinedFlags[lastIdx] = true;
+        }
         cur.opts[lastIdx] = `${cur.tfItems[lastIdx].label}) ${cur.tfItems[lastIdx].text} (${cur.tfItems[lastIdx].isCorrect ? 'Đúng' : 'Sai'})`;
       } else {
         pushCurrentIfValid();
-        cur = createBlankQuestion(cleanLine, 'TRUE_FALSE');
+        cur = createBlankQuestion(cleanLine, 'TRUE_FALSE', currentLineNumber);
       }
       continue;
     }
@@ -1147,22 +1565,22 @@ export function parseHTMLToQuiz(
     // --- KHUNG DẠNG THỨC III: TRẢ LỜI NGẮN ---
     if (activeFormat === 'SHORT_ANSWER') {
       if (!cur) {
-        cur = createBlankQuestion(cleanLine, 'SHORT_ANSWER');
+        cur = createBlankQuestion(cleanLine, 'SHORT_ANSWER', currentLineNumber);
         continue;
       }
-      if (cur.shortAnswer) {
+      if (cur.shortAnswer && !/<img|<table/i.test(cleanLine)) {
         pushCurrentIfValid();
-        cur = createBlankQuestion(cleanLine, 'SHORT_ANSWER');
+        cur = createBlankQuestion(cleanLine, 'SHORT_ANSWER', currentLineNumber);
         continue;
       }
       const isArrowAnswer = /^(?:=>|=)\s*(.+)/.test(cleanLine);
       const isNumericOrShortKey =
         cleanLine.length <= 24 &&
-        !/[?;:]/.test(cleanLine) &&
+        !/[?;:]|<img|<table/i.test(cleanLine) &&
         (/^[-+]?\d+(?:[.,\/]\d+)?(?:\s*%|\s*[a-zA-Z°²³]{1,5})?$/.test(cleanLine) ||
           (cleanLine.split(/\s+/).length <= 2 && !/[?]/.test(cleanLine)));
 
-      if (cur.q && (p.isU || isArrowAnswer || isNumericOrShortKey)) {
+      if (cur.q && !/<img|<table/i.test(cleanLine) && (p.isU || isArrowAnswer || isNumericOrShortKey)) {
         const ansClean = cleanShortAnswerValue(cleanLine);
         cur.shortAnswer = ansClean;
         cur.opts = [ansClean];
@@ -1176,11 +1594,10 @@ export function parseHTMLToQuiz(
     // --- KHUNG DẠNG THỨC I (HOẶC TỰ ĐỘNG NHẬN DIỆN): 4 PHƯƠNG ÁN A, B, C, D ---
     if (optM) {
       if (!cur) {
-        cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE');
+        cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE', currentLineNumber);
       }
       const isLowercaseParenTF = /^([a-d])\s*\*?\s*\)/.test(cleanLine);
       const hasTrueFalseSuffix = /(?:\(\s*(?:đúng|sai|đ|s)\s*\)|\[\s*(?:đúng|sai|đ|s)\s*\])/i.test(cleanLine);
-      // CHỈ chuyển sang Đúng/Sai nếu có hậu tố (Đúng)/(Sai) rõ ràng hoặc đang ở chế độ tự động và câu hỏi có nhãn [Đúng/Sai]
       if (
         (hasTrueFalseSuffix && isLowercaseParenTF) ||
         (!forcedFormat && isLowercaseParenTF && (hasTrueFalseSuffix || cur.format === 'TRUE_FALSE'))
@@ -1192,6 +1609,8 @@ export function parseHTMLToQuiz(
         const { textContent, isTrue } = detectStatementTrueFalse(rawStatement, p.isU, hasStar);
         cur.tfItems = cur.tfItems || [];
         cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
+        cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
+        cur._tfUnderlinedFlags.push(isTrue);
         cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
         continue;
       }
@@ -1199,20 +1618,26 @@ export function parseHTMLToQuiz(
       // Nếu câu hiện tại đã đủ 4 phương án (hoặc >= 2 phương án mà lại gặp lại phương án A.) -> đẩy câu cũ vào danh sách
       if ((cur.opts.length >= 4 || (cur.opts.length >= 2 && optM[1].toUpperCase() === 'A')) && optM[1].toUpperCase() === 'A') {
         pushCurrentIfValid();
-        cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE');
+        cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE', currentLineNumber);
       }
 
       const oIdx = cur.opts.length;
       const rawOptText = optM[2];
       const hasStar = /^\*/.test(rawTrimmed) || /^[A-Da-d]\s*\*/.test(cleanLine);
-      const isMarkedCorrect = p.isU || hasStar || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(rawOptText);
+      const isMarkedCorrect =
+        p.isU ||
+        hasStar ||
+        /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(rawOptText);
       const cleanOpt = rawOptText
         .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
         .trim();
 
       cur.opts.push(cleanOpt || rawOptText.trim());
-      if (isMarkedCorrect && cur.correct === -1) {
+      if (isMarkedCorrect) {
         cur.correct = oIdx;
+        cur.aiSelected = false;
+        cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+        cur._underlinedOptIndices.push(oIdx);
       }
       if (p.isBold) {
         cur._boldOptIndices = cur._boldOptIndices || [];
@@ -1222,15 +1647,22 @@ export function parseHTMLToQuiz(
     }
 
     // Dòng văn bản không có tiền tố "Câu X:" và không có "A. B. C. D.":
-    // Hỗ trợ thông minh cho đề trắc nghiệm bị mất ký hiệu A. B. C. D. (do copy từ Word List hoặc bảng):
+    // Nếu dòng chứa bảng số liệu <table> hoặc hình ảnh/bản đồ <img>, luôn nối vào câu dẫn cur.q!
+    const isMediaOrTableLine = /<table\b|<img\b|\[(?:Hình|Sơ đồ|Đồ thị|Bản đồ|Bảng)/i.test(cleanLine);
+
     if (!cur) {
-      cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE');
+      cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
     } else if (cur.opts.length === 0 && (!cur.tfItems || cur.tfItems.length === 0) && !cur.shortAnswer) {
-      // Nhìn trước (lookahead) 1-3 dòng tiếp theo xem có dòng nào bắt đầu bằng A. / a) không:
-      const hasExplicitOptionAhead = [1, 2, 3].some(offset => {
+      if (isMediaOrTableLine) {
+        cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
+        continue;
+      }
+      // Nhìn trước (lookahead) 1-12 dòng tiếp theo xem có dòng nào bắt đầu bằng A. / a) không (do đề Địa lý / Toán / Lý / Hóa có thể có nhiều dòng dẫn hoặc bảng trước A. B. C. D.)
+      const hasExplicitOptionAhead = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].some(offset => {
         const nextP = parsed[lineIdx + offset];
         if (!nextP) return false;
         const nextClean = stripWordStyleGarbage(nextP.text).replace(/^\*+\s*/, '').trim();
+        if (/^(?:Câu\s*\d+|Bài\s*\d+|Question\s*\d+)/i.test(nextClean)) return false;
         return /^([A-Da-d])\s*\*?\s*(?:[.:\)\/]|\s+-\s+)\s*\S/.test(nextClean);
       });
 
@@ -1245,7 +1677,12 @@ export function parseHTMLToQuiz(
         const isMarked = p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
         const cleanOpt = cleanLine.replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '').trim();
         cur.opts.push(cleanOpt || cleanLine);
-        if (isMarked && cur.correct === -1) cur.correct = oIdx;
+        if (isMarked) {
+          cur.correct = oIdx;
+          cur.aiSelected = false;
+          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+          cur._underlinedOptIndices.push(oIdx);
+        }
         if (p.isBold) {
           cur._boldOptIndices = cur._boldOptIndices || [];
           cur._boldOptIndices.push(oIdx);
@@ -1254,18 +1691,22 @@ export function parseHTMLToQuiz(
         cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
       }
     } else if (cur.opts.length > 0 && cur.opts.length < 4 && cur.format === 'MULTIPLE_CHOICE') {
-      // Nếu các phương án trước đó là phương án không nhãn (hoặc dòng mới không phải phần nối tiếp của phương án bị ngắt giữa chừng)
       const looksLikeNewQuestionWithoutPrefix =
         /[?]$/.test(cleanLine) && cleanLine.length > 35 && cur.opts.length >= 2;
       if (looksLikeNewQuestionWithoutPrefix) {
         pushCurrentIfValid();
-        cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE');
+        cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
       } else {
         const oIdx = cur.opts.length;
         const isMarked = p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
         const cleanOpt = cleanLine.replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '').trim();
         cur.opts.push(cleanOpt || cleanLine);
-        if (isMarked && cur.correct === -1) cur.correct = oIdx;
+        if (isMarked) {
+          cur.correct = oIdx;
+          cur.aiSelected = false;
+          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+          cur._underlinedOptIndices.push(oIdx);
+        }
         if (p.isBold) {
           cur._boldOptIndices = cur._boldOptIndices || [];
           cur._boldOptIndices.push(oIdx);
@@ -1273,18 +1714,23 @@ export function parseHTMLToQuiz(
       }
     } else {
       pushCurrentIfValid();
-      cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE');
+      cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
     }
   }
 
   pushCurrentIfValid();
 
-  // Áp dụng Bảng đáp án tổng hợp cuối đề (nếu giáo viên dán kèm "1A 2B 3C 4D" ở dưới đề)
+  // Áp dụng Bảng đáp án tổng hợp cuối đề (nếu giáo viên dán kèm "1A 2B 3C 4D" ở dưới đề và câu đó chưa có gạch chân trực tiếp)
   if (Object.keys(globalAnswerKeyMap).length > 0) {
     res.forEach((item, idx) => {
       const qNum = idx + 1;
-      if (typeof globalAnswerKeyMap[qNum] === 'number' && (!item.format || item.format === 'MULTIPLE_CHOICE')) {
+      if (
+        typeof globalAnswerKeyMap[qNum] === 'number' &&
+        (!item.format || item.format === 'MULTIPLE_CHOICE') &&
+        (item.correct === -1 || item.aiSelected)
+      ) {
         item.correct = globalAnswerKeyMap[qNum];
+        item.aiSelected = false;
       }
     });
   }
@@ -1303,6 +1749,7 @@ export function parseHTMLToQuiz(
 /**
  * Tự động phục hồi & làm sạch các câu hỏi bị dính chữ (đặc biệt là Dạng thức II Đúng/Sai
  * khi mệnh đề a) dính vào câu dẫn hoặc mệnh đề c), d) dính chung 1 ô, hoặc dính rác CSS Word).
+ * TUYỆT ĐỐI TÔN TRỌNG ĐÁP ÁN DO GIÁO VIÊN GẠCH CHÂN / ĐÁNH DẤU!
  */
 export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
   const item: QuizItem = {
@@ -1314,8 +1761,10 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
   if (item.format === 'TRUE_FALSE') {
     const collectedTF: { text: string; isCorrect: boolean }[] = [];
 
-    // 1. Nếu câu dẫn item.q còn dính "a) ... " ở cuối (sau dấu :, ., ;, ?, !) -> tách ra thành mệnh đề đầu tiên
-    const embeddedInQ = item.q.match(/^([\s\S]*?[:.;?!])\s*((?:[a-d]\s*[\)\.]\s+\S[\s\S]*))$/i);
+    // 1. Nếu câu dẫn item.q còn dính "a) ... " ở cuối (sau dấu :, ., ;, ?, !) và không phải trong thẻ HTML -> tách ra thành mệnh đề đầu tiên
+    const embeddedInQ = !/<table|<img/i.test(item.q)
+      ? item.q.match(/^([\s\S]*?[:.;?!])\s*((?:[a-d]\s*[\)\.]\s+\S[\s\S]*))$/i)
+      : null;
     if (embeddedInQ) {
       item.q = cleanQuestionTitleText(embeddedInQ[1]);
       const partsFromQ = embeddedInQ[2]
@@ -1333,14 +1782,14 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
       });
     }
 
-    // 2. Duyệt qua các tfItems hiện có, bỏ các mệnh đề giữ chỗ rỗng và tách nếu có 2 mệnh đề dính nhau (VD: "...trồng rừng. d) Trước khi...")
+    // 2. Duyệt qua các tfItems hiện có, giữ nguyên 100% giá trị isCorrect mà giáo viên đã gạch chân / chọn
     const sourceTF =
       item.tfItems && item.tfItems.length > 0
         ? item.tfItems
         : item.opts.map((txt, i) => ({
             label: String.fromCharCode(97 + i),
             text: txt,
-            isCorrect: /\(\s*đúng\s*\)/i.test(txt)
+            isCorrect: /\(\s*đúng\s*\)|<u>/i.test(txt)
           }));
 
     sourceTF.forEach(tf => {
@@ -1357,7 +1806,7 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
       if (subParts.length <= 1) {
         const cleaned = cleanTFStatementText(rawText);
         if (cleaned && !/^(?:Chưa nhập nội dung mệnh đề|Mệnh đề\s+[a-d]\b)/i.test(cleaned)) {
-          collectedTF.push({ text: cleaned, isCorrect: !!tf.isCorrect });
+          collectedTF.push({ text: cleaned, isCorrect: Boolean(tf.isCorrect) });
         }
       } else {
         subParts.forEach((sp, spIdx) => {
@@ -1369,7 +1818,7 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
           if (cleaned && !/^(?:Chưa nhập nội dung mệnh đề|Mệnh đề\s+[a-d]\b)/i.test(cleaned)) {
             collectedTF.push({
               text: cleaned,
-              isCorrect: hasExplicitTag ? isTrue : spIdx === 0 ? !!tf.isCorrect : isTrue
+              isCorrect: hasExplicitTag ? isTrue : spIdx === 0 ? Boolean(tf.isCorrect) : isTrue
             });
           }
         });
@@ -1397,12 +1846,11 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
     item.tfItems = dedupedTF.slice(0, 4).map((tf, i) => ({
       label: String.fromCharCode(97 + i),
       text: cleanTFStatementText(tf.text) || `Mệnh đề ${String.fromCharCode(97 + i)}`,
-      isCorrect: !!tf.isCorrect
+      isCorrect: Boolean(tf.isCorrect)
     }));
     item.opts = item.tfItems.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`);
     return item;
   }
-
 
   if (item.format === 'SHORT_ANSWER') {
     if (!item.shortAnswer && item.opts.length > 0) {
@@ -1424,6 +1872,7 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
   if (item.opts.length === 0 && item.q) {
     item.opts = ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'];
   }
+  // CHỈ dùng AI dự đoán khi câu hỏi hoàn toàn CHƯA có đáp án đúng (item.correct === -1)
   if (item.correct === -1 && item.opts.length > 0) {
     item.correct = aiAutoDetectCorrectIndex(item.q, item.opts);
     item.aiSelected = true;
@@ -1431,8 +1880,8 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
   return item;
 }
 
-
 // Tách danh sách QuizItem thành 3 chuỗi HTML riêng biệt cho 3 Khung Dạng Thức I, II, III
+// Quy chuẩn hiển thị đồng nhất: Phương án / Mệnh đề ĐÚNG được bọc <u>...</u>, phương án / mệnh đề SAI không gạch chân!
 export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   mcHTML: string;
   tfHTML: string;
@@ -1448,7 +1897,7 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
     mcHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
     item.opts.forEach((o, oi) => {
       const ch = String.fromCharCode(65 + oi);
-      mcHTML += oi === item.correct ? `<div><u>${ch}</u>. ${o}</div>` : `<div>${ch}. ${o}</div>`;
+      mcHTML += oi === item.correct ? `<div><u>${ch}. ${o}</u></div>` : `<div>${ch}. ${o}</div>`;
     });
     mcHTML += `<br>`;
   });
@@ -1457,10 +1906,11 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   tfItems.forEach((item, i) => {
     tfHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
     (item.tfItems || []).forEach(tf => {
+      const cleanTxt = cleanTFStatementText(tf.text);
       if (tf.isCorrect) {
-        tfHTML += `<div><u>${tf.label})</u> ${tf.text} (Đúng)</div>`;
+        tfHTML += `<div><u>${tf.label}) ${cleanTxt}</u></div>`;
       } else {
-        tfHTML += `<div>${tf.label}) ${tf.text} (Sai)</div>`;
+        tfHTML += `<div>${tf.label}) ${cleanTxt}</div>`;
       }
     });
     tfHTML += `<br>`;
@@ -1484,10 +1934,11 @@ export function formatQuizToHTML(rawItems: QuizItem[]): string {
     if (item.format === 'TRUE_FALSE') {
       html += `<div>Câu ${i + 1} [Đúng/Sai]: ${cleanQuestionTitleText(item.q)}</div>`;
       (item.tfItems || []).forEach(tf => {
+        const cleanTxt = cleanTFStatementText(tf.text);
         if (tf.isCorrect) {
-          html += `<div><u>${tf.label})</u> ${tf.text} (Đúng)</div>`;
+          html += `<div><u>${tf.label}) ${cleanTxt}</u></div>`;
         } else {
-          html += `<div>${tf.label}) ${tf.text} (Sai)</div>`;
+          html += `<div>${tf.label}) ${cleanTxt}</div>`;
         }
       });
     } else if (item.format === 'SHORT_ANSWER') {
@@ -1498,7 +1949,7 @@ export function formatQuizToHTML(rawItems: QuizItem[]): string {
       html += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
       item.opts.forEach((o, oi) => {
         const ch = String.fromCharCode(65 + oi);
-        html += (oi === item.correct) ? `<div><u>${ch}</u>. ${o}</div>` : `<div>${ch}. ${o}</div>`;
+        html += oi === item.correct ? `<div><u>${ch}. ${o}</u></div>` : `<div>${ch}. ${o}</div>`;
       });
     }
     html += `<br>`;
@@ -1506,9 +1957,9 @@ export function formatQuizToHTML(rawItems: QuizItem[]): string {
   return html;
 }
 
-export const SAMPLE_PHAN_1_MC = `<div>Câu: Bào quan nào thực hiện chức năng quang hợp chủ yếu ở thực vật?</div><div><u>A</u>. Lục lạp</div><div>B. Ti thể</div><div>C. Không bào</div><div>D. Bộ máy Golgi</div><br>`;
+export const SAMPLE_PHAN_1_MC = `<div>Câu: Bào quan nào thực hiện chức năng quang hợp chủ yếu ở thực vật?</div><div><u>A. Lục lạp</u></div><div>B. Ti thể</div><div>C. Không bào</div><div>D. Bộ máy Golgi</div><br>`;
 
-export const SAMPLE_PHAN_2_TF = `<div>Câu: Trong các phát biểu sau về cấu trúc của phân tử DNA mạch kép:</div><div><u>a)</u> Hai mạch đơn của DNA xoắn đều quanh một trục tưởng tượng theo chiều từ trái sang phải. (Đúng)</div><div><u>b)</u> Các nucleotide trên hai mạch liên kết với nhau theo nguyên tắc bổ sung (A-T, G-X). (Đúng)</div><div>c) Liên kết giữa các nucleotide trên cùng một mạch là liên kết hydrogen yếu. (Sai)</div><div><u>d)</u> Tỉ lệ (A + G) / (T + X) trong phân tử DNA luôn xấp xỉ bằng 1. (Đúng)</div><br>`;
+export const SAMPLE_PHAN_2_TF = `<div>Câu: Trong các phát biểu sau về cấu trúc của phân tử DNA mạch kép (Gạch chân = Đúng, Không gạch chân = Sai):</div><div><u>a) Hai mạch đơn của DNA xoắn đều quanh một trục tưởng tượng theo chiều từ trái sang phải.</u></div><div><u>b) Các nucleotide trên hai mạch liên kết với nhau theo nguyên tắc bổ sung (A-T, G-X).</u></div><div>c) Liên kết giữa các nucleotide trên cùng một mạch là liên kết hydrogen yếu.</div><div><u>d) Tỉ lệ (A + G) / (T + X) trong phân tử DNA luôn xấp xỉ bằng 1.</u></div><br>`;
 
 export const SAMPLE_PHAN_3_SA = `<div>Câu: Có bao nhiêu bộ ba mã di truyền (codon) trên phân tử mRNA đóng vai trò tín hiệu kết thúc quá trình dịch mã?</div><div><u>Đáp án: 3</u></div><br>`;
 

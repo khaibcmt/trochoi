@@ -60,7 +60,7 @@ export function sanitizeAndExtractJSON<T = any>(rawText: string): T {
   }
 }
 
-// 1. Client-Side AI Soạn Đề Thông Minh Chuẩn GDPT 2018 (Toán, Lý, Hóa, Sinh, STEM)
+// 1. AI Soạn Đề Thông Minh Chuẩn GDPT 2018 (Toán, Lý, Hóa, Sinh, Địa lý, STEM)
 export async function generateQuestionsClientSide(params: {
   topic: string;
   subject: string;
@@ -70,21 +70,54 @@ export async function generateQuestionsClientSide(params: {
 }): Promise<QuizItem[]> {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
+  // Ưu tiên gọi qua Backend /api/ai/generate-questions (đã tích hợp sẵn GEMINI_API_KEY của hệ thống)
+  try {
+    const serverRes = await fetch('/api/ai/generate-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic: params.topic,
+        subject: params.subject,
+        level: params.level,
+        count: params.count,
+        apiKey: apiKey || undefined
+      })
+    });
+    if (serverRes.ok) {
+      const serverData = await serverRes.json();
+      if (Array.isArray(serverData?.questions) && serverData.questions.length > 0) {
+        return serverData.questions.map((item: any, i: number) => ({
+          qid: i,
+          q: cleanQuestionTitleText(item.q || ''),
+          format: item.format || 'MULTIPLE_CHOICE',
+          opts: item.opts || [],
+          correct: typeof item.correct === 'number' ? item.correct : 0,
+          tfItems: item.tfItems || [],
+          shortAnswer: item.shortAnswer || '',
+          explanation: item.explanation || '',
+          rightCount: 0,
+          wrongCount: 0,
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn('Backend /api/ai/generate-questions fallback to client:', e);
+  }
+
   if (!apiKey) {
-    // Trả về ngân hàng câu hỏi STEM ngoại tuyến chuyên sâu chất lượng cao
     console.info('No Gemini API Key provided, loading rich offline fallback questions.');
     return getOfflineFallbackQuestions(params.topic, params.subject, params.count);
   }
 
-  const prompt = `Bạn là chuyên gia giáo dục và thẩm định đề thi Quốc gia cấp THPT theo chương trình GDPT 2018 tại Việt Nam (SGK Kết nối tri thức).
-Hãy tạo ${params.count} câu hỏi trắc nghiệm chất lượng cao, sâu sắc, có tính phân hóa cho môn "${params.subject || 'Sinh học'}", chủ đề: "${params.topic}", mức độ nhận thức: "${params.level}".
+  const prompt = `Bạn là Hội đồng Chuyên gia Giáo dục và Thẩm định Đề thi Quốc gia cấp THPT hàng đầu thế giới theo chương trình GDPT 2018 tại Việt Nam (SGK Kết nối tri thức với cuộc sống).
+Hãy tạo ${params.count} câu hỏi trắc nghiệm chuẩn mực, chính xác tuyệt đối 100% về mặt khoa học, có tính phân hóa cao cho môn "${params.subject || 'Sinh học'}", chủ đề: "${params.topic}", mức độ nhận thức: "${params.level}".
 
-YÊU CẦU ĐẶC BIỆT VỀ CÔNG THỨC TOÁN, LÝ, HÓA, SINH (STEM) & SƠ ĐỒ:
-1. Mọi công thức toán, lý, hóa, sinh BẮT BUỘC kẹp trong cặp dấu $...$ (inline LaTeX) hoặc $$...$$ (block LaTeX). Ví dụ: $f(x) = \\frac{2x-1}{x+1}$, $T = 2\\pi\\sqrt{\\frac{l}{g}}$, $Fe_2(SO_4)_3$, $P: \\frac{AB}{ab} \\times \\frac{ab}{ab}$.
-2. Mũ số, chỉ số dưới viết đúng chuẩn LaTeX: $x^2$, $H_2SO_4$, $I^A I^B$, $2n = 46$.
-3. Nếu câu hỏi có sơ đồ/đồ thị/thí nghiệm, hãy mô tả ngắn trong ngoặc vuông đầu câu dẫn: [Sơ đồ mạch điện R-L-C nối tiếp] hoặc [Đồ thị hàm số $y=f'(x)$] hoặc [Sơ đồ phả hệ di truyền bệnh máu khó đông].
+YÊU CẦU BẮT BUỘC VỀ ĐỘ CHÍNH XÁC KHOA HỌC, CÔNG THỨC TOÁN-LÝ-HÓA-SINH, BẢNG SỐ LIỆU & BẢN ĐỒ ĐỊA LÝ:
+1. Trước khi chốt đáp án đúng ("correct", "tfItems", "shortAnswer"), bạn PHẢI giải từng bước và kiểm tra chéo định luật/công thức để đảm bảo đáp án đúng là chính xác 100%, không bao giờ nhầm lẫn.
+2. Mọi công thức Toán, Vật lý, Hóa học, Sinh học BẮT BUỘC kẹp trong cặp dấu $...$ (inline LaTeX) hoặc $$...$$ (block LaTeX). Ví dụ: $f(x) = \\frac{2x-1}{x+1}$, $T = 2\\pi\\sqrt{\\frac{l}{g}}$, $Fe_2(SO_4)_3$, $P: \\frac{AB}{ab} \\times \\frac{ab}{ab}$.
+3. Nếu câu hỏi thuộc môn Địa lý, Sinh học, Vật lý, Hóa học hoặc Thống kê Toán có dùng bảng số liệu, hãy nhúng trực tiếp bảng HTML gọn sạch <table class="stem-data-table"><tr><th>...</th></tr><tr><td>...</td></tr></table> ngay trong trường "q". Nếu có sơ đồ/bản đồ/đồ thị, hãy mô tả rõ trong ngoặc vuông đầu câu: [Bản đồ địa hình và khí hậu Việt Nam] hoặc [Sơ đồ mạch điện R-L-C nối tiếp] hoặc [Đồ thị hàm số $y=f'(x)$].
 
-ĐẢM BẢO CHUẨN CẤU TRÚC ĐỀ THI TỐT NGHIỆP THPT TỪ NĂM 2025 (3 DẠNG THỨC):
+ĐẢM BẢO CHUẨN CẤU TRÚC ĐỀ THI TỐT NGHIỆP THPT (3 DẠNG THỨC):
 1. "MULTIPLE_CHOICE" (Dạng thức I): Trắc nghiệm 4 lựa chọn (A, B, C, D) có đúng 1 phương án đúng duy nhất. "correct" là chỉ số từ 0 đến 3.
 2. "TRUE_FALSE" (Dạng thức II): Câu hỏi Đúng/Sai chùm đủ 4 ý a, b, c, d độc lập, logic. "tfItems" gồm đúng 4 phần tử có label ('a','b','c','d'), text mệnh đề, và isCorrect (boolean).
 3. "SHORT_ANSWER" (Dạng thức III): Câu hỏi Trả lời ngắn, yêu cầu học sinh tính toán ra kết quả là số nguyên, số thập phân hoặc từ khóa cốt lõi (ví dụ: "12.5", "4", "3120"). "shortAnswer" là chuỗi kết quả.
@@ -92,7 +125,7 @@ YÊU CẦU ĐẶC BIỆT VỀ CÔNG THỨC TOÁN, LÝ, HÓA, SINH (STEM) & SƠ �
 Trả về duy nhất JSON thuần túy (mảng các object):
 [
   {
-    "q": "Nội dung câu hỏi có công thức LaTeX...",
+    "q": "Nội dung câu hỏi (có thể chứa công thức $...$ hoặc <table class='stem-data-table'>...</table>)...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
     "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
@@ -103,13 +136,12 @@ Trả về duy nhất JSON thuần túy (mảng các object):
       { "label": "d", "text": "Mệnh đề d...", "isCorrect": false }
     ],
     "shortAnswer": "12.5",
-    "explanation": "Hướng dẫn giải chi tiết, chỉ rõ bản chất định luật và các bước tính..."
+    "explanation": "Hướng dẫn giải chi tiết từng bước, chỉ rõ bản chất định luật và công thức..."
   }
 ]
 Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
 
-  // Try primary model then secondary model (gemini-2.5-flash, gemini-3.8-flash)
-  const modelsToTry = [PRIMARY_MODEL, SECONDARY_MODEL];
+  const modelsToTry = ['gemini-3-flash-preview', PRIMARY_MODEL];
   for (const model of modelsToTry) {
     try {
       const url = `${API_URL_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -121,16 +153,13 @@ Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            // HOTFIX 3.2: Đặt temperature: 0.3 cho tác vụ tạo câu hỏi để AI ổn định, giảm ảo giác
-            temperature: 0.3,
+            temperature: 0.25,
             responseMimeType: 'application/json',
           },
         }),
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.warn(`Model ${model} returned non-200:`, errData);
         continue;
       }
 
@@ -157,11 +186,10 @@ Không chèn markdown backticks hay giải thích bên ngoài JSON.`;
     }
   }
 
-  // Graceful fallback to offline rich questions if API failed
   return getOfflineFallbackQuestions(params.topic, params.subject, params.count);
 }
 
-// 2. Client-Side AI Giải Thích & Gia Sư Trực Tuyến (AI Tutor)
+// 2. AI Giải Thích & Gia Sư Trực Tuyến (AI Tutor - TUYỆT ĐỐI TÔN TRỌNG ĐÁP ÁN CỦA GIÁO VIÊN)
 export async function explainQuestionClientSide(params: {
   question: string;
   format?: QuestionFormat;
@@ -175,25 +203,51 @@ export async function explainQuestionClientSide(params: {
 }): Promise<string> {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
+  // Ưu tiên gọi qua Backend /api/ai/explain trước
+  try {
+    const serverRes = await fetch('/api/ai/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...params, apiKey: apiKey || undefined })
+    });
+    if (serverRes.ok) {
+      const serverData = await serverRes.json();
+      if (serverData?.explanation && String(serverData.explanation).trim()) {
+        return String(serverData.explanation).trim();
+      }
+    }
+  } catch (e) {
+    console.warn('Backend /api/ai/explain fallback to client:', e);
+  }
+
   if (!apiKey) {
     return generateOfflineExplanation(params);
   }
 
-  const prompt = `Bạn là chuyên gia sư phạm THPT luyện thi tốt nghiệp Quốc gia. Hãy hướng dẫn giải chi tiết, rõ ràng và dễ hiểu cho câu hỏi sau (sử dụng LaTeX $...$ cho công thức toán lý hóa):
+  const correctLetter = typeof params.correct === 'number' && params.correct >= 0 ? String.fromCharCode(65 + params.correct) : 'A';
+  const correctOptText = params.opts && typeof params.correct === 'number' ? params.opts[params.correct] || '' : '';
+
+  const prompt = `Bạn là Giáo sư - Chuyên gia Sư phạm THPT hàng đầu thế giới luyện thi Tốt nghiệp Quốc gia (GDPT 2018).
+Hãy hướng dẫn giải chi tiết, sắc bén, chuẩn xác 100% và dễ hiểu cho câu hỏi sau (sử dụng LaTeX $...$ cho mọi công thức Toán, Lý, Hóa, Sinh):
+
 Nội dung câu hỏi: ${params.question}
 Dạng thức câu hỏi: ${params.format || 'MULTIPLE_CHOICE'}
-${params.opts && typeof params.correct === 'number' ? `4 đáp án: ${JSON.stringify(params.opts)}\nĐáp án đúng: ${params.opts[params.correct] || ''}` : ''}
-${params.tfItems ? `Mệnh đề Đúng/Sai: ${JSON.stringify(params.tfItems)}` : ''}
-${params.shortAnswer ? `Đáp án đúng (trả lời ngắn): ${params.shortAnswer}` : ''}
-${params.rightCount !== undefined ? `Thống kê câu này: ${params.rightCount} học sinh trả lời đúng, ${params.wrongCount || 0} học sinh trả lời sai.` : ''}
+${params.opts && typeof params.correct === 'number' ? `4 phương án: ${JSON.stringify(params.opts)}\nĐÁP ÁN ĐÚNG CHÍNH THỨC CỦA GIÁO VIÊN LÀ: Phương án ${correctLetter} ("${correctOptText}")` : ''}
+${params.tfItems ? `ĐÁP ÁN ĐÚNG/SAI CHÍNH THỨC CỦA GIÁO VIÊN CHO 4 MỆNH ĐỀ LÀ: ${JSON.stringify(params.tfItems.map(t => `${t.label}) ${t.text} -> ${t.isCorrect ? 'ĐÚNG' : 'SAI'}`))}` : ''}
+${params.shortAnswer ? `ĐÁP ÁN ĐÚNG CHÍNH THỨC CỦA GIÁO VIÊN (Trả lời ngắn): ${params.shortAnswer}` : ''}
+${params.rightCount !== undefined ? `Thống kê lớp học: ${params.rightCount} học sinh trả lời đúng, ${params.wrongCount || 0} học sinh trả lời sai.` : ''}
+
+QUY TẮC SỐNG CÒN BẮT BUỘC:
+1. Đáp án chính thức của Giáo viên cung cấp ở trên là CHÂN LÝ TUYỆT ĐỐI 100%. Bạn TUYỆT ĐỐI KHÔNG BAO GIỜ được bác bỏ, nghi ngờ hay báo đáp án của Giáo viên là sai!
+2. Nhiệm vụ của bạn là dùng kiến thức khoa học, công thức Toán/Lý/Hóa/Sinh, số liệu bảng biểu/bản đồ Địa lý để CHỨNG MINH VÀ GIẢI THÍCH TẠI SAO đáp án của Giáo viên hoàn toàn chính xác.
 
 Trình bày theo 4 phần rõ ràng:
-🎯 Bản chất lý thuyết & Các bước giải chi tiết:
-⚠️ Bẫy sai thường gặp trong đề thi tốt nghiệp:
-💡 Mẹo giải nhanh / Phương pháp tư duy 10 giây:
-📊 Đánh giá mức độ câu hỏi:`;
+🎯 Bản chất khoa học & Chứng minh chi tiết vì sao đáp án của Giáo viên chính xác:
+⚠️ Bẫy sai thường gặp khiến học sinh chọn nhầm phương án nhiễu:
+💡 Công thức / Mẹo giải nhanh trong 10 giây:
+📊 Đánh giá mức độ tư duy câu hỏi:`;
 
-  const modelsToTry = [PRIMARY_MODEL, SECONDARY_MODEL];
+  const modelsToTry = ['gemini-3-flash-preview', PRIMARY_MODEL];
   for (const model of modelsToTry) {
     try {
       const url = `${API_URL_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -205,8 +259,7 @@ Trình bày theo 4 phần rõ ràng:
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ chấm điểm tự luận / giải thích
-            temperature: 0.2,
+            temperature: 0.15,
           },
         }),
       });
@@ -228,7 +281,7 @@ Trình bày theo 4 phần rõ ràng:
   return generateOfflineExplanation(params);
 }
 
-// 3. Client-Side AI Bóc Tách Đề / OCR với khả năng nhận diện công thức LaTeX và sơ đồ
+// 3. AI Bóc Tách Đề Đa Phương Tiện (OCR Hình ảnh, Sơ đồ, Bản đồ Địa lý, Bảng số liệu, Công thức Toán Lý Hóa Sinh & Nhận diện Gạch chân = Đúng)
 export async function parseDocClientSide(params: {
   textContent?: string;
   imageBase64?: string;
@@ -237,17 +290,61 @@ export async function parseDocClientSide(params: {
 }): Promise<QuizItem[]> {
   const apiKey = params.apiKey || getStoredGeminiKey();
 
+  // Nếu là văn bản HTML/Text dán vào và bộ Parser nội bộ đã nhận diện được câu hỏi kèm gạch chân/bảng biểu -> ưu tiên xử lý tức thì hoặc kết hợp AI
   if (params.textContent && !params.imageBase64) {
-    const directParsed = parseHTMLToQuiz(params.textContent, undefined, params.textContent);
-    if (directParsed && directParsed.length > 0 && !apiKey) {
-      return directParsed;
-    }
-    if (!apiKey) {
+    const directParsed = parseHTMLToQuiz(params.textContent);
+    if (directParsed && directParsed.length > 0) {
       return directParsed;
     }
   }
 
+  // Ưu tiên gọi qua Backend /api/ai/parse-doc (có sẵn GEMINI_API_KEY của Server)
+  try {
+    const serverRes = await fetch('/api/ai/parse-doc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        textContent: params.textContent,
+        imageBase64: params.imageBase64,
+        mimeType: params.mimeType || 'image/jpeg',
+        apiKey: apiKey || undefined
+      })
+    });
+    if (serverRes.ok) {
+      const serverData = await serverRes.json();
+      const parsed = serverData?.questions;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item: any, i: number) => ({
+          qid: i,
+          q: cleanQuestionTitleText(item.q || item.question || ''),
+          format: item.format || 'MULTIPLE_CHOICE',
+          opts: Array.isArray(item.opts || item.options)
+            ? (item.opts || item.options).map((o: any) =>
+                String(o || '').replace(/^[A-D][\.\:\)\/]\s*/i, '').trim()
+              )
+            : [],
+          correct:
+            typeof item.correct === 'number'
+              ? item.correct
+              : typeof item.correct === 'string' && /^[A-D]$/i.test(item.correct.trim())
+              ? item.correct.trim().toUpperCase().charCodeAt(0) - 65
+              : 0,
+          tfItems: item.tfItems || [],
+          shortAnswer: item.shortAnswer || '',
+          explanation: item.explanation || '',
+          rightCount: 0,
+          wrongCount: 0,
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn('Backend /api/ai/parse-doc fallback to client:', e);
+  }
+
   if (!apiKey) {
+    if (params.textContent) {
+      return parseHTMLToQuiz(params.textContent);
+    }
     throw new Error('Chưa cài đặt Gemini API Key. Vui lòng bấm biểu tượng ⚙️ ở góc trên để dán API Key miễn phí từ Google AI Studio!');
   }
 
@@ -256,15 +353,27 @@ export async function parseDocClientSide(params: {
     parts.push({
       inlineData: {
         mimeType: params.mimeType || 'image/jpeg',
-        data: params.imageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
+        data: params.imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, ''),
       },
     });
     parts.push({
-      text: 'Hãy đọc ảnh chụp trang sách / đề kiểm tra này và bóc tách toàn bộ câu hỏi trắc nghiệm thành danh sách câu hỏi chuẩn GDPT 2018. Mọi công thức Toán, Lý, Hóa, Sinh hãy chuyển về dạng LaTeX chuẩn kẹp trong $...$.',
+      text: `Bạn là Hệ thống AI Nhận diện Đề thi Đa phương tiện (OCR & STEM Parser) thông minh nhất thế giới.
+Hãy đọc ảnh chụp đề thi / trang sách này và bóc tách triệt để 100% câu hỏi trắc nghiệm chuẩn GDPT 2018 theo các quy tắc sống còn sau:
+1. QUY TẮC GẠCH CHÂN = ĐÚNG, KHÔNG GẠCH CHÂN = SAI:
+   - Ở cả Dạng I (4 lựa chọn A, B, C, D) và Dạng II (Đúng/Sai 4 ý a, b, c, d): Bất kỳ phương án hoặc mệnh đề nào có ĐƯỜNG GẠCH CHÂN ở dưới chữ (hoặc khoanh tròn / tô đỏ / đánh dấu *) thì MẶC ĐỊNH LÀ ĐÁP ÁN ĐÚNG (isCorrect: true). Phương án / mệnh đề KHÔNG gạch chân thì MẶC ĐỊNH LÀ SAI (isCorrect: false).
+   - Tuyệt đối tôn trọng đáp án gạch chân của giáo viên trên ảnh! Chỉ khi câu hỏi hoàn toàn không có gạch chân/đánh dấu nào thì bạn mới tự giải toán/khoa học để tìm đáp án đúng.
+2. NHẬN DIỆN TRIỆT ĐỂ CÔNG THỨC TOÁN, LÝ, HÓA, SINH:
+   - Chuyển toàn bộ công thức Toán học, Vật lý, phương trình Hóa học, phép lai Sinh học sang chuẩn LaTeX kẹp trong $...$ (ví dụ: $\\frac{a}{b}$, $\\sqrt{x}$, $H_2SO_4$, $Fe^{3+}$).
+3. NHẬN DIỆN TRIỆT ĐỂ BẢNG SỐ LIỆU, SƠ ĐỒ, BẢN ĐỒ ĐỊA LÝ:
+   - Nếu câu hỏi có BẢNG SỐ LIỆU (Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê), BẮT BUỘC dựng lại đầy đủ bảng đó bằng mã HTML <table class="stem-data-table"><tr><th>...</th></tr><tr><td>...</td></tr></table> đặt ngay trong trường "q".
+   - Nếu câu hỏi có Hình vẽ, Sơ đồ thí nghiệm, Đồ thị hàm số hoặc Bản đồ Địa lý, hãy mô tả chi tiết các dữ kiện trên hình/bản đồ trong ngoặc vuông [Hình/Bản đồ: ...] ngay trong trường "q".`,
     });
   } else if (params.textContent) {
     parts.push({
-      text: `Hãy phân tích văn bản sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018 (giữ nguyên công thức toán lý hóa kẹp trong $...$):\n\n${params.textContent}`,
+      text: `Hãy phân tích văn bản/HTML sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018.
+QUY TẮC SỐNG CÒN:
+1. Mặc định các phương án / mệnh đề có gạch chân (<u>...</u>, text-decoration: underline, hoặc dấu *) là ĐÚNG (isCorrect: true), không gạch chân là SAI (isCorrect: false) cho cả Dạng I (nhiều lựa chọn) và Dạng II (Đúng/Sai).
+2. Giữ nguyên 100% công thức toán lý hóa sinh ($...$), bảng số liệu (<table class="stem-data-table">...</table>) và hình ảnh/sơ đồ/bản đồ:\n\n${params.textContent}`,
     });
   }
 
@@ -272,7 +381,7 @@ export async function parseDocClientSide(params: {
     text: `Yêu cầu trả về JSON thuần túy (mảng các object):
 [
   {
-    "q": "Nội dung câu hỏi (kẹp công thức trong $...$)...",
+    "q": "Nội dung câu hỏi (kẹp công thức trong $...$, giữ nguyên <table class='stem-data-table'>...</table> nếu có bảng số liệu)...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
     "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
@@ -288,7 +397,7 @@ export async function parseDocClientSide(params: {
 ]`,
   });
 
-  const modelsToTry = [PRIMARY_MODEL, SECONDARY_MODEL];
+  const modelsToTry = ['gemini-3-flash-preview', PRIMARY_MODEL];
   for (const model of modelsToTry) {
     try {
       const url = `${API_URL_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -300,8 +409,7 @@ export async function parseDocClientSide(params: {
         body: JSON.stringify({
           contents: [{ parts }],
           generationConfig: {
-            // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ bóc tách & chấm điểm đề thi
-            temperature: 0.2,
+            temperature: 0.15,
             responseMimeType: 'application/json',
           },
         }),
@@ -344,7 +452,7 @@ export async function parseDocClientSide(params: {
   }
 
   if (params.textContent) {
-    return parseHTMLToQuiz(params.textContent, undefined, params.textContent);
+    return parseHTMLToQuiz(params.textContent);
   }
   return [];
 }
@@ -363,34 +471,35 @@ function generateOfflineExplanation(params: {
   rightCount?: number;
   wrongCount?: number;
 }): string {
+  const correctLetter = typeof params.correct === 'number' && params.correct >= 0 ? String.fromCharCode(65 + params.correct) : 'A';
   const correctOptText = params.opts && typeof params.correct === 'number' ? params.opts[params.correct] : '';
   const qClean = cleanQuestionTitleText(params.question);
 
   let explanation = `📌 **HƯỚNG DẪN GIẢI CHI TIẾT & PHÂN TÍCH (CHUẨN GDPT 2018):**\n\n`;
 
   if (params.format === 'TRUE_FALSE' && params.tfItems) {
-    explanation += `🎯 **Bản chất kiến thức từng ý:**\n`;
+    explanation += `🎯 **Đáp án chính thức của Giáo viên & Bản chất kiến thức từng ý:**\n`;
     params.tfItems.forEach(tf => {
-      explanation += `• **Ý ${tf.label.toUpperCase()} (${tf.isCorrect ? 'ĐÚNG' : 'SAI'}):** ${tf.text}\n`;
+      explanation += `• **Ý ${tf.label.toUpperCase()} — ${tf.isCorrect ? 'ĐÚNG (Gạch chân)' : 'SAI (Không gạch chân)'}:** ${tf.text}\n`;
     });
-    explanation += `\n⚠️ **Bẫy sai học sinh dễ nhầm:** Đọc sót các từ phủ định hoặc điều kiện giới hạn trong từng mệnh đề.\n`;
-    explanation += `💡 **Mẹo giải nhanh:** Xét tính đúng/sai độc lập cho từng mệnh đề, bám sát sách giáo khoa Kết nối tri thức.`;
+    explanation += `\n⚠️ **Bẫy sai học sinh dễ nhầm:** Đọc sót các từ khóa điều kiện, số liệu trong bảng/bản đồ hoặc nhầm lẫn chiều biến thiên.\n`;
+    explanation += `💡 **Mẹo giải nhanh:** Xét tính đúng/sai độc lập cho từng mệnh đề a, b, c, d dựa trên dữ kiện đề bài và kiến thức chuẩn SGK.`;
     return explanation;
   }
 
   if (params.format === 'SHORT_ANSWER') {
-    explanation += `🎯 **Đáp án chính xác:** **${params.shortAnswer || 'Xem lại dữ liệu đề'}**\n`;
-    explanation += `🔍 **Vì sao đúng:** Áp dụng định nghĩa và công thức tính toán cốt lõi của bài học.\n`;
-    explanation += `⚠️ **Bẫy sai thường gặp:** Nhầm lẫn đơn vị tính hoặc làm tròn số chưa đúng quy tắc toán học.\n`;
-    explanation += `💡 **Mẹo:** Kiểm tra lại phép tính và chỉ điền con số hoặc từ khóa ngắn gọn vào ô trả lời.`;
+    explanation += `🎯 **Đáp án chính xác của Giáo viên:** **${params.shortAnswer || 'Xem lại dữ liệu đề'}**\n`;
+    explanation += `🔍 **Vì sao đúng:** Áp dụng trực tiếp công thức định luật và số liệu trong đề bài để tính ra kết quả **${params.shortAnswer}**.\n`;
+    explanation += `⚠️ **Bẫy sai thường gặp:** Nhầm lẫn đơn vị tính hoặc làm tròn số thập phân chưa đúng quy tắc.\n`;
+    explanation += `💡 **Mẹo:** Kiểm tra kỹ đơn vị trước khi điền số vào ô kết quả.`;
     return explanation;
   }
 
   // MULTIPLE_CHOICE
-  explanation += `🎯 **Vì sao đáp án đúng là chính xác:**\n`;
-  explanation += `Phương án **${correctOptText}** phản ánh đúng định luật và bản chất kiến thức cơ bản của chủ đề "${qClean}".\n\n`;
-  explanation += `⚠️ **Bẫy sai học sinh dễ nhầm:** Các phương án còn lại là phương án nhiễu, thường đúng một phần nhưng thiếu điều kiện bắt buộc.\n\n`;
-  explanation += `💡 **Mẹo nhớ nhanh:** Tập trung vào các từ khóa mang tính chất cốt lõi để loại trừ các đáp án sai trong 5 giây đầu.`;
+  explanation += `🎯 **Đáp án chính xác của Giáo viên là Phương án ${correctLetter} (${correctOptText}):**\n`;
+  explanation += `Phương án **${correctLetter}. ${correctOptText}** hoàn toàn chính xác theo đúng định luật khoa học và dữ kiện của câu hỏi "${qClean}".\n\n`;
+  explanation += `⚠️ **Vì sao các phương án khác là phương án nhiễu:** Các lựa chọn còn lại đưa ra thông tin chưa đầy đủ hoặc sai lệch về bản chất/số liệu.\n\n`;
+  explanation += `💡 **Mẹo nhớ nhanh:** Nắm vững từ khóa trọng tâm và công thức cốt lõi để xác định ngay đáp án **${correctLetter}** trong 5 giây.`;
 
   if (params.rightCount !== undefined && params.wrongCount !== undefined && (params.rightCount > 0 || params.wrongCount > 0)) {
     explanation += `\n\n📊 **Thống kê lớp học:** Đã có ${params.rightCount} bạn làm đúng và ${params.wrongCount} bạn làm sai ở câu này.`;

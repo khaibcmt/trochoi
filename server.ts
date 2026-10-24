@@ -83,10 +83,16 @@ app.post('/api/ai/generate-questions', async (req, res) => {
     }
 
     const ai = getGenAIClient(apiKey);
-    const prompt = `Bạn là chuyên gia ra đề thi THPT theo chương trình GDPT 2018 tại Việt Nam.
-Hãy tạo ${count} câu hỏi trắc nghiệm chất lượng cao cho môn "${subject || 'Tổng hợp'}", chủ đề: "${topic}", mức độ nhận thức: "${level}".
-Đa dạng hóa các dạng câu hỏi chuẩn GDPT 2018:
-1. "MULTIPLE_CHOICE": Trắc nghiệm 4 lựa chọn (A, B, C, D) có 1 đáp án đúng duy nhất.
+    const prompt = `Bạn là Hội đồng Chuyên gia Giáo dục và Thẩm định Đề thi Quốc gia cấp THPT hàng đầu thế giới theo chương trình GDPT 2018 tại Việt Nam (SGK Kết nối tri thức với cuộc sống).
+Hãy tạo ${count} câu hỏi trắc nghiệm chuẩn mực, chính xác tuyệt đối 100% về mặt khoa học cho môn "${subject || 'Tổng hợp'}", chủ đề: "${topic}", mức độ nhận thức: "${level}".
+
+YÊU CẦU ĐẶC BIỆT VỀ CÔNG THỨC TOÁN-LÝ-HÓA-SINH, BẢNG SỐ LIỆU & BẢN ĐỒ ĐỊA LÝ:
+1. Giải kiểm tra từng bước trước khi xuất JSON để đảm bảo đáp án đúng ("correct", "tfItems", "shortAnswer") là chính xác tuyệt đối 100%.
+2. Mọi công thức Toán, Vật lý, Hóa học, Sinh học BẮT BUỘC kẹp trong cặp dấu $...$ (inline LaTeX) hoặc $$...$$ (block LaTeX).
+3. Nếu câu hỏi có bảng số liệu (Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê), hãy nhúng bảng HTML gọn sạch <table class="stem-data-table"><tr><th>...</th></tr><tr><td>...</td></tr></table> ngay trong trường "q". Nếu có sơ đồ/bản đồ/đồ thị, hãy mô tả rõ trong ngoặc vuông đầu câu dẫn: [Bản đồ...], [Sơ đồ...], [Đồ thị...].
+
+Đa dạng hóa 3 dạng thức chuẩn GDPT 2018:
+1. "MULTIPLE_CHOICE": Trắc nghiệm 4 lựa chọn (A, B, C, D) có 1 đáp án đúng duy nhất ("correct": 0..3).
 2. "TRUE_FALSE": Câu hỏi đúng/sai chùm 4 ý a, b, c, d (mỗi ý có nội dung mệnh đề và đáp án boolean true/false).
 3. "SHORT_ANSWER": Câu hỏi trả lời ngắn (học sinh điền số hoặc từ khóa ngắn gọn).
 
@@ -104,17 +110,16 @@ Trả về định dạng JSON thuần túy (mảng các object):
       { "label": "d", "text": "Mệnh đề 4...", "isCorrect": false }
     ],
     "shortAnswer": "12.5",
-    "explanation": "Giải thích ngắn gọn tại sao đáp án đúng..."
+    "explanation": "Giải thích chi tiết từng bước tại sao đáp án đúng..."
   }
 ]
 Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        // HOTFIX 3.2: Đặt temperature: 0.3 cho tác vụ tạo câu hỏi để giảm thiểu ảo giác
-        temperature: 0.3,
+        temperature: 0.25,
         responseMimeType: 'application/json',
       },
     });
@@ -128,7 +133,7 @@ Không chèn markdown backticks hay giải thích thêm ngoài JSON.`;
   }
 });
 
-// 2. Bóc tách đề từ văn bản hoặc hình ảnh chụp (OCR & Document Parsing)
+// 2. Bóc tách đề từ văn bản hoặc hình ảnh chụp (OCR Đa phương tiện: Sơ đồ, Bản đồ Địa lý, Bảng số liệu, Công thức Toán Lý Hóa Sinh & Gạch chân = Đúng)
 app.post('/api/ai/parse-doc', async (req, res) => {
   try {
     const { textContent, imageBase64, mimeType = 'image/jpeg', apiKey } = req.body;
@@ -138,15 +143,27 @@ app.post('/api/ai/parse-doc', async (req, res) => {
       parts.push({
         inlineData: {
           mimeType: mimeType,
-          data: imageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
+          data: imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, ''),
         },
       });
       parts.push({
-        text: 'Hãy đọc ảnh chụp trang sách / đề kiểm tra này và bóc tách toàn bộ các câu hỏi trắc nghiệm thành danh sách câu hỏi chuẩn GDPT 2018.',
+        text: `Bạn là Hệ thống AI Nhận diện Đề thi Đa phương tiện (OCR & STEM Parser) thông minh nhất thế giới.
+Hãy đọc ảnh chụp trang sách / đề kiểm tra này và bóc tách toàn bộ các câu hỏi trắc nghiệm thành danh sách câu hỏi chuẩn GDPT 2018 theo các quy tắc sống còn:
+1. QUY TẮC GẠCH CHÂN = ĐÚNG, KHÔNG GẠCH CHÂN = SAI:
+   - Áp dụng cho cả Dạng I (4 lựa chọn A, B, C, D) và Dạng II (Đúng/Sai 4 ý a, b, c, d): Bất kỳ phương án hoặc mệnh đề nào có ĐƯỜNG GẠCH CHÂN dưới chữ (hoặc khoanh tròn / tô màu / đánh dấu *) thì MẶC ĐỊNH LÀ ĐÚNG (isCorrect: true). Không gạch chân thì MẶC ĐỊNH LÀ SAI (isCorrect: false).
+   - Tuyệt đối tôn trọng đáp án gạch chân của giáo viên!
+2. CÔNG THỨC TOÁN, VẬT LÝ, HÓA HỌC, SINH HỌC:
+   - Chuyển toàn bộ công thức Toán, Lý, Hóa, Sinh về chuẩn LaTeX kẹp trong cặp dấu $...$ (ví dụ $\\frac{a}{b}$, $\\sqrt{x}$, $H_2SO_4$, $Fe^{3+}$).
+3. BẢNG SỐ LIỆU, HÌNH ẢNH, SƠ ĐỒ, BẢN ĐỒ ĐỊA LÝ:
+   - Nếu trong ảnh có BẢNG SỐ LIỆU (Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê), BẮT BUỘC dựng lại đầy đủ bảng đó bằng HTML <table class="stem-data-table"><tr><th>...</th></tr><tr><td>...</td></tr></table> đặt ngay trong trường "q".
+   - Nếu có Hình ảnh, Sơ đồ thí nghiệm, Đồ thị hoặc Bản đồ Địa lý, hãy trích xuất toàn bộ số liệu/ký hiệu trên hình/bản đồ và đặt trong [Hình/Bản đồ: ...] ngay trong trường "q".`,
       });
     } else if (textContent) {
       parts.push({
-        text: `Hãy phân tích đoạn văn bản sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018:\n\n${textContent}`,
+        text: `Hãy phân tích đoạn văn bản/HTML sau và trích xuất thành danh sách câu hỏi trắc nghiệm chuẩn GDPT 2018.
+QUY TẮC BẮT BUỘC:
+1. Mặc định các đáp án/mệnh đề có gạch chân (<u>...</u>, style underline, hoặc dấu *) là ĐÚNG (isCorrect: true), không gạch chân là SAI (isCorrect: false) cho cả Dạng I và Dạng II.
+2. Giữ nguyên 100% công thức LaTeX ($...$) và bảng số liệu (<table class="stem-data-table">...</table>):\n\n${textContent}`,
       });
     } else {
       return res.status(400).json({ error: 'No text or image provided' });
@@ -156,9 +173,9 @@ app.post('/api/ai/parse-doc', async (req, res) => {
       text: `Yêu cầu trả về JSON thuần túy (mảng các object):
 [
   {
-    "q": "Nội dung câu hỏi...",
+    "q": "Nội dung câu hỏi (kèm công thức $...$ hoặc <table class='stem-data-table'>...</table> nếu có)...",
     "format": "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER",
-    "opts": ["A. ...", "B. ...", "C. ...", "D. ..."],
+    "opts": ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
     "correct": 0,
     "tfItems": [
       { "label": "a", "text": "...", "isCorrect": true },
@@ -174,11 +191,10 @@ app.post('/api/ai/parse-doc', async (req, res) => {
 
     const ai = getGenAIClient(apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: { parts },
       config: {
-        // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ bóc tách / chấm điểm ổn định
-        temperature: 0.2,
+        temperature: 0.15,
         responseMimeType: 'application/json',
       },
     });
@@ -192,32 +208,35 @@ app.post('/api/ai/parse-doc', async (req, res) => {
   }
 });
 
-// 3. AI Giải thích đáp án trực tiếp (AI Tutor on-screen)
+// 3. AI Giải thích đáp án trực tiếp (AI Tutor on-screen - Tuyệt đối tôn trọng đáp án của Giáo viên)
 app.post('/api/ai/explain', async (req, res) => {
   try {
     const { question, format, opts, correct, tfItems, shortAnswer, wrongCount = 0, rightCount = 0, apiKey } = req.body;
+    const correctLetter = typeof correct === 'number' && correct >= 0 ? String.fromCharCode(65 + correct) : 'A';
+    const correctOptText = Array.isArray(opts) && typeof correct === 'number' ? opts[correct] || '' : '';
 
-    const prompt = `Bạn là giáo viên giàu kinh nghiệm đang giảng bài trực tiếp trên máy chiếu lớp học.
-Hãy giải thích ngắn gọn, súc tích (khoảng 3–5 câu gạch đầu dòng), sinh động cho câu hỏi sau đây:
+    const prompt = `Bạn là Giáo sư - Chuyên gia Sư phạm THPT hàng đầu thế giới đang giảng bài trực tiếp trên máy chiếu lớp học.
+Hãy giải thích rõ ràng, chuẩn xác 100%, sinh động cho câu hỏi sau đây (sử dụng LaTeX $...$ cho mọi công thức Toán, Lý, Hóa, Sinh):
 Câu hỏi: ${question}
 Dạng thức: ${format || 'MULTIPLE_CHOICE'}
-${opts ? `Các phương án: ${JSON.stringify(opts)}\nĐáp án đúng chỉ số: ${correct} (${opts[correct]})` : ''}
-${tfItems ? `Các ý Đúng/Sai: ${JSON.stringify(tfItems)}` : ''}
-${shortAnswer ? `Đáp án ngắn đúng: ${shortAnswer}` : ''}
+${opts ? `Các phương án: ${JSON.stringify(opts)}\nĐÁP ÁN ĐÚNG CHÍNH THỨC CỦA GIÁO VIÊN LÀ: Phương án ${correctLetter} ("${correctOptText}")` : ''}
+${tfItems ? `ĐÁP ÁN ĐÚNG/SAI CHÍNH THỨC CỦA GIÁO VIÊN CHO 4 MỆNH ĐỀ LÀ: ${JSON.stringify(tfItems)}` : ''}
+${shortAnswer ? `ĐÁP ÁN NGẮN ĐÚNG CHÍNH THỨC CỦA GIÁO VIÊN LÀ: ${shortAnswer}` : ''}
 Thống kê lớp học vừa rồi: ${rightCount} học sinh làm ĐÚNG, ${wrongCount} học sinh làm SAI.
 
-Hãy chỉ rõ:
-- Vì sao phương án đúng là chính xác (bản chất kiến thức/công thức).
-- Lỗi sai phổ biến mà các bạn học sinh thường mắc phải.
-- Mẹo ghi nhớ nhanh để không bao giờ bị bẫy ở câu này nữa.`;
+QUY TẮC SỐNG CÒN:
+- Đáp án của Giáo viên cung cấp ở trên là CHÂN LÝ TUYỆT ĐỐI 100%. Bạn TUYỆT ĐỐI KHÔNG BAO GIỜ được báo đáp án của Giáo viên là sai!
+- Hãy chứng minh và giải thích mạch lạc:
+  🎯 Vì sao đáp án của Giáo viên là hoàn toàn chính xác (bản chất định luật/công thức/số liệu bảng biểu).
+  ⚠️ Lỗi sai hoặc bẫy phổ biến mà học sinh thường mắc phải.
+  💡 Mẹo ghi nhớ nhanh trong 5 giây.`;
 
     const ai = getGenAIClient(apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        // HOTFIX 3.2: Đặt temperature: 0.2 cho tác vụ chấm điểm / giải thích tự luận
-        temperature: 0.2,
+        temperature: 0.15,
       },
     });
 

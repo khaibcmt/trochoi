@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import { stripWordStyleGarbage } from '../data/defaultSubjects';
+import { stripWordStyleGarbage, normalizeWordMathUnicode } from '../data/defaultSubjects';
 
 interface Props {
   text: string;
@@ -10,39 +10,62 @@ interface Props {
 }
 
 /**
- * Preprocess STEM texts for Math, Physics, Chemistry, Biology:
- * 1. Wraps bare LaTeX commands like \frac, \sqrt, \vec, \alpha, \int, \sum, \lim that miss $...$
- * 2. Normalizes chemistry reaction arrows (->, <=>, \rightleftharpoons)
- * 3. Formats common chemical formulas (H2SO4, CaCO3, Fe3+, etc.)
- * 4. Extracts or normalizes diagram and image references
+ * Tự động định dạng công thức Hóa học / Sinh học / Vật lý cơ bản (VD: H2SO4, Ca(OH)2, Fe3+, CO2, O2, N2, C6H12O6)
+ * khi nằm ngoài thẻ HTML và ngoài cặp dấu $...$
+ */
+function formatChemicalSubscriptsOutsideTags(input: string): string {
+  // Bảo vệ các thẻ HTML (<table...>, <img...>, <sub...>, <sup...>, <span...>) để không chạm vào thuộc tính src/style
+  const parts = input.split(/(<[^>]+>)/g);
+  return parts
+    .map(part => {
+      if (part.startsWith('<')) return part;
+      return part
+        // VD: Ca(OH)2, Fe2(SO4)3 -> đóng ngoặc kèm chỉ số dưới
+        .replace(/(\([A-Z][a-zA-Z0-9]*\))(\d{1,2})\b/g, '$1<sub>$2</sub>')
+        // VD: H2SO4, C6H12O6, CO2, H2O, O2, N2, Cl2, NH3, CH4, Al2O3, Fe3O4, AgNO3, BaSO4, CaCO3
+        .replace(
+          /\b(H|He|Li|Be|B|C|N|O|F|Ne|Na|Mg|Al|Si|P|S|Cl|Ar|K|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr|Rb|Sr|Ag|Cd|Sn|Sb|I|Xe|Cs|Ba|Pt|Au|Hg|Pb|Bi)(\d{1,2})(?=[A-Z(\s.,;?:!)\]]|$)/g,
+          '$1<sub>$2</sub>'
+        )
+        // Lặp thêm 1 lần cho hợp chất nhiều nguyên tố nối tiếp như H2SO4, C6H12O6, CH3COOH
+        .replace(
+          /(<\/sub>|H|C|N|O|S|P|Cl|Br|Na|K|Ca|Mg|Al|Fe|Cu|Zn|Ag|Ba)(\d{1,2})(?=[A-Z(\s.,;?:!)\]]|$)/g,
+          '$1<sub>$2</sub>'
+        );
+    })
+    .join('');
+}
+
+/**
+ * Preprocess STEM texts for Math, Physics, Chemistry, Biology, Geography:
+ * 1. Normalizes Word Unicode Math symbols (𝑥, 𝑦, 𝛼, 𝛽...)
+ * 2. Wraps bare LaTeX commands like \frac, \sqrt, \vec, \alpha, \int, \sum, \lim that miss $...$
+ * 3. Normalizes chemistry reaction arrows (->, <=>, \rightleftharpoons)
+ * 4. Formats common chemical formulas (H2SO4, CaCO3, CO2...)
  */
 export function preprocessSTEMMath(raw: string): string {
   if (!raw) return '';
-  let str = raw;
+  let str = normalizeWordMathUnicode(raw);
 
-  // Normalize chemical arrows if not already inside LaTeX
-  // e.g. "A + B -> C" => "A + B \rightarrow C"
-  str = str.replace(/(\s)-->?(\s)/g, '$1\\rightarrow$2');
-  str = str.replace(/(\s)<=>(\s)/g, '$1\\rightleftharpoons$2');
+  // Normalize chemical arrows if not already inside HTML tags
+  str = str.replace(/(\s)-->?(\s)/g, '$1$\\rightarrow$$2');
+  str = str.replace(/(\s)<=>(\s)/g, '$1$\\rightleftharpoons$$2');
 
   // Detect bare LaTeX commands not enclosed in $...$
-  // Patterns like \frac{...}{...}, \sqrt{...}, \vec{...}, \overline{...}, \int_{...}^{...}, \sum_{...}^{...}
-  const bareLatexRegex = /(?:\\(?:frac\{[^{}]+\}\{[^{}]+\}|sqrt(?:\[[^{}]+\])?\{[^{}]+\}|vec\{[^{}]+\}|overrightarrow\{[^{}]+\}|overline\{[^{}]+\}|int(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|lim_\{[^{}]+\}|sum(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|alpha|beta|gamma|Delta|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Omega|partial|nabla|infty|approx|times|div|pm|leq|geq|neq|equiv|subset|subseteq|in|notin|cup|cap|to|rightarrow|rightleftharpoons|cdot))(?:[^\$\n<>]*)?/g;
+  const bareLatexRegex =
+    /(?:\\(?:frac\{[^{}]+\}\{[^{}]+\}|sqrt(?:\[[^{}]+\])?\{[^{}]+\}|vec\{[^{}]+\}|overrightarrow\{[^{}]+\}|overline\{[^{}]+\}|widehat\{[^{}]+\}|int(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|lim_\{[^{}]+\}|sum(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|alpha|beta|gamma|Delta|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Omega|partial|nabla|infty|approx|times|div|pm|leq|geq|neq|equiv|subset|subseteq|in|notin|cup|cap|to|rightarrow|rightleftharpoons|cdot))(?:[^\$\n<>]*)?/g;
 
-  // Only wrap if not already in $...$ or $$...$$
-  const segments = str.split(/(\$\$[^\$]+\$\$|\$[^\$]+\$)/g);
+  const segments = str.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
   for (let i = 0; i < segments.length; i++) {
-    // If it's not already inside a math delimiter
     if (!segments[i].startsWith('$')) {
-      // Find bare LaTeX commands and wrap them in $...$
-      segments[i] = segments[i].replace(bareLatexRegex, (match) => {
-        // Trim trailing punctuation if caught
+      segments[i] = segments[i].replace(bareLatexRegex, match => {
         const trimmed = match.trim();
         if (trimmed.length > 0) {
           return `$${trimmed}$`;
         }
         return match;
       });
+      segments[i] = formatChemicalSubscriptsOutsideTags(segments[i]);
     }
   }
 
@@ -50,122 +73,101 @@ export function preprocessSTEMMath(raw: string): string {
 }
 
 /**
- * Enhanced Math & STEM Diagram Renderer
+ * Biến đổi mọi khối LaTeX ($$...$$ và $...$) và nhãn sơ đồ [Hình...], [Bản đồ...], [Bảng...]
+ * trực tiếp thành chuỗi HTML hoàn chỉnh để không bao giờ làm đứt gãy cấu trúc thẻ <table>...</table> hay <img>!
+ */
+export function renderSTEMRichHTML(rawText: string): string {
+  const safeText = stripWordStyleGarbage(rawText || '');
+  if (!safeText) return '';
+
+  const processed = preprocessSTEMMath(safeText);
+
+  // 1. Render block LaTeX $$...$$
+  let html = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_m, math) => {
+    try {
+      const rendered = katex.renderToString(String(math || '').trim(), {
+        displayMode: true,
+        throwOnError: false,
+        output: 'htmlAndMathml',
+        strict: false
+      });
+      return `<span class="stem-latex-block inline-block my-1.5 px-2 py-0.5 bg-blue-50/70 rounded border border-blue-200/60">${rendered}</span>`;
+    } catch {
+      return `<span class="font-mono text-amber-700 bg-amber-50 px-1 rounded">$$${math}$$</span>`;
+    }
+  });
+
+  // 2. Render inline LaTeX $...$
+  html = html.replace(/\$([^\$]+?)\$/g, (_m, math) => {
+    try {
+      const rendered = katex.renderToString(String(math || '').trim(), {
+        displayMode: false,
+        throwOnError: false,
+        output: 'htmlAndMathml',
+        strict: false
+      });
+      return `<span class="stem-latex-inline inline-block px-0.5 mx-0.5 rounded">${rendered}</span>`;
+    } catch {
+      return `<span class="font-mono text-amber-700 bg-amber-50 px-1 rounded">$${math}$</span>`;
+    }
+  });
+
+  // 3. Highlight diagram / map / table badges like [Hình 1: ...], [Bản đồ ...], [Sơ đồ ...], [Bảng số liệu ...]
+  html = html.replace(
+    /\[(Hình|Sơ đồ|Đồ thị|Bản đồ|Bảng|Lược đồ|Thí nghiệm)([^\]]*)\]/gi,
+    '<span class="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">🗺️ [$1$2]</span>'
+  );
+
+  return html;
+}
+
+/**
+ * Enhanced Math, STEM Formula, Data Table, Geography Map & Diagram Renderer
  * Safely renders:
- * - Inline LaTeX ($...$) and block LaTeX ($$...$$)
- * - Math, Physics, Chemistry, Biology formulas
- * - Embedded diagrams/images (<img>, SVG, base64) with click-to-zoom
- * - Diagram badges [Hình 1], [Sơ đồ...]
+ * - Inline LaTeX ($...$) and block LaTeX ($$...$$) even inside HTML <table> cells
+ * - Math, Physics, Chemistry, Biology formulas & chemical subscripts
+ * - Data tables (<table class="stem-data-table">) for Geography, Biology, Physics, Math
+ * - Embedded diagrams/maps/images (<img>, SVG, base64) with click-to-zoom
  */
 export const MathRenderer: React.FC<Props> = ({ text, className = '', allowZoom = true }) => {
   const [zoomedImgSrc, setZoomedImgSrc] = useState<string | null>(null);
 
   if (!text) return null;
-  const safeText = stripWordStyleGarbage(text);
-  if (!safeText) return null;
-
-  // Preprocess text to wrap bare LaTeX commands
-  const processedText = preprocessSTEMMath(safeText);
-
-  // Check if text has LaTeX or embedded images/diagrams
-  const hasLatex = /\$([^\$]+)\$|\\(?:frac|sqrt|alpha|beta|gamma|pi|sum|int|le|ge|ne|pm|cdot|vec|rightarrow)/.test(processedText);
-  const hasImage = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/i.test(processedText);
-  const hasDiagramBadge = /\[(?:Hình|Sơ đồ|Đồ thị|Bảng|Thí nghiệm)[^\]]*\]/i.test(processedText);
-
-  if (!hasLatex && !hasImage && !hasDiagramBadge) {
-    return <span className={className} dangerouslySetInnerHTML={{ __html: processedText }} />;
-  }
-
-  // Split by LaTeX delimiters ($$...$$ or $...$)
-  const parts = processedText.split(/(\$\$[^\$]+\$\$|\$[^\$]+\$)/g);
+  const finalHTML = renderSTEMRichHTML(text);
+  if (!finalHTML) return null;
 
   return (
     <>
-      <span className={`stem-math-renderer ${className}`}>
-        {parts.map((part, idx) => {
-          if (part.startsWith('$$') && part.endsWith('$$')) {
-            const math = part.slice(2, -2).trim();
-            try {
-              const html = katex.renderToString(math, {
-                displayMode: true,
-                throwOnError: false,
-                output: 'htmlAndMathml',
-                strict: false
-              });
-              return (
-                <span
-                  key={idx}
-                  className="stem-latex-block inline-block my-1.5 px-2 py-0.5 bg-blue-50/60 dark:bg-blue-950/40 rounded border border-blue-200/50"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
-              );
-            } catch {
-              return <span key={idx} className="font-mono text-amber-700 bg-amber-50 px-1 rounded">{part}</span>;
-            }
-          } else if (part.startsWith('$') && part.endsWith('$')) {
-            const math = part.slice(1, -1).trim();
-            try {
-              const html = katex.renderToString(math, {
-                displayMode: false,
-                throwOnError: false,
-                output: 'htmlAndMathml',
-                strict: false
-              });
-              return (
-                <span
-                  key={idx}
-                  className="stem-latex-inline inline-block px-1 mx-0.5 rounded"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
-              );
-            } catch {
-              return <span key={idx} className="font-mono text-amber-700 bg-amber-50 px-1 rounded">{part}</span>;
-            }
-          } else {
-            // Check for diagram tags or images in plain text
-            let enrichedPart = part;
-
-            // Highlight diagram notes like [Hình 1: ...] or [Sơ đồ ...]
-            enrichedPart = enrichedPart.replace(
-              /\[(Hình|Sơ đồ|Đồ thị|Bảng|Thí nghiệm)([^\]]*)\]/gi,
-              '<span class="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">📊 [$1$2]</span>'
-            );
-
-            // Handle images if any
-            if (hasImage && allowZoom) {
-              return (
-                <span
-                  key={idx}
-                  dangerouslySetInnerHTML={{ __html: enrichedPart }}
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (target && target.tagName === 'IMG') {
-                      const src = (target as HTMLImageElement).src;
-                      if (src) setZoomedImgSrc(src);
-                    }
-                  }}
-                />
-              );
-            }
-
-            return <span key={idx} dangerouslySetInnerHTML={{ __html: enrichedPart }} />;
+      <span
+        className={`stem-math-renderer ${className}`}
+        dangerouslySetInnerHTML={{ __html: finalHTML }}
+        onClick={e => {
+          if (!allowZoom) return;
+          const target = e.target as HTMLElement;
+          if (target && target.tagName === 'IMG') {
+            e.stopPropagation();
+            const src = (target as HTMLImageElement).src;
+            if (src) setZoomedImgSrc(src);
           }
-        })}
-      </span>
+        }}
+      />
 
-      {/* Diagram Fullscreen Zoom Modal */}
+      {/* Diagram / Map Fullscreen Zoom Modal */}
       {zoomedImgSrc && (
         <div
-          className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out"
-          onClick={() => setZoomedImgSrc(null)}
+          className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={e => {
+            e.stopPropagation();
+            setZoomedImgSrc(null);
+          }}
         >
           <div
-            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl p-3 shadow-2xl flex flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-5xl max-h-[92vh] bg-white rounded-2xl p-3 shadow-2xl flex flex-col items-center"
+            onClick={e => e.stopPropagation()}
           >
             <div className="w-full flex justify-between items-center mb-2 px-2">
               <span className="font-black text-slate-800 text-sm flex items-center gap-1.5">
-                🔍 Sơ đồ / Hình ảnh câu hỏi (Phóng to sắc nét)
+                🔍 Hình ảnh / Bản đồ / Sơ đồ câu hỏi (Phóng to sắc nét)
               </span>
               <button
                 type="button"
@@ -178,7 +180,7 @@ export const MathRenderer: React.FC<Props> = ({ text, className = '', allowZoom 
             <img
               src={zoomedImgSrc}
               alt="Diagram preview"
-              className="max-w-full max-h-[80vh] object-contain rounded-xl border border-slate-200"
+              className="max-w-full max-h-[82vh] object-contain rounded-xl border border-slate-200"
             />
           </div>
         </div>
@@ -186,3 +188,4 @@ export const MathRenderer: React.FC<Props> = ({ text, className = '', allowZoom 
     </>
   );
 };
+

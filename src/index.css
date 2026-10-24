@@ -1588,3 +1588,60 @@ body, html {
   background: #f59e0b;
 }
 
+/* ========================================================
+   BẢNG SỐ LIỆU (.stem-data-table) & HÌNH ẢNH / SƠ ĐỒ / BẢN ĐỒ (.stem-inline-img)
+   ======================================================== */
+.stem-data-table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1.5px solid #38bdf8;
+}
+
+#teacher-view .stem-data-table {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1.5px solid #64748b;
+}
+
+.stem-data-table th,
+.stem-data-table td {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 5px 8px;
+  text-align: center;
+}
+
+#teacher-view .stem-data-table th,
+#teacher-view .stem-data-table td {
+  border: 1px solid #94a3b8;
+}
+
+.stem-data-table th {
+  background: rgba(2, 132, 199, 0.45);
+  color: #fef08a;
+  font-weight: 900;
+}
+
+#teacher-view .stem-data-table th {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.stem-inline-img {
+  cursor: zoom-in;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stem-inline-img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.45);
+}
+
+

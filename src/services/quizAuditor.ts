@@ -29,9 +29,13 @@ export interface QuizAuditSummary {
 
 /**
  * Validates LaTeX formulas for unmatched brackets or malformed commands
+ * (Strips HTML <table> and <img> tags first so CSS/HTML attributes never trigger false LaTeX warnings)
  */
-function checkFormulaErrors(text: string): string | null {
-  if (!text) return null;
+function checkFormulaErrors(rawText: string): string | null {
+  if (!rawText) return null;
+  const text = rawText
+    .replace(/<table[\s\S]*?<\/table>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
 
   // Check unclosed $ delimiters
   const singleDollarCount = (text.match(/(?<!\$)\$(?!\$)/g) || []).length;
@@ -39,17 +43,19 @@ function checkFormulaErrors(text: string): string | null {
     return 'Dấu đô la kẹp công thức ($) chưa được đóng khép kín (số lượng dấu $ bị lẻ).';
   }
 
-  // Check curly brace balance inside LaTeX parts
-  let depth = 0;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') depth++;
-    if (text[i] === '}') depth--;
-    if (depth < 0) {
-      return 'Thừa dấu đóng ngoặc nhọn "}" trong công thức LaTeX.';
+  // Only check curly braces if the text actually contains LaTeX commands or $ delimiters
+  if (text.includes('$') || /\\(?:frac|sqrt|vec|sum|int|lim)/.test(text)) {
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth < 0) {
+        return 'Thừa dấu đóng ngoặc nhọn "}" trong công thức LaTeX.';
+      }
     }
-  }
-  if (depth > 0) {
-    return 'Thiếu dấu đóng ngoặc nhọn "}" trong công thức LaTeX (chưa khép kín).';
+    if (depth > 0) {
+      return 'Thiếu dấu đóng ngoặc nhọn "}" trong công thức LaTeX (chưa khép kín).';
+    }
   }
 
   // Check broken \frac missing arguments
@@ -64,6 +70,7 @@ function checkFormulaErrors(text: string): string | null {
  * AI Question Auditor & Error Doctor
  * Thoroughly inspects every question in the quiz list and generates a structured report
  * specifying: Câu số mấy, Bị lỗi gì, Cách sửa lỗi, và Hỗ trợ tự sửa 1-Click.
+ * TUYỆT ĐỐI TÔN TRỌNG ĐÁP ÁN ĐÚNG CỦA GIÁO VIÊN (Không bao giờ báo đáp án của Giáo viên là lỗi!)
  */
 export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
   const issues: QuestionAuditIssue[] = [];
@@ -86,7 +93,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
     const qTitle = (q.q || '').trim();
 
     // 1. Kiểm tra tiêu đề câu hỏi
-    if (!qTitle || qTitle.length < 5) {
+    if (!qTitle || qTitle.length < 3) {
       issues.push({
         id: `err_title_${idx}`,
         qid: idx,
@@ -96,7 +103,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
         severity: 'CRITICAL',
         errorType: 'EMPTY_QUESTION',
         badgeLabel: '🔴 Trống đề',
-        description: 'Nội dung câu hỏi đang để trống hoặc quá ngắn (dưới 5 ký tự).',
+        description: 'Nội dung câu hỏi đang để trống hoặc quá ngắn.',
         howToFix: 'Bấm vào câu này và nhập đầy đủ phần dẫn đề bài toán/câu hỏi trước các phương án.',
         autoFixable: true,
       });
@@ -141,21 +148,6 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
 
     // 4. Kiểm tra theo từng Dạng thức THPT 2018 (kèm cảnh báo dòng cụ thể từ Parser nếu có)
     const linePrefix = q.sourceLine ? `[Dòng ${q.sourceLine}] ` : '';
-    if (q.parseWarning) {
-      issues.push({
-        id: `err_parse_warn_${idx}`,
-        qid: idx,
-        questionNumber: qNum,
-        questionTitle: qTitle,
-        format,
-        severity: 'WARNING',
-        errorType: 'PARSE_LINE_WARNING',
-        badgeLabel: q.sourceLine ? `🟡 Cảnh báo Dòng ${q.sourceLine}` : '🟡 Cảnh báo cú pháp',
-        description: `${linePrefix}${q.parseWarning}`,
-        howToFix: 'Kiểm tra lại dòng câu hỏi tương ứng hoặc bấm "⚡ AI Tự Động Sửa" để chuẩn hóa đủ 4 phương án và đáp án đúng.',
-        autoFixable: true,
-      });
-    }
 
     if (format === 'MULTIPLE_CHOICE') {
       const opts = q.opts || [];
@@ -203,8 +195,8 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           severity: 'CRITICAL',
           errorType: 'NO_CORRECT_ANSWER',
           badgeLabel: '🔴 Chưa chọn ĐA đúng',
-          description: `${linePrefix}Chưa có đáp án đúng nào được chọn hoặc gạch chân cho câu hỏi 4 lựa chọn này.`,
-          howToFix: 'Bôi đen phương án đúng rồi bấm nút "U Gạch chân ĐA", hoặc bấm chọn trực tiếp vào phương án đúng trong bảng kiểm tra.',
+          description: `${linePrefix}Chưa có đáp án đúng nào được gạch chân hoặc chọn cho câu hỏi 4 lựa chọn này.`,
+          howToFix: 'Gạch chân phương án đúng (mặc định gạch chân = Đúng, không gạch chân = Sai), hoặc bấm chọn trực tiếp vào phương án đúng trong bảng kiểm tra.',
           autoFixable: true,
         });
       }
@@ -261,7 +253,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           errorType: 'MISSING_TF_SUB_ITEMS',
           badgeLabel: '🔴 Thiếu ý a-b-c-d',
           description: 'Câu hỏi Đúng/Sai (Dạng thức II) chưa có 4 mệnh đề con a, b, c, d.',
-          howToFix: 'Nhập 4 mệnh đề con dạng: a) Mệnh đề 1 (Đúng), b) Mệnh đề 2 (Sai)... hoặc bấm "⚡ AI Tự Động Sửa".',
+          howToFix: 'Nhập 4 mệnh đề con a), b), c), d) (gạch chân ý Đúng, không gạch chân ý Sai) hoặc bấm "⚡ AI Tự Động Sửa".',
           autoFixable: true,
         });
       } else if (tfItems.length < 4) {
@@ -280,7 +272,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
         });
       } else {
         // Kiểm tra xem có ý nào bị trống không
-        const emptyItems = tfItems.filter(it => !it.text || !it.text.trim());
+        const emptyItems = tfItems.filter(it => !it.text || !it.text.trim() || /^Mệnh đề [a-d]$/i.test(it.text.trim()));
         if (emptyItems.length > 0) {
           issues.push({
             id: `err_tf_blank_text_${idx}`,
@@ -288,33 +280,16 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
             questionNumber: qNum,
             questionTitle: qTitle,
             format,
-            severity: 'CRITICAL',
+            severity: 'WARNING',
             errorType: 'TF_BLANK_STATEMENT',
-            badgeLabel: '🔴 Ý trống nội dung',
+            badgeLabel: '🟡 Ý trống nội dung',
             description: `Có ${emptyItems.length} mệnh đề con đang để trống nội dung.`,
             howToFix: 'Điền nội dung phát biểu khoa học cho từng ý.',
             autoFixable: true,
           });
         }
-
-        // Cảnh báo nếu cả 4 ý đều Đúng hoặc cả 4 ý đều Sai
-        const allTrue = tfItems.every(it => it.isCorrect === true);
-        const allFalse = tfItems.every(it => it.isCorrect === false);
-        if (allTrue || allFalse) {
-          issues.push({
-            id: `err_tf_all_same_${idx}`,
-            qid: idx,
-            questionNumber: qNum,
-            questionTitle: qTitle,
-            format,
-            severity: 'SUGGESTION',
-            errorType: 'TF_ALL_SAME_VALUE',
-            badgeLabel: '🟢 4 ý cùng Đ/S',
-            description: `Cả 4 mệnh đề đều là "${allTrue ? 'ĐÚNG' : 'SAI'}". Đề thi tốt nghiệp thường phân bổ đan xen cả ý Đúng và ý Sai.`,
-            howToFix: 'Cân nhắc đổi 1-2 ý thành Sai (hoặc Đúng) để rèn tư duy phản biện cho học sinh.',
-            autoFixable: true,
-          });
-        }
+        // Lưu ý: KHÔNG báo lỗi khi cả 4 ý đều Đúng hoặc đều Sai vì quy tắc:
+        // "Mặc định các đáp án gạch chân là Đúng, không gạch chân là Sai" hoàn toàn do Giáo viên quyết định!
       }
     } else if (format === 'SHORT_ANSWER') {
       const saVal = (q.shortAnswer || (q.opts && q.opts[0]) || '').trim();
@@ -333,7 +308,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           howToFix: 'Nhập số (ví dụ: 12.5) hoặc từ khóa vào ô "Đáp án ngắn" của câu này.',
           autoFixable: true,
         });
-      } else if (saVal.length > 30) {
+      } else if (saVal.length > 35) {
         issues.push({
           id: `err_sa_too_long_${idx}`,
           qid: idx,
@@ -343,7 +318,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
           severity: 'WARNING',
           errorType: 'SA_TOO_LONG',
           badgeLabel: '🟡 Đáp số quá dài',
-          description: `Đáp số trả lời ngắn đang có ${saVal.length} ký tự. Quy chế thi tốt nghiệp chỉ cho phép điền số nguyên, số thập phân hoặc cụm từ cực ngắn.`,
+          description: `Đáp số trả lời ngắn đang có ${saVal.length} ký tự. Quy chế thi tốt nghiệp thường điền số nguyên, số thập phân hoặc cụm từ ngắn.`,
           howToFix: 'Rút gọn lại chỉ để con số kết quả (ví dụ: "4", "12.5", "3120").',
           autoFixable: true,
         });
@@ -367,7 +342,7 @@ export function auditQuizList(quizList: QuizItem[]): QuizAuditSummary {
 }
 
 /**
- * ⚡ 1-Click Auto-Fix for a specific issue
+ * ⚡ 1-Click Auto-Fix for a specific issue (Strictly preserves Teacher's chosen answers)
  */
 export function autoFixSingleIssue(quizList: QuizItem[], issue: QuestionAuditIssue): QuizItem[] {
   return quizList.map((q, idx) => {
@@ -382,7 +357,7 @@ export function autoFixSingleIssue(quizList: QuizItem[], issue: QuestionAuditIss
       }
 
       case 'NO_CORRECT_ANSWER': {
-        if (copy.opts && copy.opts.length > 0) {
+        if (copy.opts && copy.opts.length > 0 && (copy.correct < 0 || copy.correct >= copy.opts.length)) {
           const detected = aiAutoDetectCorrectIndex(copy.q, copy.opts);
           copy.correct = detected >= 0 && detected < copy.opts.length ? detected : 0;
           copy.aiSelected = true;
@@ -411,7 +386,7 @@ export function autoFixSingleIssue(quizList: QuizItem[], issue: QuestionAuditIss
           existing.push({
             label: l,
             text: `Phát biểu ${l} phù hợp với bản chất khoa học của bài học`,
-            isCorrect: existing.length % 2 === 0,
+            isCorrect: false,
           });
         }
         copy.tfItems = existing;
@@ -424,18 +399,6 @@ export function autoFixSingleIssue(quizList: QuizItem[], issue: QuestionAuditIss
           copy.tfItems = copy.tfItems.map((it, i) => ({
             ...it,
             text: it.text && it.text.trim() ? it.text : `Mệnh đề ${it.label || String.fromCharCode(97 + i)}`,
-          }));
-          copy.opts = copy.tfItems.map(it => `${it.label}) ${it.text} (${it.isCorrect ? 'Đúng' : 'Sai'})`);
-        }
-        break;
-      }
-
-      case 'TF_ALL_SAME_VALUE': {
-        if (copy.tfItems && copy.tfItems.length === 4) {
-          // Make 2 True and 2 False
-          copy.tfItems = copy.tfItems.map((it, i) => ({
-            ...it,
-            isCorrect: i === 0 || i === 2,
           }));
           copy.opts = copy.tfItems.map(it => `${it.label}) ${it.text} (${it.isCorrect ? 'Đúng' : 'Sai'})`);
         }

@@ -84,6 +84,8 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
+  const inlineMediaInputRef = useRef<HTMLInputElement>(null);
+  const activeEditorBoxRef = useRef<'MC' | 'TF' | 'SA'>('MC');
 
   // QR Modal States (Ẩn / Hiện Mã QR)
   const [showQRModal, setShowQRModal] = useState(false);
@@ -134,7 +136,88 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   const [formatCounts, setFormatCounts] = useState<{ mc: number; tf: number; sa: number }>({ mc: 0, tf: 0, sa: 0 });
 
-  // Đọc & ghép câu hỏi từ 3 khung riêng biệt (Dạng I, Dạng II, Dạng III) mà không bao giờ bị lẫn hay mất câu
+  // Nén ảnh sơ đồ / bản đồ / hình vẽ về kích thước tối ưu để lưu & đồng bộ mượt 100%
+  const compressImageFileToHTML = (file: File): Promise<string> => {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const rawB64 = String(ev.target?.result || '');
+        if (!rawB64) return resolve('');
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 720;
+          const maxH = 480;
+          let w = img.width || 400;
+          let h = img.height || 260;
+          if (w > maxW) {
+            h = Math.round((h * maxW) / w);
+            w = maxW;
+          }
+          if (h > maxH) {
+            w = Math.round((w * maxH) / h);
+            h = maxH;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', 0.84);
+            resolve(
+              `<img src="${compressed}" alt="Hình minh họa" class="stem-inline-img" style="max-height:170px;max-width:100%;display:inline-block;vertical-align:middle;margin:6px 4px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;padding:2px;" />`
+            );
+          } else {
+            resolve(
+              `<img src="${rawB64}" alt="Hình minh họa" class="stem-inline-img" style="max-height:170px;max-width:100%;display:inline-block;vertical-align:middle;margin:6px 4px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;padding:2px;" />`
+            );
+          }
+        };
+        img.onerror = () => resolve('');
+        img.src = rawB64;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Bảo vệ các thẻ hợp lệ (<table>, <img>, <sub>, <sup>, <u>, <b>) khi chèn dòng đã chuẩn hóa vào khung soạn thảo
+  const formatSafeEditorLineHTML = (rawLine: string, isU: boolean, isBold?: boolean): string => {
+    const cleaned = stripWordStyleGarbage(rawLine);
+    const savedTags: string[] = [];
+    const tokenized = cleaned.replace(
+      /(<table\b[\s\S]*?<\/table>|<img\b[^>]*>|<\/?(?:sub|sup|u|b)\b[^>]*>)/gi,
+      match => {
+        const idx = savedTags.length;
+        savedTags.push(match);
+        return `@@SAFE_TAG_${idx}@@`;
+      }
+    );
+
+    let escaped = tokenized
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/⟦U⟧/g, '<u>')
+      .replace(/⟦\/U⟧/g, '</u>')
+      .replace(/⟦B⟧/g, '<b>')
+      .replace(/⟦\/B⟧/g, '</b>');
+
+    savedTags.forEach((tag, idx) => {
+      escaped = escaped.replace(`@@SAFE_TAG_${idx}@@`, tag);
+    });
+
+    if (isU && !/<u>/i.test(escaped)) {
+      escaped = `<u>${escaped}</u>`;
+    } else if (isBold && !/<b>/i.test(escaped)) {
+      escaped = `<b>${escaped}</b>`;
+    }
+    return `<div>${escaped}</div>`;
+  };
+
+  // Đọc & ghép câu hỏi từ 3 khung riêng biệt (Dạng I, Dạng II, Dạng III) mà không bao giờ bị lẫn hay mất gạch chân
   const getCombinedQuizFrom3Boxes = (): QuizItem[] => {
     const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
     const mcText = mcEditorRef.current?.innerText?.trim() || '';
@@ -143,9 +226,11 @@ export const TeacherSetupView: React.FC<Props> = ({
     const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
     const saText = saEditorRef.current?.innerText?.trim() || '';
 
-    const mcItems = (mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, 'MULTIPLE_CHOICE', mcText) : [];
-    const tfItems = (tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfText) : [];
-    const saItems = (saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saText) : [];
+    // QUAN TRỌNG: Khi đã có innerHTML (mcRaw/tfRaw/saRaw), truyền undefined cho plainTextFallback
+    // để hệ thống BẮT BUỘC dùng bản HTML chứa thẻ <u> gạch chân, <table> bảng số liệu và <img> hình ảnh!
+    const mcItems = (mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, 'MULTIPLE_CHOICE', mcRaw ? undefined : mcText) : [];
+    const tfItems = (tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfRaw ? undefined : tfText) : [];
+    const saItems = (saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saRaw ? undefined : saText) : [];
 
     const combined = [...mcItems, ...tfItems, ...saItems].map((item, idx) => ({
       ...item,
@@ -182,36 +267,48 @@ export const TeacherSetupView: React.FC<Props> = ({
     syncLiveToStorageAndHost(combined);
   };
 
-  // Xử lý dán (Paste) từ Word / PDF / Zalo vào 3 khung: Lọc sạch rác <style>/<xml>/font-family của Word, tự tách dòng A. B. C. D. / a) b) c) d) và giữ nguyên gạch chân <u> / in đậm <b>
-  const handleCleanPasteInBox = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
+  // Xử lý dán (Paste) từ Word / Excel / PDF / Zalo / Snipping Tool vào 3 khung:
+  // 1. Hỗ trợ dán trực tiếp hình ảnh chụp màn hình / sơ đồ / bản đồ từ Clipboard (Ctrl+V)
+  // 2. Giữ nguyên 100% Bảng số liệu <table>, Hình ảnh <img>, Công thức Toán/Lý/Hóa/Sinh, và Gạch chân <u> (Gạch chân = Đúng, Không gạch chân = Sai)
+  const handleCleanPasteInBox = async (e: React.ClipboardEvent<HTMLDivElement>) => {
     const targetEl = e.currentTarget;
+    const clipboardItems = Array.from(e.clipboardData?.items || []);
+    const imageItem = clipboardItems.find(it => it.type.startsWith('image/'));
     const htmlData = e.clipboardData.getData('text/html');
     const textData = e.clipboardData.getData('text/plain');
 
+    // Trường hợp 1: Giáo viên chụp ảnh sơ đồ / bản đồ / công thức (Snipping Tool / Zalo) và nhấn Ctrl+V trực tiếp
+    if (imageItem && (!htmlData || !htmlData.trim()) && (!textData || !textData.trim())) {
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) {
+        const imgTag = await compressImageFileToHTML(file);
+        if (imgTag && targetEl) {
+          targetEl.focus();
+          let inserted = false;
+          try {
+            inserted = document.execCommand('insertHTML', false, imgTag);
+          } catch {
+            inserted = false;
+          }
+          if (!inserted) {
+            targetEl.innerHTML += `<div>${imgTag}</div>`;
+          }
+          setTimeout(() => syncEditorQuestionsLive(), 30);
+        }
+      }
+      return;
+    }
+
+    e.preventDefault();
     const rawSource = htmlData && htmlData.trim() ? htmlData : textData;
     let cleanToInsert = '';
 
     if ((rawSource && rawSource.trim()) || (textData && textData.trim())) {
-      const normalizedLines = extractNormalizedLines(rawSource || textData, textData);
+      const normalizedLines = extractNormalizedLines(rawSource || textData, htmlData ? undefined : textData);
       if (normalizedLines.length > 0) {
         cleanToInsert = normalizedLines
-          .map(p => {
-            let safeLine = stripWordStyleGarbage(p.raw)
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/⟦U⟧/g, '<u>')
-              .replace(/⟦\/U⟧/g, '</u>')
-              .replace(/⟦B⟧/g, '<b>')
-              .replace(/⟦\/B⟧/g, '</b>');
-            if (p.isU && !safeLine.includes('<u>')) {
-              safeLine = `<u>${safeLine}</u>`;
-            } else if (p.isBold && !safeLine.includes('<b>')) {
-              safeLine = `<b>${safeLine}</b>`;
-            }
-            return `<div>${safeLine}</div>`;
-          })
+          .map(p => formatSafeEditorLineHTML(p.raw, p.isU, p.isBold))
           .join('');
       }
     }
@@ -244,9 +341,149 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   }, [currentSubjectKey, subjectsDB]);
 
-  const handleUnderline = () => {
+  // Nút Gạch Chân Thông Minh (Hỗ trợ cả khi bôi đen chữ HOẶC chỉ đặt con trỏ chuột vào dòng đáp án rồi bấm nút)
+  const handleUnderline = (targetBox?: 'MC' | 'TF' | 'SA') => {
+    const boxType = targetBox || activeEditorBoxRef.current || 'MC';
+    const editorEl =
+      boxType === 'MC' ? mcEditorRef.current : boxType === 'TF' ? tfEditorRef.current : saEditorRef.current;
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const anchorNode = sel.anchorNode;
+
+      // Tìm dòng <div> / <p> chứa con trỏ hiện tại trong khung soạn thảo
+      let blockEl: HTMLElement | null =
+        anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement || null;
+      while (
+        blockEl &&
+        blockEl.parentElement &&
+        blockEl.parentElement !== mcEditorRef.current &&
+        blockEl.parentElement !== tfEditorRef.current &&
+        blockEl.parentElement !== saEditorRef.current &&
+        blockEl !== mcEditorRef.current &&
+        blockEl !== tfEditorRef.current &&
+        blockEl !== saEditorRef.current
+      ) {
+        blockEl = blockEl.parentElement;
+      }
+
+      const parentEditor =
+        blockEl?.parentElement === mcEditorRef.current
+          ? mcEditorRef.current
+          : blockEl?.parentElement === tfEditorRef.current
+          ? tfEditorRef.current
+          : blockEl?.parentElement === saEditorRef.current
+          ? saEditorRef.current
+          : null;
+
+      // Nếu đang ở Khung 1 (4 lựa chọn A, B, C, D) và gạch chân 1 phương án mới -> tự động bỏ gạch chân ở các phương án A/B/C/D anh em của cùng câu đó!
+      const clearSiblingMCOptionUnderlines = (currentLineEl: HTMLElement) => {
+        if (parentEditor !== mcEditorRef.current) return;
+        const lineText = (currentLineEl.textContent || '').trim();
+        if (!/^[A-Da-d]\s*[.:\)\/]/.test(lineText)) return;
+
+        // Quét ngược lên và xuôi xuống trong cùng câu hỏi (dừng khi gặp "Câu X:")
+        let prev = currentLineEl.previousElementSibling as HTMLElement | null;
+        while (prev) {
+          const txt = (prev.textContent || '').trim();
+          if (/^(?:Câu|Bài|Question|\d+\s*[.):\/])/i.test(txt)) break;
+          if (/^[A-Da-d]\s*[.:\)\/]/.test(txt)) {
+            prev.innerHTML = prev.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+          }
+          prev = prev.previousElementSibling as HTMLElement | null;
+        }
+        let next = currentLineEl.nextElementSibling as HTMLElement | null;
+        while (next) {
+          const txt = (next.textContent || '').trim();
+          if (/^(?:Câu|Bài|Question|\d+\s*[.):\/])/i.test(txt)) break;
+          if (/^[A-Da-d]\s*[.:\)\/]/.test(txt)) {
+            next.innerHTML = next.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+          }
+          next = next.nextElementSibling as HTMLElement | null;
+        }
+      };
+
+      if (!range.collapsed) {
+        if (blockEl && parentEditor === mcEditorRef.current) {
+          clearSiblingMCOptionUnderlines(blockEl);
+        }
+        document.execCommand('underline', false);
+        syncEditorQuestionsLive();
+        return;
+      }
+
+      // Nếu giáo viên chỉ đặt con trỏ vào dòng đáp án mà chưa kéo bôi đen -> tự động bật/tắt gạch chân toàn bộ dòng đó!
+      if (blockEl && parentEditor) {
+        const hasUnderlineNow =
+          /<(?:u|ins)\b/i.test(blockEl.innerHTML) ||
+          /text-decoration[^;"]*underline/i.test(blockEl.getAttribute('style') || '');
+        if (hasUnderlineNow) {
+          blockEl.innerHTML = blockEl.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+          blockEl.style.textDecoration = 'none';
+        } else {
+          clearSiblingMCOptionUnderlines(blockEl);
+          blockEl.innerHTML = `<u>${blockEl.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '')}</u>`;
+        }
+        syncEditorQuestionsLive();
+        return;
+      }
+    }
+
+    if (editorEl) editorEl.focus();
     document.execCommand('underline', false);
     syncEditorQuestionsLive();
+  };
+
+  // Chèn Hình ảnh / Sơ đồ / Bản đồ Địa lý trực tiếp vào câu hỏi đang soạn
+  const handleTriggerInsertImage = (boxType: 'MC' | 'TF' | 'SA') => {
+    activeEditorBoxRef.current = boxType;
+    inlineMediaInputRef.current?.click();
+  };
+
+  const handleInlineMediaFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const imgHTML = await compressImageFileToHTML(file);
+    e.target.value = '';
+    if (!imgHTML) return;
+
+    const boxType = activeEditorBoxRef.current || 'MC';
+    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
+    if (targetRef.current) {
+      targetRef.current.focus();
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertHTML', false, imgHTML);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted) {
+        targetRef.current.innerHTML += `<div>${imgHTML}</div>`;
+      }
+      syncEditorQuestionsLive();
+    }
+  };
+
+  // Chèn Bảng Số Liệu mẫu (Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê) vào khung đang chọn
+  const handleInsertDataTable = (boxType: 'MC' | 'TF' | 'SA') => {
+    activeEditorBoxRef.current = boxType;
+    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
+    const sampleTableHTML = `<div><table class="stem-data-table"><tr><th>Năm / Chỉ tiêu</th><th>2020</th><th>2022</th><th>2024</th></tr><tr><td>Giá trị A (Đơn vị)</td><td>12,5</td><td>15,8</td><td>19,2</td></tr><tr><td>Giá trị B (Đơn vị)</td><td>45,0</td><td>52,4</td><td>61,7</td></tr></table></div>`;
+    if (targetRef.current) {
+      targetRef.current.focus();
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertHTML', false, sampleTableHTML);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted) {
+        targetRef.current.innerHTML =
+          (targetRef.current.innerHTML.trim() ? targetRef.current.innerHTML + '<br>' : '') + sampleTableHTML;
+      }
+      syncEditorQuestionsLive();
+    }
   };
 
   const handleClearSingleBox = (boxType: 'MC' | 'TF' | 'SA') => {
@@ -398,9 +635,9 @@ export const TeacherSetupView: React.FC<Props> = ({
     const saText = saEditorRef.current?.innerText?.trim() || '';
 
     const autoItems = [
-      ...((mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, undefined, mcText) : []),
-      ...((tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfText) : []),
-      ...((saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saText) : [])
+      ...((mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, undefined, mcRaw ? undefined : mcText) : []),
+      ...((tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfRaw ? undefined : tfText) : []),
+      ...((saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saRaw ? undefined : saText) : [])
     ].map((item, idx) => ({ ...item, qid: idx }));
 
     if (!autoItems.length) {
@@ -408,7 +645,7 @@ export const TeacherSetupView: React.FC<Props> = ({
       return;
     }
     populate3BoxesFromItems(autoItems);
-    alert(`🤖 Hệ thống đã tự động chuẩn hóa, chia đúng 3 khung Dạng thức và gạch chân đáp án đúng cho toàn bộ ${autoItems.length} câu hỏi chuẩn GDPT 2018!`);
+    alert(`🤖 Hệ thống đã tự động chuẩn hóa, chia đúng 3 khung Dạng thức và nhận diện gạch chân đáp án đúng cho toàn bộ ${autoItems.length} câu hỏi chuẩn GDPT 2018!`);
   };
 
   // AI Question Generation (Client-Side Gemini & Intelligent Offline Fallback)
@@ -1060,7 +1297,31 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 🤖 Chuẩn Hóa & Tự Gạch Chân Đáp Án
               </button>
-              <button className="btn-action-sm" onClick={handleUnderline} title="Bôi đen phương án đúng rồi bấm nút này để gạch chân">
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#e0f2fe', borderColor: '#38bdf8', color: '#0369a1', fontWeight: 900 }}
+                onClick={() => handleTriggerInsertImage(activeEditorBoxRef.current)}
+                title="Chèn Hình ảnh, Sơ đồ thí nghiệm, Đồ thị Toán/Lý, hoặc Bản đồ Địa lý vào câu hỏi"
+              >
+                🖼️ Chèn Ảnh / Sơ Đồ / Bản Đồ
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#92400e', fontWeight: 900 }}
+                onClick={() => handleInsertDataTable(activeEditorBoxRef.current)}
+                title="Chèn Bảng số liệu (Địa lý, Sinh học, Vật lý, Hóa học, Thống kê Toán) vào câu hỏi"
+              >
+                📊 Chèn Bảng Số Liệu
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleUnderline()}
+                title="Đặt con trỏ vào dòng đáp án (hoặc bôi đen) rồi bấm nút này để Gạch chân = Đúng"
+              >
                 <u>U</u> Gạch chân đáp án
               </button>
               <button className="btn-action-sm" style={{ background: '#fee2e2', borderColor: '#fca5a5', color: '#991b1b' }} onClick={handleClearEditor}>
@@ -1075,6 +1336,13 @@ export const TeacherSetupView: React.FC<Props> = ({
                   🗑️ Xóa Môn Này
                 </button>
               )}
+              <input
+                type="file"
+                ref={inlineMediaInputRef}
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleInlineMediaFileSelect}
+              />
             </div>
           </div>
         </section>
@@ -1108,7 +1376,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                   🟦 KHUNG 1 — DẠNG THỨC I: 4 LỰA CHỌN (A, B, C, D)
                 </div>
                 <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Copy dán câu hỏi A, B, C, D vào đây (Gạch chân <u>A</u>, đánh dấu <b>*A.</b> hoặc ghi <b>Đáp án: A</b>)
+                  Mặc định: <b><u>Gạch chân</u> = ĐÚNG</b>, <b>Không gạch chân = SAI</b> (Hỗ trợ Ảnh, Sơ đồ, Bản đồ, Bảng, Công thức)
                 </div>
               </div>
               <span style={{ background: '#1d4ed8', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
@@ -1129,9 +1397,26 @@ export const TeacherSetupView: React.FC<Props> = ({
                 type="button"
                 className="btn-action-sm"
                 style={{ fontSize: '11px', padding: '4px 8px' }}
-                onClick={handleUnderline}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleUnderline('MC')}
               >
                 <u>U</u> Gạch chân ĐA
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                onClick={() => handleTriggerInsertImage('MC')}
+              >
+                🖼️ Chèn Ảnh/Bản Đồ
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                onClick={() => handleInsertDataTable('MC')}
+              >
+                📊 Chèn Bảng
               </button>
               <button
                 type="button"
@@ -1148,6 +1433,9 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={mcEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onFocus={() => {
+                activeEditorBoxRef.current = 'MC';
+              }}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
@@ -1186,7 +1474,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                   🟪 KHUNG 2 — DẠNG THỨC II: ĐÚNG / SAI (a, b, c, d)
                 </div>
                 <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Copy dán câu hỏi có 4 ý a), b), c), d) (Gạch chân ý Đúng, ghi <b>(Đúng)/(Sai)</b> hoặc <b>Đáp án: Đ-S-Đ-S</b>)
+                  Mặc định: <b><u>Gạch chân</u> = ĐÚNG</b>, <b>Không gạch chân = SAI</b> cho cả 4 ý a), b), c), d)
                 </div>
               </div>
               <span style={{ background: '#6d28d9', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
@@ -1207,9 +1495,26 @@ export const TeacherSetupView: React.FC<Props> = ({
                 type="button"
                 className="btn-action-sm"
                 style={{ fontSize: '11px', padding: '4px 8px' }}
-                onClick={handleUnderline}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleUnderline('TF')}
               >
                 <u>U</u> Gạch chân ý Đúng
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                onClick={() => handleTriggerInsertImage('TF')}
+              >
+                🖼️ Chèn Ảnh/Bản Đồ
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                onClick={() => handleInsertDataTable('TF')}
+              >
+                📊 Chèn Bảng
               </button>
               <button
                 type="button"
@@ -1226,6 +1531,9 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={tfEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onFocus={() => {
+                activeEditorBoxRef.current = 'TF';
+              }}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
@@ -1264,7 +1572,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                   🟩 KHUNG 3 — DẠNG THỨC III: TRẢ LỜI NGẮN
                 </div>
                 <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Copy dán câu hỏi Trả lời ngắn kèm dòng <b>Đáp án: ...</b> hoặc <b>ĐS: ...</b> ở dưới mỗi câu
+                  Copy dán câu hỏi Trả lời ngắn kèm dòng <b>Đáp án: ...</b> hoặc <b><u>gạch chân đáp số</u></b>
                 </div>
               </div>
               <span style={{ background: '#047857', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
@@ -1285,9 +1593,26 @@ export const TeacherSetupView: React.FC<Props> = ({
                 type="button"
                 className="btn-action-sm"
                 style={{ fontSize: '11px', padding: '4px 8px' }}
-                onClick={handleUnderline}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleUnderline('SA')}
               >
                 <u>U</u> Gạch chân ĐA
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                onClick={() => handleTriggerInsertImage('SA')}
+              >
+                🖼️ Chèn Ảnh/Bản Đồ
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                onClick={() => handleInsertDataTable('SA')}
+              >
+                📊 Chèn Bảng
               </button>
               <button
                 type="button"
@@ -1304,6 +1629,9 @@ export const TeacherSetupView: React.FC<Props> = ({
               ref={saEditorRef}
               contentEditable={true}
               suppressContentEditableWarning={true}
+              onFocus={() => {
+                activeEditorBoxRef.current = 'SA';
+              }}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
@@ -1498,10 +1826,16 @@ export const TeacherSetupView: React.FC<Props> = ({
                         </button>
                       </div>
 
-                      {/* Live STEM Formula & Diagram Preview if text contains formulas or diagrams */}
-                      {(item.q.includes('$') || item.q.includes('\\') || item.q.includes('<img') || item.q.includes('[')) && (
-                        <div style={{ marginBottom: '8px', padding: '4px 8px', background: '#eff6ff', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '12px', color: '#1e3a8a' }}>
-                          <span style={{ fontWeight: 800, color: '#3b82f6', marginRight: '6px' }}>📐 Hiển thị thực tế:</span>
+                      {/* Live STEM Formula, Data Table, Map & Diagram Preview */}
+                      {(item.q.includes('$') ||
+                        item.q.includes('\\') ||
+                        item.q.includes('<img') ||
+                        item.q.includes('<table') ||
+                        item.q.includes('<sub') ||
+                        item.q.includes('<sup') ||
+                        item.q.includes('[')) && (
+                        <div style={{ marginBottom: '8px', padding: '6px 10px', background: '#eff6ff', borderRadius: '8px', border: '1.5px solid #bfdbfe', fontSize: '12.5px', color: '#1e3a8a', overflowX: 'auto' }}>
+                          <span style={{ fontWeight: 900, color: '#2563eb', marginRight: '6px' }}>📐 Hiển thị Công thức / Bảng số liệu / Bản đồ / Hình ảnh:</span>
                           <MathRenderer text={item.q} />
                         </div>
                       )}
