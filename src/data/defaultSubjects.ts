@@ -935,22 +935,57 @@ export function extractNormalizedLines(
 
       const plainNoMarker = working.replace(/⟦\/?[UB]⟧/g, '');
 
-      // 5.5. Tách phương án trắc nghiệm chịu lỗi (Fault-tolerant Regex):
+      // 5.5. Tách phương án trắc nghiệm trên cùng 1 dòng theo chuẩn ký hiệu A. B. C. D. (hoặc A) B) C) D)):
+      // Đảm bảo câu hỏi dài có chữ "tại A.", "điểm A.", "nhóm A.", "a/b", "A/m" ở phần thân câu dẫn KHÔNG bao giờ bị cắt nhầm thành phương án A!
       const hasInlineMCPair =
-        /(?:^|[\s:?;!)\]])\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S[\s\S]*?\s+\*?(?:\[\s*[B-Db-d]\s*\]|[B-Db-d]\s*\*?\s*[.:\)\/])\s*\S/.test(plainNoMarker) ||
-        /(?:^|[\s:?;!)\]])\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S[\s\S]*?(?:\t|\s{2,})\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S/.test(plainNoMarker) ||
-        /^(?:Câu|Bài|Question|\d{1,3}\s*[.:\)\/])[\s\S]*?[?:.]\s*\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?\s*[.:\)\/])\s*\S/i.test(plainNoMarker);
+        /(?:^|[\s:?;!)\]])\*?(?:\[\s*[A-D]\s*\]|[A-D]\s*\*?\s*[\.\)])\s*\S[\s\S]*?\s+\*?(?:\[\s*[B-D]\s*\]|[B-D]\s*\*?\s*[\.\)])\s*\S/.test(plainNoMarker) ||
+        /(?:^|[\s:?;!)\]])\*?(?:\[\s*[a-d]\s*\]|[a-d]\s*\*?\s*[\.\)])\s*\S[\s\S]*?\s+\*?(?:\[\s*[b-d]\s*\]|[b-d]\s*\*?\s*[\.\)])\s*\S/.test(plainNoMarker);
 
       if (hasInlineMCPair) {
+        // Chỉ tách khi ký hiệu A. B. C. D. đi theo trình tự hợp lệ và không đứng sau các danh từ chỉ đối tượng trong đề dài (tại A., điểm A., đỉnh A., v.v.)
+        const stemNounPrefixRe = /(?:tại|điểm|đỉnh|góc|cạnh|vật|chất|nhóm|loại|hình|bảng|ông|bà|anh|chị|vitamin|dung\s+dịch|ống|bình|mạch|cực|nguồn|vị\s+trí|trường\s+hợp|phần|đoạn|khu|vùng|tỉnh|nước|hạt|dây|quả\s+cầu|lò\s+xo|kí\s+hiệu|chữ)\s*$/i;
+        let expectedNextCode = 65; // 'A'
+        const hasExplicitB = /(?:^|[\s:?;!)\]])(?:⟦U⟧\s*|⟦B⟧\s*)*\*?(?:\[\s*[Bb]\s*\]|[Bb]\s*\*?(?:⟦\/?[UB]⟧\s*)*[\.\)])\s*\S/.test(working);
+
         working = working.replace(
-          /(?:[\s\t]+|(?<=[?:;!)])\s*)((?:⟦U⟧\s*|⟦B⟧\s*)*\*?(?:\[\s*[A-Da-d]\s*\]|[A-Da-d]\s*\*?(?:⟦\/?[UB]⟧\s*)*[.:\)\/])(?:⟦\/?[UB]⟧\s*)*(?:\s*|(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[-])))/g,
-          '\n$1'
+          /([\s\t]+|(?<=[?:;!)])\s*)((?:⟦U⟧\s*|⟦B⟧\s*)*\*?(?:\[\s*([A-Da-d])\s*\]|([A-Da-d])\s*\*?(?:⟦\/?[UB]⟧\s*)*[\.\)])(?:⟦\/?[UB]⟧\s*)*(?:\s+|(?=[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[-])))/g,
+          (fullMatch, leadingSep, optToken, bracketLetter, dotLetter, offset, fullStr) => {
+            const rawLetter = (bracketLetter || dotLetter || '').toUpperCase();
+            const code = rawLetter.charCodeAt(0);
+            const beforeText = fullStr.slice(0, offset).replace(/⟦\/?[UB]⟧/g, '').trim();
+            const afterText = fullStr.slice(offset + fullMatch.length).replace(/⟦\/?[UB]⟧/g, '');
+
+            // Nếu đứng ngay sau từ chỉ đối tượng trong thân câu hỏi dài ("vuông tại A.", "tại điểm A.") -> KHÔNG tách!
+            if (stemNounPrefixRe.test(beforeText)) {
+              return fullMatch;
+            }
+
+            if (code === 65) {
+              // Nếu phía sau vẫn còn một ký hiệu "A." khác trước khi đến "B." -> "A." hiện tại thuộc phần thân câu hỏi dài!
+              const hasAnotherABeforeB =
+                hasExplicitB &&
+                /(?:^|[\s:?;!)\]])\*?(?:\[\s*[Aa]\s*\]|[Aa]\s*\*?\s*[\.\)])\s*\S[\s\S]*?(?:^|[\s:?;!)\]])\*?(?:\[\s*[Bb]\s*\]|[Bb]\s*\*?\s*[\.\)])\s*\S/.test(afterText);
+              if (hasAnotherABeforeB) {
+                return fullMatch;
+              }
+              expectedNextCode = 66; // Tiếp theo chờ 'B'
+              return `\n${optToken}`;
+            }
+
+            // Chấp nhận tách B, C, D theo đúng thứ tự (hoặc dòng chia 2 cột C. ... D. ...)
+            if (code === expectedNextCode || (code === 67 && expectedNextCode === 65)) {
+              expectedNextCode = code + 1;
+              return `\n${optToken}`;
+            }
+
+            return fullMatch;
+          }
         );
       }
 
-      // 5.6. Tách mệnh đề Đúng/Sai chữ thường a), b), c), d) nằm trên cùng dòng
+      // 5.6. Tách mệnh đề Đúng/Sai chữ thường a), b), c), d) nằm trên cùng dòng (tối đa a, b, c, d)
       const hasInlineTFPair =
-        /(?:^|[\s:.;?!>])\*?[a-d]\s*\*?\s*[\)\.]\s*\S[\s\S]*?[\s:.;?!>]\*?[a-d]\s*\*?\s*[\)\.]\s*\S/.test(plainNoMarker);
+        /(?:^|[\s:.;?!>])\*?[a-d]\s*\*?\s*[\)\.]\s*\S[\s\S]*?[\s:.;?!>]\*?[b-d]\s*\*?\s*[\)\.]\s*\S/.test(plainNoMarker);
 
       if (hasInlineTFPair) {
         working = working.replace(
@@ -1318,34 +1353,43 @@ export function parseHTMLToQuiz(
         const isLineUnderlined = pref.isU || p.isU;
         const { textContent, isTrue } = detectStatementTrueFalse(cleanLine, isLineUnderlined, false);
         cur.tfItems = cur.tfItems || [];
-        cur.tfItems.push({ label: pref.letter.toLowerCase(), text: textContent, isCorrect: isTrue });
-        cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
-        cur._tfUnderlinedFlags.push(isTrue);
-        cur.opts.push(`${pref.letter.toLowerCase()}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+        if (cur.tfItems.length < 4) {
+          cur.tfItems.push({ label: pref.letter.toLowerCase(), text: textContent, isCorrect: isTrue });
+          cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
+          cur._tfUnderlinedFlags.push(isTrue);
+          cur.opts.push(`${pref.letter.toLowerCase()}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+        }
         continue;
       } else {
-        const oIdx = cur.opts.length;
-        const isMarked = pref.isU || p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
-        const cleanOpt = cleanLine
-          .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
-          .trim();
-        cur.opts.push(cleanOpt || cleanLine);
-        if (isMarked) {
-          cur.correct = oIdx;
-          cur.aiSelected = false;
-          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
-          cur._underlinedOptIndices.push(oIdx);
-        }
-        if (pref.isBold || p.isBold) {
-          cur._boldOptIndices = cur._boldOptIndices || [];
-          cur._boldOptIndices.push(oIdx);
+        const letterIdx = pref.letter.toUpperCase().charCodeAt(0) - 65;
+        if (letterIdx >= 0 && letterIdx < 4) {
+          const oIdx = Math.min(cur.opts.length, 3);
+          const isMarked = pref.isU || p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
+          const cleanOpt = cleanLine
+            .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
+            .trim();
+          if (cur.opts.length < 4) {
+            cur.opts.push(cleanOpt || cleanLine);
+          } else {
+            cur.opts[3] = `${cur.opts[3]} ${cleanOpt || cleanLine}`.trim();
+          }
+          if (isMarked) {
+            cur.correct = oIdx;
+            cur.aiSelected = false;
+            cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+            if (!cur._underlinedOptIndices.includes(oIdx)) cur._underlinedOptIndices.push(oIdx);
+          }
+          if (pref.isBold || p.isBold) {
+            cur._boldOptIndices = cur._boldOptIndices || [];
+            if (!cur._boldOptIndices.includes(oIdx)) cur._boldOptIndices.push(oIdx);
+          }
         }
         continue;
       }
     }
 
-    // Nhận diện dòng chỉ có mỗi ký hiệu "A." / "a." / "A)" / "[A]" đứng riêng 1 mình
-    const standaloneOptPrefix = cleanLine.match(/^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*[.:\)\/\-])$/);
+    // Nhận diện dòng chỉ có mỗi ký hiệu "A." / "a." / "A)" / "[A]" đứng riêng 1 mình (chỉ chấp nhận A, B, C, D hoặc a, b, c, d)
+    const standaloneOptPrefix = cleanLine.match(/^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*[\.:\)\-])$/);
     if (standaloneOptPrefix && cur) {
       const letter = standaloneOptPrefix[1] || standaloneOptPrefix[2] || standaloneOptPrefix[3];
       pendingOptionPrefix = {
@@ -1356,11 +1400,90 @@ export function parseHTMLToQuiz(
       continue;
     }
 
+    // SELF-HEALING CHO PHƯƠNG ÁN THỨ 5 ("E." / "e)"):
+    // Bắt buộc chỉ có 4 phương án A, B, C, D (hoặc a, b, c, d).
+    // Nếu trong ô nhập cũ của giáo viên lỡ bị sinh ra dòng "E. ..." do câu hỏi dài bị cắt thân câu thành "A.",
+    // tự động đẩy "A." (phần thân câu bị cắt nhầm) về lại câu dẫn cur.q và dịch B->A, C->B, D->C, E->D!
+    const bogusOptionEMatch = cleanLine.match(
+      /^(?:\[\s*([Ee])\s*\]|\(\s*([Ee])\s*\)|([Ee])\s*\*?\s*[\.:\)])\s*\*?\s*([\s\S]+)/
+    );
+    if (bogusOptionEMatch && cur) {
+      const eTextRaw = bogusOptionEMatch[4] || '';
+      const hasStarE = /^\*/.test(rawTrimmed) || /^[Ee]\s*\*/.test(cleanLine);
+      const isMarkedE = p.isU || hasStarE || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(eTextRaw);
+      const cleanEText = eTextRaw
+        .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
+        .trim();
+
+      if (cur.format === 'TRUE_FALSE' && cur.tfItems && cur.tfItems.length >= 4) {
+        // Nếu mệnh đề đầu tiên thực chất là phần dẫn câu hỏi dài bị đẩy xuống a)
+        const firstText = cur.tfItems[0]?.text || '';
+        if (/[?:…]$/.test(firstText) || !/[?:]$/.test((cur.q || '').trim())) {
+          cur.q = cur.q ? `${cur.q} ${firstText}` : firstText;
+          const { textContent, isTrue } = detectStatementTrueFalse(eTextRaw, p.isU, hasStarE);
+          const shifted = [
+            { label: 'a', text: cur.tfItems[1].text, isCorrect: cur.tfItems[1].isCorrect },
+            { label: 'b', text: cur.tfItems[2].text, isCorrect: cur.tfItems[2].isCorrect },
+            { label: 'c', text: cur.tfItems[3].text, isCorrect: cur.tfItems[3].isCorrect },
+            { label: 'd', text: textContent, isCorrect: isTrue }
+          ];
+          cur.tfItems = shifted;
+          cur._tfUnderlinedFlags = shifted.map(it => it.isCorrect);
+          cur.opts = shifted.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`);
+        }
+        continue;
+      }
+
+      if (cur.opts.length >= 4) {
+        const firstOpt = cur.opts[0] || '';
+        const firstLooksLikeStem =
+          /[?:…]$/.test(firstOpt) ||
+          !/[?:]$/.test((cur.q || '').trim()) ||
+          /(?:^|\b)(?:hỏi|tính|xác\s+định|biết|cho\s+biết|số\s+phát\s+biểu|phát\s+biểu\s+nào|nội\s+dung\s+nào|ý\s+nghĩa\s+nào|nguyên\s+nhân\s+nào|đặc\s+điểm\s+nào|nhận\s+định\s+nào|kết\s+luận\s+nào|công\s+thức\s+nào|giá\s+trị\s+của|độ\s+dài|thể\s+tích|diện\s+tích|trong\s+các)/i.test(firstOpt);
+
+        if (firstLooksLikeStem && cleanEText) {
+          // Ghép phần dẫn bị tách nhầm ở A. về lại cur.q, dịch B->A, C->B, D->C, E->D
+          cur.q = cur.q ? `${cur.q} ${firstOpt}` : firstOpt;
+          cur.opts = [cur.opts[1], cur.opts[2], cur.opts[3], cleanEText];
+          if (cur._underlinedOptIndices) {
+            cur._underlinedOptIndices = cur._underlinedOptIndices
+              .map(idx => idx - 1)
+              .filter(idx => idx >= 0 && idx < 4);
+          }
+          if (cur._boldOptIndices) {
+            cur._boldOptIndices = cur._boldOptIndices
+              .map(idx => idx - 1)
+              .filter(idx => idx >= 0 && idx < 4);
+          }
+          if (cur.correct > 0) {
+            cur.correct = cur.correct - 1;
+          } else if (cur.correct === 0) {
+            cur.correct = -1;
+          }
+          if (isMarkedE) {
+            cur.correct = 3;
+            cur.aiSelected = false;
+            cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+            if (!cur._underlinedOptIndices.includes(3)) cur._underlinedOptIndices.push(3);
+          }
+        }
+        // Nếu không phải thân câu bị đẩy xuống thì bỏ qua hoàn toàn phương án E (chỉ giữ đúng 4 phương án A, B, C, D)
+        continue;
+      }
+    }
+
+    // Bỏ qua mọi dòng phương án F., G., H. nếu có
+    if (/^(?:\[\s*[F-Zf-z]\s*\]|\(\s*[F-Zf-z]\s*\)|[F-Zf-z]\s*\*?\s*[\.\)])\s+\S/.test(cleanLine) && cur && cur.opts.length >= 4) {
+      continue;
+    }
+
     // Nhận diện dòng tiêu đề Câu hỏi: "Câu 1:", "Câu 1.", "Câu 1/", "Câu 1 -", "Câu 1 Bào quan...", "Bài 1:", "Question 1:", "Câu:"
     const explicitQMatch = cleanLine.match(
       /^(?:Câu\s*(?:hỏi)?\s*(?:\d+\s*(?:[:.)\/\-]|\s+(?=[A-ZÀ-Ỹ"“'(\[<]))|[:.\-\[])|Bài\s*(?:tập)?\s*\d+\s*[:.)\/\-]?|Question\s*\d+\s*[:.)\/\-]?)\s*([\s\S]*)/i
     );
-    // Số thứ tự đầu dòng (VD: "1. ", "2) ", "3/ ", "4: " hoặc "1.Hà Nội" khi đang chờ phương án)
+    // Số thứ tự đầu dòng (VD: "1. ", "2) ", "3/ ", "4: ")
+    // LƯU Ý QUAN TRỌNG: Trong câu hỏi dài (Sinh/Sử/Địa/Hóa/Lý/Toán), các ý "1. ...", "2. ...", "3. ...", "4. ..."
+    // nằm TRƯỚC "A. B. C. D." là các phát biểu dữ kiện trong thân câu hỏi, KHÔNG PHẢI câu hỏi mới hay phương án A, B, C, D!
     const numberedQMatch = cleanLine.match(/^(\d{1,3})\s*[.):\/]\s*(?!\d)([\s\S]+)/);
 
     // Nhận diện dòng Đáp án trực tiếp (VD: "Đáp án: 25", "Đáp án: A", "ĐS: 12,5", "Kết quả: 3", "Đáp án: Đ-S-Đ-S")
@@ -1368,24 +1491,13 @@ export function parseHTMLToQuiz(
       /^(?:Đáp\s*án(?:\s*đúng)?|Đáp\s*số|ĐA|ĐS|TL|Trả\s*lời|Kết\s*quả|KQ|ShortAnswer|Answer)\s*[:=.]?\s*([\s\S]*)/i
     );
 
-    // HOTFIX 2.1: Regex chịu lỗi (Fault-tolerant) cho phương án A., a., A), [A], (A), hoặc 1., 2., 3., 4. (khi đã có câu dẫn cur.q)
+    // QUY CHUẨN NHẬN DIỆN ĐÁP ÁN:
+    // Bắt buộc chỉ nhận diện 4 phương án A, B, C, D (hoặc a, b, c, d) với ký hiệu chuẩn:
+    // A. B. C. D. / a. b. c. d. / A) B) C) D) / a) b) c) d) / [A] [B] [C] [D] / (A) (B) (C) (D)
+    // Không dùng "/" để tránh cắt nhầm phân số hoặc đơn vị vật lý (a/b, A/B, A/m), và không nhận 1. 2. 3. 4. làm đáp án!
     const rawBracketOrLetterOpt = cleanLine.match(
-      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[.:\)\/]|\s+-\s+))\s*\*?\s*([\s\S]+)/
+      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\*?\s*([\s\S]+)/
     );
-    const isNumericOptionForCurrentQ =
-      !rawBracketOrLetterOpt &&
-      !explicitQMatch &&
-      cur &&
-      cur.q &&
-      cur.q.length > 0 &&
-      cur.opts.length < 4 &&
-      (!cur.format || cur.format === 'MULTIPLE_CHOICE') &&
-      /^[1-4]\s*\*?\s*[.):\/]\s*(?!\d)(.+)/.test(cleanLine) &&
-      Number(cleanLine.match(/^([1-4])/)?.[1] || 0) === cur.opts.length + 1;
-
-    const numericOptMatch = isNumericOptionForCurrentQ
-      ? cleanLine.match(/^([1-4])\s*\*?\s*[.):\/]\s*([\s\S]+)/)
-      : null;
 
     const optM: [string, string, string] | null = rawBracketOrLetterOpt
       ? [
@@ -1393,26 +1505,51 @@ export function parseHTMLToQuiz(
           rawBracketOrLetterOpt[1] || rawBracketOrLetterOpt[2] || rawBracketOrLetterOpt[3],
           rawBracketOrLetterOpt[4]
         ]
-      : numericOptMatch
-      ? [
-          numericOptMatch[0],
-          String.fromCharCode(64 + parseInt(numericOptMatch[1], 10)),
-          numericOptMatch[2]
-        ]
       : null;
 
     const tfM = cleanLine.match(
-      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|([a-dA-D])\s*\*?\s*[\)\.\:\-\/])\s*\*?\s*([\s\S]+)/i
+      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|([a-dA-D])\s*\*?\s*[\)\.\:\-])\s*\*?\s*([\s\S]+)/i
     );
 
+    // Hàm trợ giúp nhìn trước (Lookahead) trong phạm vi câu hỏi hiện tại (tối đa 80 dòng trước khi gặp "Câu X" mới)
+    // giúp xử lý hoàn hảo các câu hỏi dài nhiều đoạn văn, thơ, bảng số liệu, nhận định 1. 2. 3. 4. trước khi đến A. B. C. D.
+    const inspectUpcomingOptionsInCurrentQuestion = () => {
+      let hasOptionA = false;
+      let hasOptionBCD = false;
+      let hasTFStatementA = false;
+      for (let offset = 1; offset <= 80; offset++) {
+        const nextP = parsed[lineIdx + offset];
+        if (!nextP) break;
+        const nextClean = stripWordStyleGarbage(nextP.text).replace(/^\*+\s*/, '').trim();
+        if (!nextClean) continue;
+        // Dừng lại nếu gặp tiêu đề câu hỏi mới tường minh
+        if (
+          /^(?:Câu\s*(?:hỏi)?\s*(?:\d+\s*[:.)\/\-]|[:.\-\[])|Bài\s*(?:tập)?\s*\d+\s*[:.)\/\-]?|Question\s*\d+\s*[:.)\/\-]?|(?:PHẦN|DẠNG\s*THỨC)\s*(?:I|II|III|1|2|3)\b)/i.test(
+            nextClean
+          )
+        ) {
+          break;
+        }
+        if (/^(?:\[\s*[Aa]\s*\]|\(\s*[Aa]\s*\)|[Aa]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\S/.test(nextClean)) {
+          hasOptionA = true;
+        }
+        if (/^(?:\[\s*[B-Db-d]\s*\]|\(\s*[B-Db-d]\s*\)|[B-Db-d]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\S/.test(nextClean)) {
+          hasOptionBCD = true;
+        }
+        if (/^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*[aA]\s*\]|[aA]\s*\*?\s*[\)\.\:\-])\s*\S/.test(nextClean)) {
+          hasTFStatementA = true;
+        }
+      }
+      return { hasOptionA, hasOptionBCD, hasTFStatementA };
+    };
+
     // 1. Nếu là dòng bắt đầu câu hỏi mới
+    // Câu hiện tại chỉ được coi là ĐÃ ĐỦ phương án khi đã có đủ 4 phương án A,B,C,D (hoặc >=2 phương án và không còn phương án B,C,D phía trước)
     const isCurrentQuestionComplete =
       !cur ||
-      cur.opts.length >= 2 ||
-      (cur.tfItems && cur.tfItems.length >= 2) ||
-      !!cur.shortAnswer ||
-      forcedFormat === 'SHORT_ANSWER' ||
-      currentSectionFormat === 'SHORT_ANSWER';
+      cur.opts.length >= 4 ||
+      (cur.tfItems && cur.tfItems.length >= 4) ||
+      !!cur.shortAnswer;
 
     const isNumberedNewQ =
       numberedQMatch &&
@@ -1521,20 +1658,52 @@ export function parseHTMLToQuiz(
         }
         cur.format = 'TRUE_FALSE';
         const label = (tfM[1] || tfM[2] || 'a').toLowerCase();
-        const alreadyHasLabelA = (cur.tfItems || []).some(it => it.label === 'a');
-        if (((cur.tfItems?.length || 0) >= 4 || (alreadyHasLabelA && (cur.tfItems?.length || 0) >= 2)) && label === 'a') {
-          pushCurrentIfValid();
-          cur = createBlankQuestion('', 'TRUE_FALSE', currentLineNumber);
+        const tfTargetIdx = label.charCodeAt(0) - 97; // 0: a, 1: b, 2: c, 3: d
+        const currentTfLen = cur.tfItems?.length || 0;
+
+        if (label === 'a') {
+          if (currentTfLen >= 2) {
+            // Đã có từ 2 mệnh đề trở lên của câu trước -> đẩy câu trước vào danh sách và mở câu mới
+            pushCurrentIfValid();
+            cur = createBlankQuestion('', 'TRUE_FALSE', currentLineNumber);
+          } else if (currentTfLen === 1) {
+            // Nếu trước đó mới chỉ có 1 mục (do cắt nhầm từ thân câu hỏi dài) mà nay gặp "a)" thật -> trả mục đó về thân câu dẫn cur.q!
+            const prevFalseA = cur.tfItems![0].text;
+            cur.q = cur.q ? `${cur.q} ${prevFalseA}` : prevFalseA;
+            cur.tfItems = [];
+            cur._tfUnderlinedFlags = [];
+            cur.opts = [];
+          }
+        } else if (currentTfLen === 0) {
+          // Gặp b), c), d) khi chưa có a): kiểm tra xem phía sau còn a) thật không
+          const { hasTFStatementA } = inspectUpcomingOptionsInCurrentQuestion();
+          if (hasTFStatementA) {
+            // Dòng này vẫn nằm trong phần thân câu hỏi dài trước khi đến a) thật!
+            cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
+            continue;
+          }
         }
+
         const rawStatement = tfM[3] || '';
         const hasStar = /^\*/.test(rawTrimmed) || /^[a-dA-D]\s*\*/.test(cleanLine);
         const { textContent, isTrue } = detectStatementTrueFalse(rawStatement, p.isU, hasStar);
 
         cur.tfItems = cur.tfItems || [];
-        cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
         cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
-        cur._tfUnderlinedFlags.push(isTrue);
-        cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+
+        // Chỉ cho phép tối đa 4 mệnh đề a, b, c, d (index 0..3)
+        if (tfTargetIdx >= 0 && tfTargetIdx < 4) {
+          if (cur.tfItems.length <= tfTargetIdx) {
+            cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
+            cur._tfUnderlinedFlags.push(isTrue);
+            cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+          } else {
+            // Ghi đè đúng vị trí mệnh đề a/b/c/d để không bao giờ vượt quá 4 mệnh đề
+            cur.tfItems[tfTargetIdx] = { label, text: textContent, isCorrect: isTrue };
+            cur._tfUnderlinedFlags[tfTargetIdx] = isTrue;
+            cur.opts[tfTargetIdx] = `${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`;
+          }
+        }
         continue;
       }
 
@@ -1545,7 +1714,7 @@ export function parseHTMLToQuiz(
       if (!cur) {
         cur = createBlankQuestion(cleanLine, 'TRUE_FALSE', currentLineNumber);
       } else if (!cur.tfItems || cur.tfItems.length === 0) {
-        // Nếu dòng là bảng số liệu <table> hoặc hình ảnh/bản đồ <img> -> nối vào câu dẫn cur.q
+        // Mọi dòng văn bản, đoạn tư liệu dài, bảng <table>, ảnh <img> trước mệnh đề a) đều nối vào câu dẫn cur.q
         cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
       } else if (!hasFinishedStatements) {
         const lastIdx = cur.tfItems.length - 1;
@@ -1556,8 +1725,20 @@ export function parseHTMLToQuiz(
         }
         cur.opts[lastIdx] = `${cur.tfItems[lastIdx].label}) ${cur.tfItems[lastIdx].text} (${cur.tfItems[lastIdx].isCorrect ? 'Đúng' : 'Sai'})`;
       } else {
-        pushCurrentIfValid();
-        cur = createBlankQuestion(cleanLine, 'TRUE_FALSE', currentLineNumber);
+        // Đã có đủ 4 mệnh đề a, b, c, d: Kiểm tra xem dòng này có phải là dòng xuống hàng của mệnh đề d) hay là câu hỏi mới
+        const { hasTFStatementA } = inspectUpcomingOptionsInCurrentQuestion();
+        if (hasTFStatementA) {
+          pushCurrentIfValid();
+          cur = createBlankQuestion(cleanLine, 'TRUE_FALSE', currentLineNumber);
+        } else {
+          const lastIdx = cur.tfItems.length - 1;
+          cur.tfItems[lastIdx].text = cleanTFStatementText(`${cur.tfItems[lastIdx].text} ${cleanLine}`);
+          if (p.isU) {
+            cur.tfItems[lastIdx].isCorrect = true;
+            if (cur._tfUnderlinedFlags) cur._tfUnderlinedFlags[lastIdx] = true;
+          }
+          cur.opts[lastIdx] = `${cur.tfItems[lastIdx].label}) ${cur.tfItems[lastIdx].text} (${cur.tfItems[lastIdx].isCorrect ? 'Đúng' : 'Sai'})`;
+        }
       }
       continue;
     }
@@ -1591,7 +1772,7 @@ export function parseHTMLToQuiz(
       continue;
     }
 
-    // --- KHUNG DẠNG THỨC I (HOẶC TỰ ĐỘNG NHẬN DIỆN): 4 PHƯƠNG ÁN A, B, C, D ---
+    // --- KHUNG DẠNG THỨC I (HOẶC TỰ ĐỘNG NHẬN DIỆN): BẮT BUỘC CHỈ 4 PHƯƠNG ÁN A, B, C, D ---
     if (optM) {
       if (!cur) {
         cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE', currentLineNumber);
@@ -1604,24 +1785,62 @@ export function parseHTMLToQuiz(
       ) {
         cur.format = 'TRUE_FALSE';
         const label = optM[1].toLowerCase();
+        const tfIdx = label.charCodeAt(0) - 97;
         const rawStatement = optM[2];
         const hasStar = /^\*/.test(rawTrimmed) || /^[a-dA-D]\s*\*/.test(cleanLine);
         const { textContent, isTrue } = detectStatementTrueFalse(rawStatement, p.isU, hasStar);
         cur.tfItems = cur.tfItems || [];
-        cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
         cur._tfUnderlinedFlags = cur._tfUnderlinedFlags || [];
-        cur._tfUnderlinedFlags.push(isTrue);
-        cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+        if (tfIdx >= 0 && tfIdx < 4 && cur.tfItems.length < 4) {
+          cur.tfItems.push({ label, text: textContent, isCorrect: isTrue });
+          cur._tfUnderlinedFlags.push(isTrue);
+          cur.opts.push(`${label}) ${textContent} (${isTrue ? 'Đúng' : 'Sai'})`);
+        }
         continue;
       }
 
-      // Nếu câu hiện tại đã đủ 4 phương án (hoặc >= 2 phương án mà lại gặp lại phương án A.) -> đẩy câu cũ vào danh sách
-      if ((cur.opts.length >= 4 || (cur.opts.length >= 2 && optM[1].toUpperCase() === 'A')) && optM[1].toUpperCase() === 'A') {
-        pushCurrentIfValid();
-        cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE', currentLineNumber);
+      const optLetter = optM[1].toUpperCase(); // 'A' | 'B' | 'C' | 'D'
+      const letterIdx = optLetter.charCodeAt(0) - 65; // 0 | 1 | 2 | 3
+
+      if (optLetter === 'A') {
+        const { hasOptionA: hasAnotherAAhead, hasOptionBCD } = inspectUpcomingOptionsInCurrentQuestion();
+        // Nếu phía trước vẫn còn một cặp "A. ... B. ..." thật của chính câu này và câu hiện tại chưa có phương án nào
+        // -> Dòng "A. ..." hiện tại thực chất là câu văn trong phần thân câu hỏi dài!
+        if (cur.opts.length === 0 && hasAnotherAAhead && hasOptionBCD) {
+          cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
+          continue;
+        }
+        if (cur.opts.length >= 2) {
+          // Câu trước đã có ít nhất A, B và nay gặp A. của câu mới -> đóng câu cũ, tạo câu mới
+          pushCurrentIfValid();
+          cur = createBlankQuestion('Câu hỏi trắc nghiệm:', 'MULTIPLE_CHOICE', currentLineNumber);
+        } else if (cur.opts.length === 1) {
+          // Nếu cur.opts mới chỉ có 1 phần tử (do một dòng trong thân câu hỏi dài bị nhận nhầm trước đó)
+          // mà nay mới gặp ký hiệu "A." thật -> trả phần tử đó về lại thân câu dẫn cur.q!
+          const prematureOpt = cur.opts[0];
+          cur.q = cur.q ? `${cur.q} ${prematureOpt}` : prematureOpt;
+          cur.opts = [];
+          cur.correct = -1;
+          cur._underlinedOptIndices = [];
+          cur._boldOptIndices = [];
+        }
+      } else {
+        // Khi gặp B., C., D.:
+        if (cur.opts.length === 0) {
+          const { hasOptionA } = inspectUpcomingOptionsInCurrentQuestion();
+          if (hasOptionA) {
+            // Phía dưới vẫn còn "A." thật -> dòng bắt đầu bằng B/C/D này nằm trong thân câu hỏi dài!
+            cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
+            continue;
+          }
+        }
+        // Nếu có các dòng bị đẩy dư trước khi gặp đúng nhãn B (idx 1), C (idx 2), D (idx 3) -> gộp vào phương án liền trước
+        while (cur.opts.length > letterIdx && letterIdx > 0) {
+          const extra = cur.opts.pop()!;
+          cur.opts[cur.opts.length - 1] = `${cur.opts[cur.opts.length - 1]} ${extra}`.trim();
+        }
       }
 
-      const oIdx = cur.opts.length;
       const rawOptText = optM[2];
       const hasStar = /^\*/.test(rawTrimmed) || /^[A-Da-d]\s*\*/.test(cleanLine);
       const isMarkedCorrect =
@@ -1632,22 +1851,34 @@ export function parseHTMLToQuiz(
         .replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '')
         .trim();
 
-      cur.opts.push(cleanOpt || rawOptText.trim());
+      // Đảm bảo chỉ lưu tối đa 4 phương án (index 0..3 tương ứng A, B, C, D), tuyệt đối không bao giờ sinh ra phương án thứ 5 (E.)
+      let oIdx = cur.opts.length;
+      if (oIdx < 4) {
+        cur.opts.push(cleanOpt || rawOptText.trim());
+      } else {
+        oIdx = 3;
+        cur.opts[3] = cleanOpt || rawOptText.trim();
+      }
+
       if (isMarkedCorrect) {
         cur.correct = oIdx;
         cur.aiSelected = false;
         cur._underlinedOptIndices = cur._underlinedOptIndices || [];
-        cur._underlinedOptIndices.push(oIdx);
+        if (!cur._underlinedOptIndices.includes(oIdx)) {
+          cur._underlinedOptIndices.push(oIdx);
+        }
       }
       if (p.isBold) {
         cur._boldOptIndices = cur._boldOptIndices || [];
-        cur._boldOptIndices.push(oIdx);
+        if (!cur._boldOptIndices.includes(oIdx)) {
+          cur._boldOptIndices.push(oIdx);
+        }
       }
       continue;
     }
 
-    // Dòng văn bản không có tiền tố "Câu X:" và không có "A. B. C. D.":
-    // Nếu dòng chứa bảng số liệu <table> hoặc hình ảnh/bản đồ <img>, luôn nối vào câu dẫn cur.q!
+    // Dòng văn bản KHÔNG có tiền tố "Câu X:" và KHÔNG có ký hiệu đáp án "A. B. C. D.":
+    // (Ví dụ: các đoạn văn dài của câu hỏi, các nhận định 1. 2. 3. 4., bảng số liệu, hoặc dòng xuống hàng của phương án dài)
     const isMediaOrTableLine = /<table\b|<img\b|\[(?:Hình|Sơ đồ|Đồ thị|Bản đồ|Bảng)/i.test(cleanLine);
 
     if (!cur) {
@@ -1657,59 +1888,84 @@ export function parseHTMLToQuiz(
         cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
         continue;
       }
-      // Nhìn trước (lookahead) 1-12 dòng tiếp theo xem có dòng nào bắt đầu bằng A. / a) không (do đề Địa lý / Toán / Lý / Hóa có thể có nhiều dòng dẫn hoặc bảng trước A. B. C. D.)
-      const hasExplicitOptionAhead = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].some(offset => {
-        const nextP = parsed[lineIdx + offset];
-        if (!nextP) return false;
-        const nextClean = stripWordStyleGarbage(nextP.text).replace(/^\*+\s*/, '').trim();
-        if (/^(?:Câu\s*\d+|Bài\s*\d+|Question\s*\d+)/i.test(nextClean)) return false;
-        return /^([A-Da-d])\s*\*?\s*(?:[.:\)\/]|\s+-\s+)\s*\S/.test(nextClean);
-      });
+      // Kiểm tra trong toàn bộ phần còn lại của câu hỏi hiện tại:
+      // Nếu phía dưới có ký hiệu "A." (hasOptionA === true) hoặc không có "B. C. D." mồ côi ->
+      // 100% dòng hiện tại là phần thân của CÂU HỎI DÀI (dù câu hỏi dài bao nhiêu dòng cũng nối vào cur.q, tuyệt đối không đẩy thành phương án A!)
+      const { hasOptionA, hasOptionBCD } = inspectUpcomingOptionsInCurrentQuestion();
 
-      const stemLooksComplete =
-        /[?:…]$/.test(cur.q.trim()) ||
-        cur.q.trim().length >= 25 ||
-        /^(?:Câu|Bài|Question|\d{1,3}\s*[.):\/])/i.test(p.text);
+      const nextP = parsed[lineIdx + 1];
+      const nextClean = nextP ? stripWordStyleGarbage(nextP.text).replace(/^\*+\s*/, '').trim() : '';
+      const isImmediatelyBeforeOrphanB =
+        !hasOptionA &&
+        hasOptionBCD &&
+        /^(?:\[\s*[Bb]\s*\]|\(\s*[Bb]\s*\)|[Bb]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\S/.test(nextClean);
 
-      if (!hasExplicitOptionAhead && stemLooksComplete) {
-        // Dòng này chính là Phương án A bị mất nhãn "A."!
-        const oIdx = cur.opts.length;
+      if (isImmediatelyBeforeOrphanB && /[?:…]$/.test(cur.q.trim())) {
+        // Trường hợp duy nhất: Không có "A." mà dòng kế tiếp là "B." -> dòng này là Phương án A bị gõ thiếu chữ "A."
         const isMarked = p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
         const cleanOpt = cleanLine.replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '').trim();
         cur.opts.push(cleanOpt || cleanLine);
         if (isMarked) {
-          cur.correct = oIdx;
+          cur.correct = 0;
           cur.aiSelected = false;
-          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
-          cur._underlinedOptIndices.push(oIdx);
+          cur._underlinedOptIndices = [0];
         }
         if (p.isBold) {
-          cur._boldOptIndices = cur._boldOptIndices || [];
-          cur._boldOptIndices.push(oIdx);
+          cur._boldOptIndices = [0];
         }
       } else {
+        // Nối toàn bộ nội dung câu hỏi dài vào cur.q cho đến khi gặp đúng ký hiệu "A."
         cur.q = cur.q ? `${cur.q} ${cleanLine}` : cleanLine;
       }
     } else if (cur.opts.length > 0 && cur.opts.length < 4 && cur.format === 'MULTIPLE_CHOICE') {
-      const looksLikeNewQuestionWithoutPrefix =
-        /[?]$/.test(cleanLine) && cleanLine.length > 35 && cur.opts.length >= 2;
-      if (looksLikeNewQuestionWithoutPrefix) {
-        pushCurrentIfValid();
-        cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
-      } else {
-        const oIdx = cur.opts.length;
+      // Đã vào vùng phương án (đã có A., hoặc A. B., hoặc A. B. C.) mà gặp một dòng không có ký hiệu A. B. C. D.:
+      const { hasOptionA, hasOptionBCD } = inspectUpcomingOptionsInCurrentQuestion();
+
+      if (hasOptionBCD || !hasOptionA) {
+        // Phía dưới vẫn còn các phương án B., C., D. của câu này -> Dòng hiện tại là phần văn bản dài bị xuống dòng của phương án vừa rồi!
+        // Ghép nối vào phương án hiện tại thay vì tạo phương án mới (tránh đẩy D. thành E.!)
+        const lastIdx = cur.opts.length - 1;
         const isMarked = p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
         const cleanOpt = cleanLine.replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '').trim();
-        cur.opts.push(cleanOpt || cleanLine);
+        cur.opts[lastIdx] = `${cur.opts[lastIdx]} ${cleanOpt || cleanLine}`.trim();
         if (isMarked) {
-          cur.correct = oIdx;
+          cur.correct = lastIdx;
           cur.aiSelected = false;
           cur._underlinedOptIndices = cur._underlinedOptIndices || [];
-          cur._underlinedOptIndices.push(oIdx);
+          if (!cur._underlinedOptIndices.includes(lastIdx)) {
+            cur._underlinedOptIndices.push(lastIdx);
+          }
         }
         if (p.isBold) {
           cur._boldOptIndices = cur._boldOptIndices || [];
-          cur._boldOptIndices.push(oIdx);
+          if (!cur._boldOptIndices.includes(lastIdx)) {
+            cur._boldOptIndices.push(lastIdx);
+          }
+        }
+      } else {
+        // Phía dưới có bộ A. B. C. D. mới của câu tiếp theo (không có tiền tố "Câu X:")
+        pushCurrentIfValid();
+        cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
+      }
+    } else if (cur.opts.length >= 4 && cur.format === 'MULTIPLE_CHOICE') {
+      // Đã nhận đủ 4 phương án A, B, C, D:
+      // Kiểm tra xem dòng này là câu hỏi mới (không có chữ "Câu X:") hay là phần xuống dòng của phương án D. dài
+      const { hasOptionA } = inspectUpcomingOptionsInCurrentQuestion();
+      if (hasOptionA) {
+        pushCurrentIfValid();
+        cur = createBlankQuestion(cleanLine, forcedFormat || currentSectionFormat || 'MULTIPLE_CHOICE', currentLineNumber);
+      } else {
+        // Nối vào phương án D (cur.opts[3]), tuyệt đối không tạo phương án thứ 5 (E.)!
+        const isMarked = p.isU || /(\(\s*đúng\s*\)|\[\s*đúng\s*\]|✓|✔|\*$)/i.test(cleanLine);
+        const cleanOpt = cleanLine.replace(/\s*\(\s*đúng\s*\)\s*|\s*\[\s*đúng\s*\]\s*|\s*✓\s*|\s*✔\s*|\s*\*+$/gi, '').trim();
+        cur.opts[3] = `${cur.opts[3]} ${cleanOpt || cleanLine}`.trim();
+        if (isMarked) {
+          cur.correct = 3;
+          cur.aiSelected = false;
+          cur._underlinedOptIndices = cur._underlinedOptIndices || [];
+          if (!cur._underlinedOptIndices.includes(3)) {
+            cur._underlinedOptIndices.push(3);
+          }
         }
       }
     } else {
@@ -1750,6 +2006,7 @@ export function parseHTMLToQuiz(
  * Tự động phục hồi & làm sạch các câu hỏi bị dính chữ (đặc biệt là Dạng thức II Đúng/Sai
  * khi mệnh đề a) dính vào câu dẫn hoặc mệnh đề c), d) dính chung 1 ô, hoặc dính rác CSS Word).
  * TUYỆT ĐỐI TÔN TRỌNG ĐÁP ÁN DO GIÁO VIÊN GẠCH CHÂN / ĐÁNH DẤU!
+ * BẮT BUỘC CHỈ CÓ TỐI ĐA 4 PHƯƠNG ÁN (A, B, C, D hoặc a, b, c, d) — KHÔNG BAO GIỜ CÓ PHƯƠNG ÁN E!
  */
 export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
   const item: QuizItem = {
@@ -1865,23 +2122,41 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
     return item;
   }
 
-  // MULTIPLE_CHOICE
+  // MULTIPLE_CHOICE: Nếu câu hỏi cũ bị lưu dư > 4 phương án (có phương án E.), tự động khôi phục về đúng 4 phương án A, B, C, D
+  if (item.opts.length > 4) {
+    const firstOpt = item.opts[0] || '';
+    if (/[?:…]$/.test(firstOpt) || !/[?:]$/.test(item.q.trim())) {
+      item.q = cleanQuestionTitleText(`${item.q} ${firstOpt}`);
+      item.opts = item.opts.slice(1, 5);
+      if (item.correct > 0) item.correct = Math.min(3, item.correct - 1);
+    } else {
+      item.opts = item.opts.slice(0, 4);
+      if (item.correct >= 4) item.correct = 0;
+    }
+  }
+
   while (item.opts.length > 0 && item.opts.length < 4) {
     item.opts.push(`Phương án ${String.fromCharCode(65 + item.opts.length)}`);
   }
   if (item.opts.length === 0 && item.q) {
     item.opts = ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'];
   }
+  item.opts = item.opts.slice(0, 4);
+
   // CHỈ dùng AI dự đoán khi câu hỏi hoàn toàn CHƯA có đáp án đúng (item.correct === -1)
   if (item.correct === -1 && item.opts.length > 0) {
     item.correct = aiAutoDetectCorrectIndex(item.q, item.opts);
     item.aiSelected = true;
+  }
+  if (item.correct < 0 || item.correct >= 4) {
+    item.correct = 0;
   }
   return item;
 }
 
 // Tách danh sách QuizItem thành 3 chuỗi HTML riêng biệt cho 3 Khung Dạng Thức I, II, III
 // Quy chuẩn hiển thị đồng nhất: Phương án / Mệnh đề ĐÚNG được bọc <u>...</u>, phương án / mệnh đề SAI không gạch chân!
+// Bắt buộc chỉ xuất đúng 4 phương án A, B, C, D (Dạng 1) và a, b, c, d (Dạng 2).
 export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   mcHTML: string;
   tfHTML: string;
@@ -1895,7 +2170,7 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   let mcHTML = '';
   mcItems.forEach((item, i) => {
     mcHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
-    item.opts.forEach((o, oi) => {
+    item.opts.slice(0, 4).forEach((o, oi) => {
       const ch = String.fromCharCode(65 + oi);
       mcHTML += oi === item.correct ? `<div><u>${ch}. ${o}</u></div>` : `<div>${ch}. ${o}</div>`;
     });
@@ -1905,12 +2180,13 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   let tfHTML = '';
   tfItems.forEach((item, i) => {
     tfHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
-    (item.tfItems || []).forEach(tf => {
+    (item.tfItems || []).slice(0, 4).forEach((tf, tfi) => {
+      const lbl = String.fromCharCode(97 + tfi);
       const cleanTxt = cleanTFStatementText(tf.text);
       if (tf.isCorrect) {
-        tfHTML += `<div><u>${tf.label}) ${cleanTxt}</u></div>`;
+        tfHTML += `<div><u>${lbl}) ${cleanTxt}</u></div>`;
       } else {
-        tfHTML += `<div>${tf.label}) ${cleanTxt}</div>`;
+        tfHTML += `<div>${lbl}) ${cleanTxt}</div>`;
       }
     });
     tfHTML += `<br>`;
@@ -1933,12 +2209,13 @@ export function formatQuizToHTML(rawItems: QuizItem[]): string {
   items.forEach((item, i) => {
     if (item.format === 'TRUE_FALSE') {
       html += `<div>Câu ${i + 1} [Đúng/Sai]: ${cleanQuestionTitleText(item.q)}</div>`;
-      (item.tfItems || []).forEach(tf => {
+      (item.tfItems || []).slice(0, 4).forEach((tf, tfi) => {
+        const lbl = String.fromCharCode(97 + tfi);
         const cleanTxt = cleanTFStatementText(tf.text);
         if (tf.isCorrect) {
-          html += `<div><u>${tf.label}) ${cleanTxt}</u></div>`;
+          html += `<div><u>${lbl}) ${cleanTxt}</u></div>`;
         } else {
-          html += `<div>${tf.label}) ${cleanTxt}</div>`;
+          html += `<div>${lbl}) ${cleanTxt}</div>`;
         }
       });
     } else if (item.format === 'SHORT_ANSWER') {
@@ -1947,7 +2224,7 @@ export function formatQuizToHTML(rawItems: QuizItem[]): string {
       html += `<div><u>Đáp án: ${cleanAns}</u></div>`;
     } else {
       html += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
-      item.opts.forEach((o, oi) => {
+      item.opts.slice(0, 4).forEach((o, oi) => {
         const ch = String.fromCharCode(65 + oi);
         html += oi === item.correct ? `<div><u>${ch}. ${o}</u></div>` : `<div>${ch}. ${o}</div>`;
       });

@@ -1842,7 +1842,7 @@ export const TeacherSetupView: React.FC<Props> = ({
 
                       {(!item.format || item.format === 'MULTIPLE_CHOICE') && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '6px' }}>
-                          {item.opts.map((optTxt, oIdx) => {
+                          {item.opts.slice(0, 4).map((optTxt, oIdx) => {
                             const isCorr = item.correct === oIdx;
                             const letter = String.fromCharCode(65 + oIdx);
                             return (
@@ -1899,7 +1899,7 @@ export const TeacherSetupView: React.FC<Props> = ({
 
                       {item.format === 'TRUE_FALSE' && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '6px' }}>
-                          {(item.tfItems || []).map((tf, tfIdx) => (
+                          {(item.tfItems || []).slice(0, 4).map((tf, tfIdx) => (
                             <div
                               key={tfIdx}
                               style={{
