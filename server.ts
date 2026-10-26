@@ -439,6 +439,166 @@ app.post('/api/sync/status', (req, res) => {
 });
 
 // ============================================================================
+// 3.8. HỆ THỐNG BẢO MẬT CHỦ SỞ HỮU TRANG WEB, GHI NHỚ ID MÁY & ID CÁC TRANG MẠNG
+// ============================================================================
+const SECURITY_DB_FILE = path.join(SYNC_DATA_DIR, 'security_registry_db.json');
+const OWNER_EMAIL_ADDRESS = 'khaibcmt@gmail.com';
+
+interface SecurityRegistryStore {
+  machines: Record<string, any>;
+  websites: Record<string, any>;
+  activationRequests: any[];
+}
+
+function loadSecurityRegistryStore(): SecurityRegistryStore {
+  try {
+    if (!fs.existsSync(SYNC_DATA_DIR)) {
+      fs.mkdirSync(SYNC_DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(SECURITY_DB_FILE)) {
+      const raw = fs.readFileSync(SECURITY_DB_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return {
+        machines: parsed.machines || {},
+        websites: parsed.websites || {},
+        activationRequests: Array.isArray(parsed.activationRequests) ? parsed.activationRequests : []
+      };
+    }
+  } catch (err) {
+    console.error('Lỗi đọc security_registry_db.json:', err);
+  }
+  return { machines: {}, websites: {}, activationRequests: [] };
+}
+
+function saveSecurityRegistryStore(store: SecurityRegistryStore) {
+  try {
+    if (!fs.existsSync(SYNC_DATA_DIR)) {
+      fs.mkdirSync(SYNC_DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(SECURITY_DB_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Lỗi ghi security_registry_db.json:', err);
+  }
+}
+
+// API ghi nhận và đồng bộ ID Máy đã chạy + ID các trang mạng
+app.post('/api/security/telemetry', (req, res) => {
+  try {
+    const { machine, website, activationRequests } = req.body || {};
+    const store = loadSecurityRegistryStore();
+
+    const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    const clientIp = forwardedFor || req.socket.remoteAddress || 'Local-Network';
+
+    if (machine && machine.deviceId) {
+      const prevM = store.machines[machine.deviceId] || {};
+      const mergedSites = Array.from(new Set([...(prevM.siteIds || []), ...(machine.siteIds || [])]));
+      const mergedDomains = Array.from(new Set([...(prevM.networkDomains || []), ...(machine.networkDomains || [])]));
+      store.machines[machine.deviceId] = {
+        ...prevM,
+        ...machine,
+        sessionsUsed: Math.max(Number(prevM.sessionsUsed || 0), Number(machine.sessionsUsed || 1)),
+        isActivated: Boolean(prevM.isActivated || machine.isActivated),
+        isOwnerDevice: Boolean(prevM.isOwnerDevice || machine.isOwnerDevice),
+        siteIds: mergedSites,
+        networkDomains: mergedDomains,
+        clientIp,
+        firstSeenAt: prevM.firstSeenAt || machine.firstSeenAt || Date.now(),
+        lastSeenAt: Date.now()
+      };
+    }
+
+    if (website && website.siteId) {
+      const prevW = store.websites[website.siteId] || {};
+      const mergedDevs = Array.from(new Set([...(prevW.deviceIds || []), ...(website.deviceIds || [])]));
+      store.websites[website.siteId] = {
+        ...prevW,
+        ...website,
+        visitCount: Math.max(Number(prevW.visitCount || 0), Number(website.visitCount || 1)),
+        deviceIds: mergedDevs,
+        firstVisitedAt: prevW.firstVisitedAt || website.firstVisitedAt || Date.now(),
+        lastVisitedAt: Date.now()
+      };
+    }
+
+    if (Array.isArray(activationRequests) && activationRequests.length > 0) {
+      const existingIds = new Set(store.activationRequests.map((r: any) => r.requestId));
+      activationRequests.forEach((reqItem: any) => {
+        if (reqItem && reqItem.requestId && !existingIds.has(reqItem.requestId)) {
+          store.activationRequests.unshift(reqItem);
+          existingIds.add(reqItem.requestId);
+        }
+      });
+      store.activationRequests = store.activationRequests.slice(0, 50);
+    }
+
+    saveSecurityRegistryStore(store);
+
+    return res.json({
+      ok: true,
+      clientIp,
+      registry: store
+    });
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err.message || 'Telemetry error' });
+  }
+});
+
+// API gửi Mã Kích Hoạt về email đăng ký GitHub của Chủ sở hữu (khaibcmt@gmail.com)
+app.post('/api/security/request-activation-email', async (req, res) => {
+  try {
+    const reqLog = req.body;
+    if (!reqLog || !reqLog.deviceId || !reqLog.activationCode) {
+      return res.status(400).json({ ok: false, error: 'Thiếu thông tin thiết bị yêu cầu kích hoạt' });
+    }
+
+    const store = loadSecurityRegistryStore();
+    const existingIds = new Set(store.activationRequests.map((r: any) => r.requestId));
+    if (!existingIds.has(reqLog.requestId)) {
+      store.activationRequests.unshift({
+        ...reqLog,
+        emailSentTo: OWNER_EMAIL_ADDRESS,
+        createdAt: reqLog.createdAt || Date.now()
+      });
+      store.activationRequests = store.activationRequests.slice(0, 50);
+      saveSecurityRegistryStore(store);
+    }
+
+    // Chuyển tiếp email thông báo tới mail đăng ký GitHub của Chủ sở hữu (khaibcmt@gmail.com)
+    let emailDelivered = false;
+    try {
+      const mailRes = await fetch(`https://formsubmit.co/ajax/${OWNER_EMAIL_ADDRESS}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify({
+          _subject: `[ĐẤU TRƯỜNG 3D - GITHUB] Cấp Mã Kích Hoạt cho Máy ${reqLog.deviceId}`,
+          _template: 'table',
+          Mail_Chu_So_Huu_GitHub: OWNER_EMAIL_ADDRESS,
+          ID_May_Da_Chay: reqLog.deviceId,
+          Thong_So_May: reqLog.hardwareSummary || '',
+          ID_Trang_Mang: `${reqLog.siteId || ''} (${reqLog.origin || ''})`,
+          Ghi_Chu: reqLog.requesterNote || '',
+          MA_KICH_HOAT_CAP_PHEP: reqLog.activationCode,
+          Thoi_Gian: new Date().toLocaleString('vi-VN')
+        })
+      });
+      emailDelivered = mailRes.ok;
+    } catch {}
+
+    return res.json({
+      ok: true,
+      emailDelivered,
+      ownerEmail: OWNER_EMAIL_ADDRESS
+    });
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err.message || 'Activation email error' });
+  }
+});
+
+// ============================================================================
 // 4. HỆ THỐNG ĐỒNG BỘ PHÒNG THI ĐẤU REAL-TIME QUA HTTP CÙNG TÊN MIỀN (FIREWALL-PROOF)
 // Giúp học sinh kết nối 100% thông suốt qua 3G/4G/Wi-Fi trường học mà không bao giờ bị văng
 // ============================================================================

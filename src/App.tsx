@@ -28,8 +28,16 @@ import { StudentMobileView } from './components/StudentMobileView';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { NationalJuryDossierModal } from './components/NationalJuryDossierModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { OwnerSecurityModal } from './components/OwnerSecurityModal';
 import { CloudBackupData } from './types';
 import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
+import {
+  OwnerSecurityState,
+  MAX_FREE_SESSIONS,
+  loadOwnerSecurityState,
+  recordNewUsageSession,
+  syncSecurityTelemetryToServerAndCloud
+} from './services/ownerSecurity';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 export const App: React.FC = () => {
@@ -96,6 +104,22 @@ export const App: React.FC = () => {
   // Cloud Sync & Backup Modal
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [cloudSyncInitialTab, setCloudSyncInitialTab] = useState<'GOOGLE' | 'PASSWORD'>('GOOGLE');
+
+  // Owner Security & License Guard (10-Session Trial, Machine ID & Web Network ID Registry, Owner Email Bypass)
+  const [securityState, setSecurityState] = useState<OwnerSecurityState>(() => {
+    const syncProf = getStoredSyncProfile();
+    return loadOwnerSecurityState({
+      incrementSessionIfNew: !isDirectStudent,
+      syncProfileEmail: syncProf.type === 'GOOGLE' ? syncProf.googleEmail : undefined
+    });
+  });
+  const [showOwnerSecurityModal, setShowOwnerSecurityModal] = useState(false);
+
+  useEffect(() => {
+    syncSecurityTelemetryToServerAndCloud(securityState)
+      .then(updated => setSecurityState(updated))
+      .catch(() => {});
+  }, []);
 
   const handleOpenCloudSync = (tab: 'GOOGLE' | 'PASSWORD' = 'GOOGLE') => {
     setCloudSyncInitialTab(tab);
@@ -344,6 +368,13 @@ export const App: React.FC = () => {
 
   // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
+    const updatedSecurity = recordNewUsageSession();
+    setSecurityState(updatedSecurity);
+    if (updatedSecurity.isSuspended) {
+      setShowOwnerSecurityModal(true);
+      return;
+    }
+
     answeredQKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     const normalizedDeck: QuizItem[] = parsedQuiz.map((item, idx) => ({
@@ -1155,6 +1186,12 @@ export const App: React.FC = () => {
   };
 
   const effectiveStudentRoom = urlParams.get('r') || urlParams.get('room') || activeRoomId;
+  const isOwnerOrActivated = securityState.isOwnerLoggedIn || securityState.isActivated;
+  const securityBadgeLabel = securityState.isOwnerLoggedIn
+    ? '👑 Chủ sở hữu (Miễn kích hoạt)'
+    : securityState.isActivated
+    ? '🛡️ Đã kích hoạt Bản quyền'
+    : `🔐 Bản quyền (${Math.min(securityState.sessionsUsed, MAX_FREE_SESSIONS)}/${MAX_FREE_SESSIONS} phiên)`;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -1164,6 +1201,9 @@ export const App: React.FC = () => {
           onOpenKeyModal={() => setShowKeyModal(true)}
           onOpenNationalDossier={() => setShowNationalDossier(true)}
           onOpenCloudSync={() => handleOpenCloudSync('GOOGLE')}
+          onOpenOwnerSecurity={() => setShowOwnerSecurityModal(true)}
+          securityBadgeLabel={securityBadgeLabel}
+          isOwnerOrActivated={isOwnerOrActivated}
         />
       )}
 
@@ -1254,7 +1294,17 @@ export const App: React.FC = () => {
         matchSettings={matchSettings}
         activeQuizList={quizList}
         onApplyBackup={handleApplyBackup}
+        onOwnerSecurityUpdated={nextSec => setSecurityState(nextSec)}
         initialTab={cloudSyncInitialTab}
+      />
+
+      {/* Trung Tâm Bảo Mật Chủ Sở Hữu, Kích Hoạt Bản Quyền (Mail GitHub) & Ghi Nhớ ID Máy / ID Trang Mạng */}
+      <OwnerSecurityModal
+        isOpen={showOwnerSecurityModal}
+        isForcedLock={securityState.isSuspended && view !== 'STUDENT_MOBILE'}
+        securityState={securityState}
+        onUpdateSecurityState={nextSec => setSecurityState(nextSec)}
+        onClose={() => setShowOwnerSecurityModal(false)}
       />
     </div>
   );
