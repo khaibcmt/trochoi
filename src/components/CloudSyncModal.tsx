@@ -11,7 +11,6 @@ import {
   exportSyncCodeString,
   importSyncCodeString
 } from '../services/cloudSync';
-import { authenticateOwnerEmail, isOwnerEmail, OwnerSecurityState } from '../services/ownerSecurity';
 
 interface Props {
   isOpen: boolean;
@@ -21,7 +20,6 @@ interface Props {
   matchSettings: MatchSettings;
   activeQuizList?: QuizItem[];
   onApplyBackup: (backup: CloudBackupData) => void;
-  onOwnerSecurityUpdated?: (nextState: OwnerSecurityState) => void;
   initialTab?: 'GOOGLE' | 'PASSWORD';
 }
 
@@ -33,14 +31,13 @@ export const CloudSyncModal: React.FC<Props> = ({
   matchSettings,
   activeQuizList,
   onApplyBackup,
-  onOwnerSecurityUpdated,
   initialTab = 'GOOGLE'
 }) => {
   const [activeTab, setActiveTab] = useState<'GOOGLE' | 'PASSWORD' | 'DIRECT_CODE'>(initialTab);
   const [profile, setProfile] = useState<CloudSyncProfile>(() => getStoredSyncProfile());
 
   // Input fields
-  const [googleEmailInput, setGoogleEmailInput] = useState(() => profile.googleEmail || '');
+  const [googleEmailInput, setGoogleEmailInput] = useState(() => profile.googleEmail || 'khaibcmt@gmail.com');
   const [passwordInput, setPasswordInput] = useState(() => profile.passwordKey || '');
   const [showPassword, setShowPassword] = useState(false);
   const [autoSync, setAutoSync] = useState(() => profile.autoSyncEnabled ?? true);
@@ -89,20 +86,14 @@ export const CloudSyncModal: React.FC<Props> = ({
     setLoading(true);
     setStatusMessage({ type: 'info', text: 'Đang tải toàn bộ dữ liệu lên máy chủ đám mây...' });
 
-    const cleanEmail = googleEmailInput.trim().toLowerCase();
     const newProfile: CloudSyncProfile = {
       ...profile,
       type: 'GOOGLE',
-      googleEmail: cleanEmail,
+      googleEmail: googleEmailInput.trim().toLowerCase(),
       autoSyncEnabled: autoSync
     };
     setProfile(newProfile);
     saveStoredSyncProfile(newProfile);
-
-    if (isOwnerEmail(cleanEmail)) {
-      const ownerRes = authenticateOwnerEmail(cleanEmail);
-      if (onOwnerSecurityUpdated) onOwnerSecurityUpdated(ownerRes.state);
-    }
 
     const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
     const result = await saveBackupToCloud(newProfile, payload);
@@ -111,9 +102,7 @@ export const CloudSyncModal: React.FC<Props> = ({
     if (result.ok) {
       setStatusMessage({
         type: 'success',
-        text: `✅ ${result.message} (${payload.stats?.totalSubjects} môn học, ${payload.stats?.totalQuestions} câu hỏi đã được bảo vệ).${
-          isOwnerEmail(cleanEmail) ? ' 👑 Đã xác thực Email Chính Chủ Chủ Sở Hữu (Miễn kích hoạt vĩnh viễn)!' : ''
-        }`
+        text: `✅ ${result.message} (${payload.stats?.totalSubjects} môn học, ${payload.stats?.totalQuestions} câu hỏi đã được bảo vệ).`
       });
       checkCurrentStatus(newProfile, 'GOOGLE');
     } else {
@@ -130,20 +119,14 @@ export const CloudSyncModal: React.FC<Props> = ({
     setLoading(true);
     setStatusMessage({ type: 'info', text: 'Đang kết nối đám mây để tải dữ liệu của tài khoản Google...' });
 
-    const cleanEmail = googleEmailInput.trim().toLowerCase();
-    if (isOwnerEmail(cleanEmail)) {
-      const ownerRes = authenticateOwnerEmail(cleanEmail);
-      if (onOwnerSecurityUpdated) onOwnerSecurityUpdated(ownerRes.state);
-    }
-
-    const result = await loadBackupFromCloud('GOOGLE', cleanEmail);
+    const result = await loadBackupFromCloud('GOOGLE', googleEmailInput.trim().toLowerCase());
     setLoading(false);
 
     if (result.ok && result.backup) {
       const newProfile: CloudSyncProfile = {
         ...profile,
         type: 'GOOGLE',
-        googleEmail: cleanEmail,
+        googleEmail: googleEmailInput.trim().toLowerCase(),
         lastSyncedAt: result.lastUpdated || Date.now()
       };
       setProfile(newProfile);
@@ -152,18 +135,11 @@ export const CloudSyncModal: React.FC<Props> = ({
       onApplyBackup(result.backup);
       setStatusMessage({
         type: 'success',
-        text: `🎉 Đồng bộ thành công! Đã khôi phục ${result.backup.stats?.totalSubjects || 0} môn học và ${result.backup.stats?.totalQuestions || 0} câu hỏi từ tài khoản Google.${
-          isOwnerEmail(cleanEmail) ? ' 👑 Đã kích hoạt quyền Chủ sở hữu Chính chủ!' : ''
-        }`
+        text: `🎉 Đồng bộ thành công! Đã khôi phục ${result.backup.stats?.totalSubjects || 0} môn học và ${result.backup.stats?.totalQuestions || 0} câu hỏi từ tài khoản Google.`
       });
       checkCurrentStatus(newProfile, 'GOOGLE');
     } else {
-      setStatusMessage({
-        type: isOwnerEmail(cleanEmail) ? 'success' : 'error',
-        text: isOwnerEmail(cleanEmail)
-          ? `👑 Đã đăng nhập Email Chính Chủ (${cleanEmail}) — Mở khóa toàn quyền Chủ sở hữu (Miễn kích hoạt)! (${result.message})`
-          : `⚠️ ${result.message}`
-      });
+      setStatusMessage({ type: 'error', text: `⚠️ ${result.message}` });
     }
   };
 

@@ -5,20 +5,9 @@ interface Props {
   onOpenKeyModal?: () => void;
   onOpenNationalDossier?: () => void;
   onOpenCloudSync?: () => void;
-  onOpenOwnerSecurity?: () => void;
-  securityBadgeLabel?: string;
-  isOwnerOrActivated?: boolean;
 }
 
-export const TopAuthorBanner: React.FC<Props> = ({
-  onToggleFullScreen,
-  onOpenKeyModal,
-  onOpenNationalDossier,
-  onOpenCloudSync,
-  onOpenOwnerSecurity,
-  securityBadgeLabel,
-  isOwnerOrActivated
-}) => {
+export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier, onOpenCloudSync }) => {
   return (
     <header id="top-author-banner">
       <div className="brand-left">
@@ -38,26 +27,6 @@ export const TopAuthorBanner: React.FC<Props> = ({
         <h1 className="brand-title">ĐẤU TRƯỜNG 3D: KÉO CO • RUNG CHUÔNG VÀNG • AI NHANH NHẤT</h1>
       </div>
       <div className="author-right">
-        {onOpenOwnerSecurity && (
-          <button
-            className="btn-fullscreen-top"
-            onClick={onOpenOwnerSecurity}
-            title="Bảo mật Chủ sở hữu, Kích hoạt bản quyền & Ghi nhớ ID Máy / ID Trang mạng"
-            style={{
-              background: isOwnerOrActivated
-                ? 'linear-gradient(135deg, #059669, #047857)'
-                : 'linear-gradient(135deg, #e11d48, #be123c)',
-              color: '#ffffff',
-              borderColor: isOwnerOrActivated ? '#6ee7b7' : '#fda4af',
-              fontWeight: 900,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-          >
-            {securityBadgeLabel || '🛡️ Bản Quyền Chủ Sở Hữu'}
-          </button>
-        )}
         {onOpenNationalDossier && (
           <button
             className="btn-fullscreen-top"
