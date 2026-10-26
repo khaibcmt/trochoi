@@ -185,7 +185,8 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   // Bảo vệ các thẻ hợp lệ (<table>, <img>, <sub>, <sup>, <u>, <b>) khi chèn dòng đã chuẩn hóa vào khung soạn thảo
   const formatSafeEditorLineHTML = (rawLine: string, isU: boolean, isBold?: boolean): string => {
-    const cleaned = stripWordStyleGarbage(rawLine);
+    const cleaned = stripWordStyleGarbage(rawLine)
+      .replace(/⟦U⟧([^A-Za-z0-9À-ỹ]*)⟦\/U⟧/g, '$1');
     const savedTags: string[] = [];
     const tokenized = cleaned.replace(
       /(<table\b[\s\S]*?<\/table>|<img\b[^>]*>|<\/?(?:sub|sup|u|b)\b[^>]*>)/gi,
@@ -209,10 +210,19 @@ export const TeacherSetupView: React.FC<Props> = ({
       escaped = escaped.replace(`@@SAFE_TAG_${idx}@@`, tag);
     });
 
-    if (isU && !/<u>/i.test(escaped)) {
-      escaped = `<u>${escaped}</u>`;
-    } else if (isBold && !/<b>/i.test(escaped)) {
-      escaped = `<b>${escaped}</b>`;
+    if (isU) {
+      // Chuẩn hóa: Nếu dòng là đáp án gạch chân, bọc gọn 1 thẻ <u> duy nhất toàn dòng để dễ bật/tắt 100%
+      const strippedU = escaped.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+      escaped = `<u>${strippedU}</u>`;
+    } else {
+      // Nếu không gạch chân (isU = false) ở dòng phương án A,B,C,D hoặc a,b,c,d -> dọn sạch thẻ <u> thừa
+      const plainCheck = escaped.replace(/<[^>]+>/g, '').trim();
+      if (/^(?:[A-Da-d]\s*[.:\)\/])/.test(plainCheck)) {
+        escaped = escaped.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+      }
+      if (isBold && !/<b>/i.test(escaped)) {
+        escaped = `<b>${escaped}</b>`;
+      }
     }
     return `<div>${escaped}</div>`;
   };
@@ -341,7 +351,8 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   }, [currentSubjectKey, subjectsDB]);
 
-  // Nút Gạch Chân Thông Minh (Hỗ trợ cả khi bôi đen chữ HOẶC chỉ đặt con trỏ chuột vào dòng đáp án rồi bấm nút)
+  // Nút Gạch Chân Thông Minh (Hỗ trợ cả khi bôi đen chữ, nhấn Ctrl+U, HOẶC chỉ đặt con trỏ chuột vào dòng đáp án rồi bấm nút)
+  // Đảm bảo bật/tắt gạch chân SẠCH SẼ TOÀN DÒNG cho phương án A, B, C, D và a), b), c), d) (không bao giờ sót mảnh <u> lẻ làm nhận nhầm đáp án)
   const handleUnderline = (targetBox?: 'MC' | 'TF' | 'SA') => {
     const boxType = targetBox || activeEditorBoxRef.current || 'MC';
     const editorEl =
@@ -390,6 +401,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           if (/^(?:Câu|Bài|Question|\d+\s*[.):\/])/i.test(txt)) break;
           if (/^[A-Da-d]\s*[.:\)\/]/.test(txt)) {
             prev.innerHTML = prev.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+            prev.style.textDecoration = 'none';
           }
           prev = prev.previousElementSibling as HTMLElement | null;
         }
@@ -399,32 +411,43 @@ export const TeacherSetupView: React.FC<Props> = ({
           if (/^(?:Câu|Bài|Question|\d+\s*[.):\/])/i.test(txt)) break;
           if (/^[A-Da-d]\s*[.:\)\/]/.test(txt)) {
             next.innerHTML = next.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
+            next.style.textDecoration = 'none';
           }
           next = next.nextElementSibling as HTMLElement | null;
         }
       };
 
-      if (!range.collapsed) {
-        if (blockEl && parentEditor === mcEditorRef.current) {
-          clearSiblingMCOptionUnderlines(blockEl);
+      // Nếu con trỏ hoặc vùng bôi đen nằm trên dòng phương án A/B/C/D (Khung 1) hoặc a/b/c/d (Khung 2):
+      // LUÔN bật/tắt gạch chân trọn vẹn toàn bộ dòng đó để không bao giờ bị sót mảnh <u>a) </u> hay <u>.</u>
+      if (blockEl && parentEditor) {
+        const lineText = (blockEl.textContent || '').trim();
+        const isOptionOrStatementLine =
+          parentEditor === mcEditorRef.current ||
+          parentEditor === tfEditorRef.current ||
+          /^[A-Da-d]\s*[.:\)\/]/.test(lineText);
+
+        if (isOptionOrStatementLine || range.collapsed) {
+          const hasUnderlineNow =
+            /<(?:u|ins)\b/i.test(blockEl.innerHTML) ||
+            /text-decoration[^;"]*underline/i.test(blockEl.getAttribute('style') || '');
+          const cleanInner = blockEl.innerHTML
+            .replace(/<\/?(?:u|ins)\b[^>]*>/gi, '')
+            .replace(/text-decoration\s*:\s*underline\s*;?/gi, '');
+          if (hasUnderlineNow) {
+            blockEl.innerHTML = cleanInner;
+            blockEl.style.textDecoration = 'none';
+          } else {
+            clearSiblingMCOptionUnderlines(blockEl);
+            blockEl.innerHTML = `<u>${cleanInner}</u>`;
+            blockEl.style.textDecoration = '';
+          }
+          syncEditorQuestionsLive();
+          return;
         }
-        document.execCommand('underline', false);
-        syncEditorQuestionsLive();
-        return;
       }
 
-      // Nếu giáo viên chỉ đặt con trỏ vào dòng đáp án mà chưa kéo bôi đen -> tự động bật/tắt gạch chân toàn bộ dòng đó!
-      if (blockEl && parentEditor) {
-        const hasUnderlineNow =
-          /<(?:u|ins)\b/i.test(blockEl.innerHTML) ||
-          /text-decoration[^;"]*underline/i.test(blockEl.getAttribute('style') || '');
-        if (hasUnderlineNow) {
-          blockEl.innerHTML = blockEl.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '');
-          blockEl.style.textDecoration = 'none';
-        } else {
-          clearSiblingMCOptionUnderlines(blockEl);
-          blockEl.innerHTML = `<u>${blockEl.innerHTML.replace(/<\/?(?:u|ins)\b[^>]*>/gi, '')}</u>`;
-        }
+      if (!range.collapsed) {
+        document.execCommand('underline', false);
         syncEditorQuestionsLive();
         return;
       }
@@ -433,6 +456,14 @@ export const TeacherSetupView: React.FC<Props> = ({
     if (editorEl) editorEl.focus();
     document.execCommand('underline', false);
     syncEditorQuestionsLive();
+  };
+
+  // Bắt phím tắt Ctrl+U / Cmd+U trong 3 khung để dùng cơ chế Gạch chân toàn dòng sạch sẽ
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, boxType: 'MC' | 'TF' | 'SA') => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') {
+      e.preventDefault();
+      handleUnderline(boxType);
+    }
   };
 
   // Chèn Hình ảnh / Sơ đồ / Bản đồ Địa lý trực tiếp vào câu hỏi đang soạn
@@ -1347,48 +1378,49 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </section>
 
-        {/* CHIA SẴN 3 KHUNG DẠNG THỨC ĐỘC LẬP ĐỂ GIÁO VIÊN COPY - DÁN KHÔNG BAO GIỜ LỖI */}
+        {/* BỐ TRÍ 3 KHUNG DẠNG THỨC THEO THỨ TỰ TỪ TRÊN XUỐNG (FULL-WIDTH, KHUNG TO RÕ RÀNG, DỄ THAO TÁC) */}
         <section
-          aria-label="Ba khung dán câu hỏi theo 3 dạng thức THPT 2018"
+          aria-label="Ba khung soạn câu hỏi xếp từ trên xuống theo 3 dạng thức THPT 2018"
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
-            gap: '12px',
-            margin: '10px 0'
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '18px',
+            margin: '12px 0'
           }}
         >
-          {/* KHUNG 1: DẠNG THỨC I - TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D) */}
+          {/* KHUNG 1 (TRÊN CÙNG): DẠNG THỨC I - TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D) */}
           <div
             style={{
+              width: '100%',
               background: '#eff6ff',
-              border: '2.5px solid #3b82f6',
-              borderRadius: '14px',
-              padding: '10px 12px',
+              border: '3px solid #3b82f6',
+              borderRadius: '16px',
+              padding: '14px 16px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px',
-              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.1)'
+              gap: '10px',
+              boxShadow: '0 6px 18px rgba(59, 130, 246, 0.14)'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <div>
-                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#1d4ed8' }}>
-                  🟦 KHUNG 1 — DẠNG THỨC I: 4 LỰA CHỌN (A, B, C, D)
+                <div style={{ fontWeight: 900, fontSize: '16px', color: '#1d4ed8', letterSpacing: '0.2px' }}>
+                  🟦 KHUNG 1 — DẠNG THỨC I: TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D)
                 </div>
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Mặc định: <b><u>Gạch chân</u> = ĐÚNG</b>, <b>Không gạch chân = SAI</b> (Hỗ trợ Ảnh, Sơ đồ, Bản đồ, Bảng, Công thức)
+                <div style={{ fontSize: '12.5px', color: '#1e293b', fontWeight: 700, marginTop: '2px' }}>
+                  Mặc định: <b><u>Gạch chân</u> = ĐÚNG</b>, <b>Không gạch chân = SAI</b> • Tự động tách câu hỏi dài, câu dính chùm, phương án 2 cột / 4 cột
                 </div>
               </div>
-              <span style={{ background: '#1d4ed8', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
-                {formatCounts.mc} câu
+              <span style={{ background: '#1d4ed8', color: '#fff', fontWeight: 900, fontSize: '13.5px', padding: '5px 14px', borderRadius: '999px' }}>
+                {formatCounts.mc} câu Dạng I
               </span>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#dbeafe', borderColor: '#60a5fa', color: '#1e3a8a' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#dbeafe', borderColor: '#60a5fa', color: '#1e3a8a', fontWeight: 800 }}
                 onClick={() => handleInsertSample(SAMPLE_PHAN_1_MC, 'MC')}
               >
                 ➕ Thêm mẫu Dạng I
@@ -1396,32 +1428,33 @@ export const TeacherSetupView: React.FC<Props> = ({
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => handleUnderline('MC')}
+                title="Đặt con trỏ vào dòng đáp án A/B/C/D rồi bấm nút này (hoặc nhấn Ctrl+U) để Gạch chân = ĐÚNG"
               >
-                <u>U</u> Gạch chân ĐA
+                <u>U</u> Gạch chân Đáp án Đúng (Ctrl+U)
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
                 onClick={() => handleTriggerInsertImage('MC')}
               >
-                🖼️ Chèn Ảnh/Bản Đồ
+                🖼️ Chèn Ảnh / Bản Đồ
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
                 onClick={() => handleInsertDataTable('MC')}
               >
-                📊 Chèn Bảng
+                📊 Chèn Bảng Số Liệu
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
                 onClick={() => handleClearSingleBox('MC')}
               >
                 🗑️ Xóa khung 1
@@ -1436,57 +1469,130 @@ export const TeacherSetupView: React.FC<Props> = ({
               onFocus={() => {
                 activeEditorBoxRef.current = 'MC';
               }}
+              onKeyDown={e => handleEditorKeyDown(e, 'MC')}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
-                minHeight: '190px',
-                maxHeight: '290px',
+                width: '100%',
+                minHeight: '300px',
+                maxHeight: '620px',
+                resize: 'vertical',
                 overflowY: 'auto',
                 background: '#ffffff',
-                border: '2px solid #93c5fd',
-                borderRadius: '10px',
-                padding: '10px',
-                fontSize: '13.5px',
-                lineHeight: 1.5,
+                border: '2.5px solid #93c5fd',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                fontSize: '15.5px',
+                lineHeight: 1.68,
                 outline: 'none',
-                color: '#0f172a'
+                color: '#0f172a',
+                boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.04)'
               }}
             />
-          </div>
 
-          {/* KHUNG 2: DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
-          <div
-            style={{
-              background: '#f5f3ff',
-              border: '2.5px solid #8b5cf6',
-              borderRadius: '14px',
-              padding: '10px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-              boxShadow: '0 4px 12px rgba(139, 92, 246, 0.1)'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-              <div>
-                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#6d28d9' }}>
-                  🟪 KHUNG 2 — DẠNG THỨC II: ĐÚNG / SAI (a, b, c, d)
+            {/* Thanh nhận diện & click chọn nhanh đáp án A, B, C, D ngay dưới Khung 1 */}
+            {livePreviewItems.some(it => !it.format || it.format === 'MULTIPLE_CHOICE') && (
+              <div
+                style={{
+                  background: '#dbeafe',
+                  border: '1.5px solid #93c5fd',
+                  borderRadius: '10px',
+                  padding: '8px 10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ fontSize: '12px', fontWeight: 900, color: '#1e3a8a' }}>
+                  ⚡ BẢNG ĐÁP ÁN ĐÃ NHẬN DIỆN Ở KHUNG 1 (Bấm trực tiếp vào A, B, C, D bên dưới để đổi nhanh đáp án đúng & tự động gạch chân):
                 </div>
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Mặc định: <b><u>Gạch chân</u> = ĐÚNG</b>, <b>Không gạch chân = SAI</b> cho cả 4 ý a), b), c), d)
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '135px', overflowY: 'auto' }}>
+                  {livePreviewItems.map((item, globalIdx) => {
+                    if (item.format && item.format !== 'MULTIPLE_CHOICE') return null;
+                    const mcOrder =
+                      livePreviewItems.slice(0, globalIdx + 1).filter(x => !x.format || x.format === 'MULTIPLE_CHOICE').length;
+                    return (
+                      <div
+                        key={`mc-quick-${globalIdx}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          background: '#ffffff',
+                          border: item.aiSelected ? '1.5px solid #f59e0b' : '1.5px solid #60a5fa',
+                          borderRadius: '8px',
+                          padding: '3px 7px',
+                          fontSize: '12px',
+                          fontWeight: 800
+                        }}
+                      >
+                        <span style={{ color: '#1e293b', marginRight: '2px' }}>Câu {mcOrder}:</span>
+                        {['A', 'B', 'C', 'D'].map((lbl, oIdx) => {
+                          const isCorrect = item.correct === oIdx;
+                          return (
+                            <button
+                              key={lbl}
+                              type="button"
+                              onClick={() => handleQuickChangeCorrectMC(globalIdx, oIdx)}
+                              title={`Đặt ${lbl} làm đáp án ĐÚNG (tự động gạch chân phương án ${lbl})`}
+                              style={{
+                                border: isCorrect ? '1.5px solid #15803d' : '1px solid #cbd5e1',
+                                background: isCorrect ? '#16a34a' : '#f8fafc',
+                                color: isCorrect ? '#ffffff' : '#334155',
+                                fontWeight: 900,
+                                fontSize: '11.5px',
+                                padding: '2px 6px',
+                                borderRadius: '5px',
+                                cursor: 'pointer',
+                                textDecoration: isCorrect ? 'underline' : 'none'
+                              }}
+                            >
+                              {lbl}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <span style={{ background: '#6d28d9', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
-                {formatCounts.tf} câu
+            )}
+          </div>
+
+          {/* KHUNG 2 (Ở GIỮA): DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
+          <div
+            style={{
+              width: '100%',
+              background: '#f5f3ff',
+              border: '3px solid #8b5cf6',
+              borderRadius: '16px',
+              padding: '14px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              boxShadow: '0 6px 18px rgba(139, 92, 246, 0.14)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '16px', color: '#6d28d9', letterSpacing: '0.2px' }}>
+                  🟪 KHUNG 2 — DẠNG THỨC II: TRẮC NGHIỆM ĐÚNG / SAI 4 Ý (a, b, c, d)
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#1e293b', fontWeight: 700, marginTop: '2px' }}>
+                  Mặc định: <b><u>Ý nào gạch chân</u> = ĐÚNG</b>, <b>Ý không gạch chân = SAI</b> cho cả 4 ý a), b), c), d)
+                </div>
+              </div>
+              <span style={{ background: '#6d28d9', color: '#fff', fontWeight: 900, fontSize: '13.5px', padding: '5px 14px', borderRadius: '999px' }}>
+                {formatCounts.tf} câu Dạng II
               </span>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#ede9fe', borderColor: '#a78bfa', color: '#4c1d95' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#ede9fe', borderColor: '#a78bfa', color: '#4c1d95', fontWeight: 800 }}
                 onClick={() => handleInsertSample(SAMPLE_PHAN_2_TF, 'TF')}
               >
                 ➕ Thêm mẫu Dạng II
@@ -1494,32 +1600,33 @@ export const TeacherSetupView: React.FC<Props> = ({
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => handleUnderline('TF')}
+                title="Đặt con trỏ vào dòng ý a), b), c), d) rồi bấm nút này (hoặc nhấn Ctrl+U) để bật/tắt Gạch chân = ĐÚNG"
               >
-                <u>U</u> Gạch chân ý Đúng
+                <u>U</u> Gạch chân ý Đúng (Ctrl+U)
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
                 onClick={() => handleTriggerInsertImage('TF')}
               >
-                🖼️ Chèn Ảnh/Bản Đồ
+                🖼️ Chèn Ảnh / Bản Đồ
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
                 onClick={() => handleInsertDataTable('TF')}
               >
-                📊 Chèn Bảng
+                📊 Chèn Bảng Số Liệu
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
                 onClick={() => handleClearSingleBox('TF')}
               >
                 🗑️ Xóa khung 2
@@ -1534,57 +1641,127 @@ export const TeacherSetupView: React.FC<Props> = ({
               onFocus={() => {
                 activeEditorBoxRef.current = 'TF';
               }}
+              onKeyDown={e => handleEditorKeyDown(e, 'TF')}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
-                minHeight: '190px',
-                maxHeight: '290px',
+                width: '100%',
+                minHeight: '300px',
+                maxHeight: '620px',
+                resize: 'vertical',
                 overflowY: 'auto',
                 background: '#ffffff',
-                border: '2px solid #c4b5fd',
-                borderRadius: '10px',
-                padding: '10px',
-                fontSize: '13.5px',
-                lineHeight: 1.5,
+                border: '2.5px solid #c4b5fd',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                fontSize: '15.5px',
+                lineHeight: 1.68,
                 outline: 'none',
-                color: '#0f172a'
+                color: '#0f172a',
+                boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.04)'
               }}
             />
-          </div>
 
-          {/* KHUNG 3: DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
-          <div
-            style={{
-              background: '#ecfdf5',
-              border: '2.5px solid #10b981',
-              borderRadius: '14px',
-              padding: '10px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-              <div>
-                <div style={{ fontWeight: 900, fontSize: '13.5px', color: '#047857' }}>
-                  🟩 KHUNG 3 — DẠNG THỨC III: TRẢ LỜI NGẮN
+            {/* Thanh nhận diện & click đảo nhanh Đúng/Sai cho a, b, c, d ngay dưới Khung 2 */}
+            {livePreviewItems.some(it => it.format === 'TRUE_FALSE') && (
+              <div
+                style={{
+                  background: '#ede9fe',
+                  border: '1.5px solid #c4b5fd',
+                  borderRadius: '10px',
+                  padding: '8px 10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ fontSize: '12px', fontWeight: 900, color: '#4c1d95' }}>
+                  ⚡ BẢNG ĐÁP ÁN ĐÚNG / SAI ĐÃ NHẬN DIỆN Ở KHUNG 2 (Bấm vào từng ý a, b, c, d để chuyển ĐÚNG ⇄ SAI ngay lập tức):
                 </div>
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700 }}>
-                  Copy dán câu hỏi Trả lời ngắn kèm dòng <b>Đáp án: ...</b> hoặc <b><u>gạch chân đáp số</u></b>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '135px', overflowY: 'auto' }}>
+                  {livePreviewItems.map((item, globalIdx) => {
+                    if (item.format !== 'TRUE_FALSE') return null;
+                    const tfOrder =
+                      livePreviewItems.slice(0, globalIdx + 1).filter(x => x.format === 'TRUE_FALSE').length;
+                    return (
+                      <div
+                        key={`tf-quick-${globalIdx}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          background: '#ffffff',
+                          border: '1.5px solid #a78bfa',
+                          borderRadius: '8px',
+                          padding: '3px 8px',
+                          fontSize: '12px',
+                          fontWeight: 800
+                        }}
+                      >
+                        <span style={{ color: '#1e293b', marginRight: '2px' }}>Câu {tfOrder}:</span>
+                        {(item.tfItems || []).slice(0, 4).map((tf, sIdx) => (
+                          <button
+                            key={tf.label}
+                            type="button"
+                            onClick={() => handleQuickToggleTFItem(globalIdx, sIdx)}
+                            title={`Nhấn để đổi ý ${tf.label}) thành ${tf.isCorrect ? 'SAI (Bỏ gạch chân)' : 'ĐÚNG (Gạch chân)'}`}
+                            style={{
+                              border: tf.isCorrect ? '1.5px solid #15803d' : '1.5px solid #dc2626',
+                              background: tf.isCorrect ? '#16a34a' : '#fee2e2',
+                              color: tf.isCorrect ? '#ffffff' : '#991b1b',
+                              fontWeight: 900,
+                              fontSize: '11.5px',
+                              padding: '2px 6px',
+                              borderRadius: '5px',
+                              cursor: 'pointer',
+                              textDecoration: tf.isCorrect ? 'underline' : 'none'
+                            }}
+                          >
+                            {tf.label}:{tf.isCorrect ? 'Đ' : 'S'}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <span style={{ background: '#047857', color: '#fff', fontWeight: 900, fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px' }}>
-                {formatCounts.sa} câu
+            )}
+          </div>
+
+          {/* KHUNG 3 (DƯỚI CÙNG): DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
+          <div
+            style={{
+              width: '100%',
+              background: '#ecfdf5',
+              border: '3px solid #10b981',
+              borderRadius: '16px',
+              padding: '14px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              boxShadow: '0 6px 18px rgba(16, 185, 129, 0.14)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '16px', color: '#047857', letterSpacing: '0.2px' }}>
+                  🟩 KHUNG 3 — DẠNG THỨC III: TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA)
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#1e293b', fontWeight: 700, marginTop: '2px' }}>
+                  Copy dán câu hỏi Trả lời ngắn kèm dòng <b>Đáp án: ...</b> hoặc <b><u>gạch chân đáp số</u></b> (Hỗ trợ câu hỏi dài nhiều đoạn văn)
+                </div>
+              </div>
+              <span style={{ background: '#047857', color: '#fff', fontWeight: 900, fontSize: '13.5px', padding: '5px 14px', borderRadius: '999px' }}>
+                {formatCounts.sa} câu Dạng III
               </span>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#d1fae5', borderColor: '#34d399', color: '#065f46' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#d1fae5', borderColor: '#34d399', color: '#065f46', fontWeight: 800 }}
                 onClick={() => handleInsertSample(SAMPLE_PHAN_3_SA, 'SA')}
               >
                 ➕ Thêm mẫu Dạng III
@@ -1592,32 +1769,32 @@ export const TeacherSetupView: React.FC<Props> = ({
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => handleUnderline('SA')}
               >
-                <u>U</u> Gạch chân ĐA
+                <u>U</u> Gạch chân Đáp số (Ctrl+U)
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#e0f2fe', color: '#0369a1' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
                 onClick={() => handleTriggerInsertImage('SA')}
               >
-                🖼️ Chèn Ảnh/Bản Đồ
+                🖼️ Chèn Ảnh / Bản Đồ
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', background: '#fef3c7', color: '#92400e' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
                 onClick={() => handleInsertDataTable('SA')}
               >
-                📊 Chèn Bảng
+                📊 Chèn Bảng Số Liệu
               </button>
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ fontSize: '11px', padding: '4px 8px', color: '#b91c1c' }}
+                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
                 onClick={() => handleClearSingleBox('SA')}
               >
                 🗑️ Xóa khung 3
@@ -1632,23 +1809,82 @@ export const TeacherSetupView: React.FC<Props> = ({
               onFocus={() => {
                 activeEditorBoxRef.current = 'SA';
               }}
+              onKeyDown={e => handleEditorKeyDown(e, 'SA')}
               onPaste={handleCleanPasteInBox}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
-                minHeight: '190px',
-                maxHeight: '290px',
+                width: '100%',
+                minHeight: '280px',
+                maxHeight: '580px',
+                resize: 'vertical',
                 overflowY: 'auto',
                 background: '#ffffff',
-                border: '2px solid #6ee7b7',
-                borderRadius: '10px',
-                padding: '10px',
-                fontSize: '13.5px',
-                lineHeight: 1.5,
+                border: '2.5px solid #6ee7b7',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                fontSize: '15.5px',
+                lineHeight: 1.68,
                 outline: 'none',
-                color: '#0f172a'
+                color: '#0f172a',
+                boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.04)'
               }}
             />
+
+            {/* Thanh hiển thị đáp số đã nhận diện ngay dưới Khung 3 */}
+            {livePreviewItems.some(it => it.format === 'SHORT_ANSWER') && (
+              <div
+                style={{
+                  background: '#d1fae5',
+                  border: '1.5px solid #6ee7b7',
+                  borderRadius: '10px',
+                  padding: '8px 10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ fontSize: '12px', fontWeight: 900, color: '#065f46' }}>
+                  ⚡ ĐÁP ÁN TRẢ LỜI NGẮN ĐÃ NHẬN DIỆN Ở KHUNG 3:
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '130px', overflowY: 'auto' }}>
+                  {livePreviewItems.map((item, globalIdx) => {
+                    if (item.format !== 'SHORT_ANSWER') return null;
+                    const saOrder =
+                      livePreviewItems.slice(0, globalIdx + 1).filter(x => x.format === 'SHORT_ANSWER').length;
+                    return (
+                      <div
+                        key={`sa-quick-${globalIdx}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          background: '#ffffff',
+                          border: '1.5px solid #34d399',
+                          borderRadius: '8px',
+                          padding: '3px 8px',
+                          fontSize: '12px',
+                          fontWeight: 800
+                        }}
+                      >
+                        <span style={{ color: '#065f46' }}>Câu {saOrder}:</span>
+                        <span
+                          style={{
+                            background: '#059669',
+                            color: '#ffffff',
+                            padding: '1px 7px',
+                            borderRadius: '5px',
+                            fontWeight: 900
+                          }}
+                        >
+                          {item.shortAnswer || item.opts?.[0] || 'Chưa có ĐA'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
