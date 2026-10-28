@@ -596,9 +596,41 @@ class NetworkService {
       });
     }
 
+    // Nếu Giáo viên vừa nhấn "Kéo HS vào phòng" (forcePullTs trong 45s gần nhất), đảm bảo học sinh vừa kết nối lại nhận được lệnh kéo ngay lập tức!
+    if (typeof data.forcePullTs === 'number' && data.forcePullTs > 0 && Date.now() - data.forcePullTs <= 45000) {
+      const pullMid = `srv_force_pull_${data.forcePullTs}`;
+      if (!this.seenMsgIds.has(pullMid)) {
+        this.deliverIncomingMessage({
+          _mid: pullMid,
+          type: 'FORCE_PULL_TO_WAITING',
+          status: data.matchStatus || data.latestHeartbeat?.status || 'LOBBY',
+          globalQIndex: data.globalQIndex ?? data.latestHeartbeat?.globalQIndex ?? 0,
+          gameType: data.latestHeartbeat?.gameType,
+          forcePullTs: data.forcePullTs,
+          question: data.latestHeartbeat?.question,
+          top10: data.latestHeartbeat?.top10,
+          quiz: this.cachedQuizDeck.length > 0 ? this.cachedQuizDeck : undefined
+        });
+      }
+    }
+
     // Nhận nhịp tim mới nhất của Host TRƯỚC hoặc SAU sự kiện đều đảm bảo trạng thái chuẩn xác
     if (data.latestHeartbeat && data.latestHeartbeat._mid !== this.lastHeartbeatMid) {
       this.lastHeartbeatMid = data.latestHeartbeat._mid || '';
+      if (!data.latestHeartbeat.top10 && Array.isArray(data.players) && data.players.length > 0) {
+        const computedTop10 = [...data.players]
+          .sort((a: any, b: any) => (b.savedScore || 0) - (a.savedScore || 0) || (b.savedCorrect || 0) - (a.savedCorrect || 0))
+          .slice(0, 10)
+          .map((p: any, idx: number) => ({
+            id: p.playerId,
+            label: p.playerName || 'Học sinh',
+            team: p.preferredTeam || 'RED',
+            fastScore: p.savedScore || 0,
+            correct: p.savedCorrect || 0,
+            rank: idx + 1
+          }));
+        data.latestHeartbeat = { ...data.latestHeartbeat, top10: computedTop10 };
+      }
       this.deliverIncomingMessage(data.latestHeartbeat);
     } else if (data.matchStatus === 'PLAYING' && this.onMessageCallback) {
       // Bảo hiểm kép: Nếu Server đang ở trạng thái PLAYING (Giáo viên đã bấm Bắt đầu),

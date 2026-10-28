@@ -1463,6 +1463,17 @@ export const HostArenaView: React.FC<Props> = ({
       : undefined;
 
     const sendPullPacket = () => {
+      const allP = [...matchState.redPlayers, ...matchState.bluePlayers];
+      const top10Snap = [...allP]
+        .sort((a, b) => (b.fastScore || 0) - (a.fastScore || 0) || (b.correct || 0) - (a.correct || 0))
+        .slice(0, 10)
+        .map(p => ({
+          id: p.id,
+          name: p.label,
+          team: p.team,
+          score: p.fastScore || 0,
+          correct: p.correct || 0
+        }));
       CloudNetwork.sendMessage({
         type: 'FORCE_PULL_TO_WAITING',
         roomId: activeRoomId,
@@ -1471,7 +1482,8 @@ export const HostArenaView: React.FC<Props> = ({
         globalQIndex: safeQIdx,
         forcePullTs: pullTs,
         question: curQ,
-        quiz: quizList
+        quiz: quizList,
+        top10: top10Snap
       });
       CloudNetwork.reconnectImmediate();
     };
@@ -2154,36 +2166,41 @@ export const HostArenaView: React.FC<Props> = ({
   return (
     <section id="host-view" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#070b14' }}>
 
-      {/* Floor 1: Thanh Điều Khiển Tinh Gọn 1 Hàng Duy Nhất (46px) */}
+      {/* Floor 1: Thanh Điều Khiển Chia 2 Hàng Tự Động Co Dãn & Chiếm Đúng 10% Màn Hình Thi Đấu (10vh) */}
       <header id="arena-header" style={{
-        height: '46px',
-        minHeight: '46px',
+        flex: '0 0 10vh',
+        height: '10vh',
+        minHeight: '64px',
+        maxHeight: '10vh',
         background: 'linear-gradient(90deg, #090d16 0%, #0f172a 50%, #090d16 100%)',
-        borderBottom: '1.5px solid rgba(56, 189, 248, 0.35)',
+        borderBottom: '1.5px solid rgba(56, 189, 248, 0.45)',
         boxShadow: '0 2px 10px rgba(0,0,0,0.45)',
         zIndex: 50,
-        flexShrink: 0,
-        padding: '0 12px',
+        padding: '4px 10px',
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
         justifyContent: 'space-between',
-        gap: '8px',
-        overflowX: 'auto'
+        gap: '4px',
+        boxSizing: 'border-box',
+        overflow: 'hidden'
       }}>
-        {/* Cụm Trái: Chọn Trò Chơi + Mã Phòng + Trạng Thái Nhanh */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        {/* HÀNG 1: Chọn Trò Chơi • Thông Tin Phòng • Mạng • Bắt Đầu / Sảnh Chờ / Tạm Dừng • Qua Câu • Kéo HS Vào Phòng */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1 1 50%', width: '100%', minHeight: 0 }}>
           {onSwitchGameType && (
             <select
               aria-label="Chuyển trò chơi nhanh"
               value={matchState.gameType}
               onChange={(e) => onSwitchGameType(e.target.value as GamePlayType)}
               style={{
+                flex: '1.2 1 0%',
+                height: '100%',
+                minWidth: '130px',
                 background: '#1e293b',
                 color: '#fde047',
                 border: '1.5px solid #38bdf8',
                 borderRadius: '8px',
-                padding: '5px 10px',
-                fontSize: '12.5px',
+                padding: '0 8px',
+                fontSize: '12px',
                 fontWeight: 900,
                 cursor: 'pointer'
               }}
@@ -2196,38 +2213,56 @@ export const HostArenaView: React.FC<Props> = ({
             </select>
           )}
 
-          <span style={{ color: '#e2e8f0', fontSize: '12.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>
-            Phòng <b style={{ color: '#38bdf8', fontSize: '13.5px' }}>{activeRoomId}</b>
-            <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+          <div
+            style={{
+              flex: '1.5 1 0%',
+              height: '100%',
+              background: 'rgba(15, 23, 42, 0.85)',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              padding: '0 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#e2e8f0',
+              fontSize: '12px',
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden'
+            }}
+          >
+            Phòng&nbsp;<b style={{ color: '#38bdf8' }}>{activeRoomId}</b>
+            <span style={{ color: '#64748b', margin: '0 5px' }}>·</span>
             <b style={{ color: '#4ade80' }}>{allPlayers.length} HS</b>
             {matchState.gameType === 'BELL' && (
               <>
-                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
-                <span style={{ color: '#fde047' }}>Còn trụ: {bellAliveCount}/{allPlayers.length}</span>
+                <span style={{ color: '#64748b', margin: '0 5px' }}>·</span>
+                <span style={{ color: '#fde047' }}>Trụ: {bellAliveCount}/{allPlayers.length}</span>
               </>
             )}
             {matchState.gameType === 'BOSS' && (
               <>
-                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
-                <span style={{ color: '#f87171' }}>🐉 Boss: {matchState.bossHP || 1000}/{matchState.maxBossHP || 1000} HP</span>
+                <span style={{ color: '#64748b', margin: '0 5px' }}>·</span>
+                <span style={{ color: '#f87171' }}>🐉 {matchState.bossHP || 1000}/{matchState.maxBossHP || 1000} HP</span>
               </>
             )}
             {matchState.gameType === 'TUG' && (
               <>
-                <span style={{ color: '#64748b', margin: '0 6px' }}>·</span>
+                <span style={{ color: '#64748b', margin: '0 5px' }}>·</span>
                 <span style={{ color: '#fca5a5' }}>Đỏ {matchState.redRoundWins}</span>
-                <span style={{ color: '#94a3b8', margin: '0 4px' }}>-</span>
+                <span style={{ color: '#94a3b8', margin: '0 3px' }}>-</span>
                 <span style={{ color: '#7dd3fc' }}>{matchState.blueRoundWins} Xanh</span>
               </>
             )}
-          </span>
+          </div>
 
-          {/* Nút Chế độ Chống Nghẽn Mạng / Đa Server / Đa Luồng */}
           <button
             type="button"
             onClick={handleCycleCongestionMode}
             title="Bấm để chuyển chế độ mạng: Tự động Chống Nghẽn / Ưu tiên Mạng Yếu (Wi-Fi chập chờn) / Siêu Tốc"
             style={{
+              flex: '1.1 1 0%',
+              height: '100%',
               background:
                 netTelemetry.congestionMode === 'WEAK_WIFI'
                   ? 'linear-gradient(135deg, #d97706, #b45309)'
@@ -2238,27 +2273,36 @@ export const HostArenaView: React.FC<Props> = ({
                   : '1px solid rgba(52, 211, 153, 0.5)',
               color: netTelemetry.congestionMode === 'WEAK_WIFI' ? '#fef08a' : '#6ee7b7',
               borderRadius: '8px',
-              padding: '3px 8px',
-              fontSize: '11px',
+              padding: '0 8px',
+              fontSize: '11.5px',
               fontWeight: 900,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '4px'
             }}
           >
-            <span>{netTelemetry.congestionMode === 'WEAK_WIFI' ? '🛡️ Chống Nghẽn Wi-Fi Yếu' : netTelemetry.congestionMode === 'TURBO' ? '⚡ Đa Server Turbo' : '🟢 Đa Server • Đa Luồng'}</span>
+            <span>{netTelemetry.congestionMode === 'WEAK_WIFI' ? '🛡️ Chống Nghẽn Wi-Fi' : netTelemetry.congestionMode === 'TURBO' ? '⚡ Đa Server Turbo' : '🟢 Đa Server • Đa Luồng'}</span>
             <span style={{ fontSize: '10px', opacity: 0.9 }}>({netTelemetry.rttMs}ms)</span>
           </button>
-        </div>
 
-        {/* Cụm Phải: Các nút điều khiển tinh gọn */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           {matchState.status === 'LOBBY' ? (
             <button
               className="b3d-btn"
-              style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: '1px solid #6ee7b7', padding: '5px 12px', fontSize: '12px' }}
+              style={{
+                flex: '1.4 1 0%',
+                height: '100%',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                border: '1.5px solid #6ee7b7',
+                padding: '0 10px',
+                fontSize: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                whiteSpace: 'nowrap'
+              }}
               onClick={handleStartContest}
             >
               ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
@@ -2267,7 +2311,18 @@ export const HostArenaView: React.FC<Props> = ({
             <>
               <button
                 className="b3d-btn"
-                style={{ background: '#1e293b', border: '1px solid #475569', padding: '5px 10px', fontSize: '11.5px' }}
+                style={{
+                  flex: '0.9 1 0%',
+                  height: '100%',
+                  background: '#1e293b',
+                  border: '1px solid #475569',
+                  padding: '0 8px',
+                  fontSize: '11.5px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  whiteSpace: 'nowrap'
+                }}
                 onClick={handlePrepareArenaGather}
                 title="Đưa về sảnh chuẩn bị để tập hợp học sinh"
               >
@@ -2275,7 +2330,17 @@ export const HostArenaView: React.FC<Props> = ({
               </button>
               <button
                 className="b3d-btn"
-                style={{ background: matchState.status === 'PLAYING' ? '#d97706' : '#059669', padding: '5px 10px', fontSize: '11.5px' }}
+                style={{
+                  flex: '0.9 1 0%',
+                  height: '100%',
+                  background: matchState.status === 'PLAYING' ? '#d97706' : '#059669',
+                  padding: '0 8px',
+                  fontSize: '11.5px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  whiteSpace: 'nowrap'
+                }}
                 onClick={handlePauseMatch}
               >
                 {matchState.status === 'PLAYING' ? '⏸ Dừng' : '▶ Tiếp'}
@@ -2285,7 +2350,17 @@ export const HostArenaView: React.FC<Props> = ({
 
           <button
             className="b3d-btn"
-            style={{ background: '#0284c7', padding: '5px 10px', fontSize: '11.5px' }}
+            style={{
+              flex: '1 1 0%',
+              height: '100%',
+              background: '#0284c7',
+              padding: '0 10px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={handleForceAdvanceQ}
             title="Chuyển sang câu hỏi tiếp theo"
           >
@@ -2295,18 +2370,51 @@ export const HostArenaView: React.FC<Props> = ({
           <button
             className="b3d-btn"
             style={{
+              flex: '1.3 1 0%',
+              height: '100%',
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#0f172a',
+              border: '1.5px solid #fef08a',
+              padding: '0 10px',
+              fontSize: '11.5px',
+              fontWeight: 900,
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.45)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
+            onClick={handlePullAllStudentsToWaiting}
+            title="Kéo tất cả học sinh đang online hoặc bị mất kết nối quay lại phòng thi ngay lập tức"
+          >
+            🧲 Kéo HS Vào Phòng
+          </button>
+        </div>
+
+        {/* HÀNG 2: Sự Kiện Bất Ngờ • Cứu Trợ • Mã QR • Demo GK • Hướng Dẫn Sử Dụng • 2 BXH & Sổ Điểm • Kết Thúc • Toàn Màn Hình • Cài Đặt */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1 1 50%', width: '100%', minHeight: 0 }}>
+          <button
+            className="b3d-btn"
+            style={{
+              flex: '1.1 1 0%',
+              height: '100%',
               background:
                 matchState.activeWorldEvent && matchState.activeWorldEvent !== 'NONE'
                   ? 'linear-gradient(135deg, #ec4899, #8b5cf6)'
                   : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
               border: '1.5px solid #f9a8d4',
               color: '#fef08a',
-              padding: '5px 10px',
+              padding: '0 8px',
               fontSize: '11.5px',
-              fontWeight: 900
+              fontWeight: 900,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
             }}
             onClick={() => setShowWorldEventModal(true)}
-            title="Kích hoạt Vòng Quay Sự Kiện Bất Ngờ Toàn Sân (Cơn Mưa Vàng X2, Phản Công Phút 89, Bão Đảo Chiều, Phép Màu Hồi Sinh...)"
+            title="Kích hoạt Vòng Quay Sự Kiện Bất Ngờ Toàn Sân"
           >
             🎲 Sự Kiện Bất Ngờ
           </button>
@@ -2314,7 +2422,18 @@ export const HostArenaView: React.FC<Props> = ({
           {matchState.gameType === 'BELL' && (
             <button
               className="b3d-btn"
-              style={{ background: '#059669', border: '1px solid #6ee7b7', padding: '5px 10px', fontSize: '11.5px' }}
+              style={{
+                flex: '1 1 0%',
+                height: '100%',
+                background: '#059669',
+                border: '1px solid #6ee7b7',
+                padding: '0 8px',
+                fontSize: '11.5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                whiteSpace: 'nowrap'
+              }}
               onClick={() => setShowRescueModal(true)}
               title="Cứu trợ học sinh bị loại trong Rung Chuông Vàng"
             >
@@ -2324,7 +2443,17 @@ export const HostArenaView: React.FC<Props> = ({
 
           <button
             className="b3d-btn"
-            style={{ background: qrVisible ? '#0369a1' : '#334155', padding: '5px 10px', fontSize: '11.5px' }}
+            style={{
+              flex: '0.9 1 0%',
+              height: '100%',
+              background: qrVisible ? '#0369a1' : '#334155',
+              padding: '0 8px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={() => setQrVisible(!qrVisible)}
           >
             {qrVisible ? '🙈 Ẩn QR' : '📱 Mã QR'}
@@ -2333,29 +2462,17 @@ export const HostArenaView: React.FC<Props> = ({
           <button
             className="b3d-btn"
             style={{
-              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              color: '#0f172a',
-              border: '1.5px solid #fef08a',
-              padding: '5px 11px',
-              fontSize: '11.5px',
-              fontWeight: 900,
-              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.45)',
-              cursor: 'pointer'
-            }}
-            onClick={handlePullAllStudentsToWaiting}
-            title="Kéo tất cả học sinh đang online/sảnh vào phòng chờ chuẩn bị thi đấu"
-          >
-            🧲 Kéo HS Vào Chờ
-          </button>
-
-          <button
-            className="b3d-btn"
-            style={{
+              flex: '1 1 0%',
+              height: '100%',
               background: demoBotsActive ? 'linear-gradient(135deg, #10b981, #047857)' : '#1e293b',
               border: demoBotsActive ? '1.5px solid #fef08a' : '1px solid #38bdf8',
               color: demoBotsActive ? '#fef08a' : '#7dd3fc',
-              padding: '5px 10px',
-              fontSize: '11.5px'
+              padding: '0 8px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
             }}
             onClick={handleToggleDemoBots}
             title="Bật/Tắt chế độ Giả lập Lớp học 3D thông minh để thuyết trình trước Ban Giám Khảo"
@@ -2367,17 +2484,23 @@ export const HostArenaView: React.FC<Props> = ({
             <button
               className="b3d-btn"
               style={{
+                flex: '1.3 1 0%',
+                height: '100%',
                 background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
                 color: '#0f172a',
-                border: '2px solid #fef08a',
-                padding: '6px 12px',
-                fontSize: '12.5px',
+                border: '1.5px solid #fef08a',
+                padding: '0 10px',
+                fontSize: '11.5px',
                 fontWeight: 900,
                 boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                whiteSpace: 'nowrap'
               }}
               onClick={onOpenNationalDossier}
-              title="Mở toàn bộ hướng dẫn sử dụng chi tiết (chữ to rõ, màu sắc bắt mắt)"
+              title="Mở toàn bộ hướng dẫn sử dụng chi tiết"
             >
               📖 HƯỚNG DẪN SỬ DỤNG
             </button>
@@ -2385,16 +2508,37 @@ export const HostArenaView: React.FC<Props> = ({
 
           <button
             className="b3d-btn"
-            style={{ background: '#b45309', border: '1px solid #fde047', padding: '5px 10px', fontSize: '11.5px' }}
+            style={{
+              flex: '1.1 1 0%',
+              height: '100%',
+              background: '#b45309',
+              border: '1px solid #fde047',
+              padding: '0 8px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={() => setShowTop10Modal(true)}
-            title="Xem 2 Bảng Xếp Hạng: Tổng Điểm Thi Đấu (-1000đ/sai) & Số Câu Đúng Ghi Sổ Điểm Giáo Viên"
+            title="Xem 2 Bảng Xếp Hạng: Tổng Điểm Thi Đấu & Số Câu Đúng Ghi Sổ Điểm Giáo Viên"
           >
             🏆 2 BXH & Sổ Điểm
           </button>
 
           <button
             className="b3d-btn"
-            style={{ background: '#dc2626', padding: '5px 10px', fontSize: '11.5px' }}
+            style={{
+              flex: '0.9 1 0%',
+              height: '100%',
+              background: '#dc2626',
+              padding: '0 8px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={handleEndMatch}
             title="Kết thúc trận đấu và mở màn hình Vinh Danh"
           >
@@ -2403,16 +2547,36 @@ export const HostArenaView: React.FC<Props> = ({
 
           <button
             className="b3d-btn"
-            style={{ background: '#334155', padding: '5px 9px', fontSize: '11.5px' }}
+            style={{
+              flex: '0.6 1 0%',
+              height: '100%',
+              background: '#334155',
+              padding: '0 6px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={onToggleFullScreen}
             title="Toàn màn hình"
           >
-            🔲
+            🔲 Toàn MH
           </button>
 
           <button
             className="b3d-btn"
-            style={{ background: '#334155', padding: '5px 10px', fontSize: '11.5px' }}
+            style={{
+              flex: '0.9 1 0%',
+              height: '100%',
+              background: '#334155',
+              padding: '0 8px',
+              fontSize: '11.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              whiteSpace: 'nowrap'
+            }}
             onClick={onReturnToSetup}
             title="Quay về màn hình cài đặt của giáo viên"
           >
@@ -2421,8 +2585,8 @@ export const HostArenaView: React.FC<Props> = ({
         </div>
       </header>
 
-      {/* Floor 2: Sàn Đấu 3D Trực Quan (Chiếm 42% chiều cao, dành tối đa không gian cho Câu Hỏi & Sàn Đấu) */}
-      <div id="arena-3d-viewport" ref={viewportRef} style={{ flex: '1 1 42%', minHeight: '200px', position: 'relative', overflow: 'hidden' }}>
+      {/* Floor 2: Sàn Đấu 3D Trực Quan (Chiếm 38% chiều cao) */}
+      <div id="arena-3d-viewport" ref={viewportRef} style={{ flex: '1 1 38vh', height: '38vh', minHeight: '180px', position: 'relative', overflow: 'hidden' }}>
         <canvas id="canvas3d" ref={canvasRef} />
 
         {/* 3D Label tags container */}
@@ -3020,15 +3184,15 @@ export const HostArenaView: React.FC<Props> = ({
         />
       )}
 
-      {/* Floor 3: Khung Câu Hỏi & Đáp Án Chuẩn THPT 2018 — Chiếm 56% Màn Hình, Đẹp Mắt, Tinh Gọn, Rõ Nét */}
+      {/* Floor 3: Khung Câu Hỏi & Đáp Án Chuẩn THPT 2018 — Chiếm 52% Màn Hình (10vh Header + 38vh Sân 3D + 52vh Câu Hỏi = 100vh) */}
       <section
         id="host-question-board"
         className={isReviewMode ? 'review-active' : ''}
         style={{
-          flex: '0 0 56vh',
-          height: '56vh',
-          minHeight: '56vh',
-          maxHeight: '56vh',
+          flex: '0 0 52vh',
+          height: '52vh',
+          minHeight: '52vh',
+          maxHeight: '52vh',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',

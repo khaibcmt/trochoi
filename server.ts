@@ -482,6 +482,9 @@ function computeQuizHash(quiz: any[] | undefined | null): string {
 
 function computeHeartbeatSignature(hb: any, quizHash: string): string {
   if (!hb) return '';
+  const top10Sig = Array.isArray(hb.top10)
+    ? hb.top10.map((p: any) => `${p.id}:${p.fastScore || 0}:${p.correct || 0}`).join(',')
+    : '';
   return [
     hb.status || 'LOBBY',
     hb.gameType || 'TUG',
@@ -496,6 +499,7 @@ function computeHeartbeatSignature(hb: any, quizHash: string): string {
     hb.bossHP ?? 1000,
     hb.worldEvent || 'NONE',
     hb.forcePullTs ?? 0,
+    top10Sig,
     quizHash
   ].join('|');
 }

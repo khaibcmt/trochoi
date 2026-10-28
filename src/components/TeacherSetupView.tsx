@@ -2321,6 +2321,27 @@ export const TeacherSetupView: React.FC<Props> = ({
             </button>
           </div>
         </div>
+
+        {/* Thông tin liên hệ và góp ý sản phẩm ở cuối màn hình cài đặt */}
+        <div
+          style={{
+            marginTop: '12px',
+            padding: '12px 16px',
+            borderRadius: '14px',
+            background: 'linear-gradient(90deg, #eff6ff 0%, #fef3c7 50%, #eff6ff 100%)',
+            border: '2px solid #0284c7',
+            textAlign: 'center',
+            color: '#0f172a',
+            fontSize: '13.5px',
+            fontWeight: 800,
+            lineHeight: 1.5
+          }}
+        >
+          Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả <b style={{ color: '#b91c1c' }}>Hồ Tấn Khải</b> Trường THPT mang Thít - Email: <b style={{ color: '#0369a1' }}>khaibcmt@gmail.com</b> - Nhắn tin Zalo: <b style={{ color: '#047857' }}>0939580982</b>.{' '}
+          <span style={{ color: '#7c2d12', fontWeight: 900 }}>
+            Xin cảm ơn quí đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn !!
+          </span>
+        </div>
       </div>
 
       {/* LUÔN HIỆN THANH MỞ SÂN ĐẤU & HIỆN MÃ QR (Always-Visible Pinned Launch Bar) */}
@@ -2329,87 +2350,102 @@ export const TeacherSetupView: React.FC<Props> = ({
         bottom: 0,
         left: 0,
         right: 0,
-        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(3, 7, 18, 0.98) 100%)',
+        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(3, 7, 18, 0.99) 100%)',
         backdropFilter: 'blur(10px)',
         borderTop: '3px solid #38bdf8',
         boxShadow: '0 -10px 30px rgba(0,0,0,0.7)',
-        padding: '10px 24px',
+        padding: '8px 20px',
         display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        zIndex: 500,
-        flexWrap: 'wrap',
-        gap: '10px'
+        flexDirection: 'column',
+        gap: '6px',
+        zIndex: 500
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{
-            background: gameType === 'BELL' ? '#f59e0b' : gameType === 'FAST' ? '#9333ea' : gameType === 'BOSS' ? '#ef4444' : '#0284c7',
-            color: '#fff',
-            padding: '5px 12px',
-            borderRadius: '12px',
-            fontSize: '12.5px',
-            fontWeight: 900,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }}>
-            {gameType === 'BELL' ? '🔔 Rung Chuông Vàng 3D' : gameType === 'FAST' ? '⚡ Ai Nhanh Nhất 3D' : gameType === 'BOSS' ? '🐉 Đánh Boss 3D' : '⚔️ Kéo Co 3D'}
-          </div>
-
-          <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 800 }}>
-            🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> • Đã vào: <b style={{ color: '#4ade80' }}>{connectedStudentCount}/{matchSettings.roomCapacity} HS</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {onSwitchToStudentMode && (
-            <button
-              type="button"
-              className="btn-action-sm"
-              style={{ background: '#334155', color: '#f8fafc', borderColor: '#475569', padding: '9px 14px', fontSize: '13px' }}
-              onClick={handleSwitchToStudentWithSync}
-              title="Mở giao diện điện thoại học sinh để thi đấu thử"
-            >
-              📱 Thử Vai Học Sinh
-            </button>
-          )}
-
-          {/* NÚT ẨN / HIỆN MÃ QR PHÒNG */}
-          <button
-            type="button"
-            className="btn-action-sm"
-            style={{
-              background: showQRModal ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
-              color: '#ffffff',
-              borderColor: '#38bdf8',
-              padding: '9px 15px',
-              fontSize: '13px',
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{
+              background: gameType === 'BELL' ? '#f59e0b' : gameType === 'FAST' ? '#9333ea' : gameType === 'BOSS' ? '#ef4444' : '#0284c7',
+              color: '#fff',
+              padding: '5px 12px',
+              borderRadius: '12px',
+              fontSize: '12.5px',
               fontWeight: 900,
-              boxShadow: showQRModal ? '0 0 15px rgba(56, 189, 248, 0.5)' : 'none',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
               display: 'flex',
               alignItems: 'center',
               gap: '6px'
-            }}
-            onClick={() => setShowQRModal(!showQRModal)}
-            title="Bấm để ẩn hoặc hiện mã QR phòng cho học sinh quét trước"
-          >
-            {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
-          </button>
+            }}>
+              {gameType === 'BELL' ? '🔔 Rung Chuông Vàng 3D' : gameType === 'FAST' ? '⚡ Ai Nhanh Nhất 3D' : gameType === 'BOSS' ? '🐉 Đánh Boss 3D' : '⚔️ Kéo Co 3D'}
+            </div>
 
-          <button
-            type="button"
-            className="btn-launch"
-            style={{
-              padding: '11px 22px',
-              fontSize: '15px',
-              boxShadow: '0 0 25px rgba(56, 189, 248, 0.6), inset 0 2px 3px rgba(255,255,255,0.7)'
-            }}
-            onClick={handleStartArena}
-            title="Chuẩn bị vào sàn đấu 3D để tập hợp đủ học sinh trước khi bấm Bắt đầu"
-          >
-            📣 CHUẨN BỊ VÀO SÀN ĐẤU (TẬP HỢP HS)
-          </button>
+            <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 800 }}>
+              🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> • Đã vào: <b style={{ color: '#4ade80' }}>{connectedStudentCount}/{matchSettings.roomCapacity} HS</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {onSwitchToStudentMode && (
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#334155', color: '#f8fafc', borderColor: '#475569', padding: '8px 14px', fontSize: '13px' }}
+                onClick={handleSwitchToStudentWithSync}
+                title="Mở giao diện điện thoại học sinh để thi đấu thử"
+              >
+                📱 Thử Vai Học Sinh
+              </button>
+            )}
+
+            {/* NÚT ẨN / HIỆN MÃ QR PHÒNG */}
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{
+                background: showQRModal ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
+                color: '#ffffff',
+                borderColor: '#38bdf8',
+                padding: '8px 15px',
+                fontSize: '13px',
+                fontWeight: 900,
+                boxShadow: showQRModal ? '0 0 15px rgba(56, 189, 248, 0.5)' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              onClick={() => setShowQRModal(!showQRModal)}
+              title="Bấm để ẩn hoặc hiện mã QR phòng cho học sinh quét trước"
+            >
+              {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
+            </button>
+
+            <button
+              type="button"
+              className="btn-launch"
+              style={{
+                padding: '9px 20px',
+                fontSize: '14.5px',
+                boxShadow: '0 0 25px rgba(56, 189, 248, 0.6), inset 0 2px 3px rgba(255,255,255,0.7)'
+              }}
+              onClick={handleStartArena}
+              title="Chuẩn bị vào sàn đấu 3D để tập hợp đủ học sinh trước khi bấm Bắt đầu"
+            >
+              📣 CHUẨN BỊ VÀO SÀN ĐẤU (TẬP HỢP HS)
+            </button>
+          </div>
+        </div>
+
+        {/* Dòng liên hệ và cảm ơn ở thanh dưới cùng của màn hình cài đặt đầu tiên */}
+        <div
+          style={{
+            borderTop: '1px solid rgba(56, 189, 248, 0.35)',
+            paddingTop: '5px',
+            textAlign: 'center',
+            fontSize: '12.5px',
+            fontWeight: 800,
+            color: '#fef08a',
+            lineHeight: 1.35
+          }}
+        >
+          Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả <b style={{ color: '#ffffff' }}>Hồ Tấn Khải</b> Trường THPT mang Thít - Email: <b style={{ color: '#38bdf8' }}>khaibcmt@gmail.com</b> - Nhắn tin Zalo: <b style={{ color: '#4ade80' }}>0939580982</b>. Xin cảm ơn quí đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn !!
         </div>
       </aside>
 

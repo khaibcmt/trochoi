@@ -447,6 +447,28 @@ export const App: React.FC = () => {
       totalQuestions: activeDeck.length
     } : undefined;
 
+    const top10List = [...allP]
+      .sort((a, b) => {
+        if (currentMS.gameType === 'BELL') {
+          if (!a.eliminated && b.eliminated) return -1;
+          if (a.eliminated && !b.eliminated) return 1;
+          if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+        }
+        if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
+        return (b.correct || 0) - (a.correct || 0);
+      })
+      .slice(0, 10)
+      .map((p, idx) => ({
+        id: p.id,
+        label: p.label,
+        team: p.team,
+        fastScore: p.fastScore || 0,
+        correct: p.correct || 0,
+        lives: p.lives ?? 3,
+        eliminated: Boolean(p.eliminated),
+        rank: idx + 1
+      }));
+
     const quizSig = `${roomId}_${activeDeck.length}_${activeDeck[0]?.q?.slice(0, 20) || ''}`;
     const shouldIncludeFullQuiz = forceFullQuiz || lastSyncedQuizSigRef.current !== quizSig;
     if (shouldIncludeFullQuiz && activeDeck.length > 0) {
@@ -462,6 +484,7 @@ export const App: React.FC = () => {
           status: currentMS.status,
           globalQIndex: safeIdx,
           question: activeQWithMeta,
+          top10: top10List,
           quiz: activeDeck.length <= 30 ? activeDeck : undefined,
           subj: currentSubjectKeyRef.current,
           updatedAt: Date.now()
@@ -489,6 +512,7 @@ export const App: React.FC = () => {
       worldEvent: currentMS.activeWorldEvent || 'NONE',
       worldEventTitle: currentMS.worldEventTitle || '',
       subj: currentSubjectKeyRef.current,
+      top10: top10List,
       question: activeQWithMeta,
       quiz: shouldIncludeFullQuiz ? activeDeck : undefined
     });
@@ -530,15 +554,17 @@ export const App: React.FC = () => {
         const existingBlueIdx = prev.bluePlayers.findIndex(x => x.id === d.playerId);
         const existing = existingRedIdx !== -1 ? prev.redPlayers[existingRedIdx] : (existingBlueIdx !== -1 ? prev.bluePlayers[existingBlueIdx] : null);
 
+        const incomingName = (d.playerName || '').trim();
+        const isIncomingGeneric =
+          !incomingName ||
+          incomingName.length < 2 ||
+          incomingName === 'Học sinh' ||
+          incomingName === 'Chưa lưu tên' ||
+          /^HS\s+\d+$/i.test(incomingName) ||
+          /^Thí sinh\s*#?\d*$/i.test(incomingName) ||
+          /^SBD\s*#?[a-zA-Z0-9]+$/i.test(incomingName);
+
         if (existing) {
-          const incomingName = (d.playerName || '').trim();
-          const isIncomingGeneric =
-            !incomingName ||
-            incomingName === 'Học sinh' ||
-            incomingName === 'Chưa lưu tên' ||
-            /^HS\s+\d+$/i.test(incomingName) ||
-            /^Thí sinh\s*#?\d*$/i.test(incomingName) ||
-            /^SBD\s*#?[a-zA-Z0-9]+$/i.test(incomingName);
           const hasRealExistingName =
             Boolean(existing.label) &&
             existing.label !== 'Học sinh' &&
@@ -639,7 +665,12 @@ export const App: React.FC = () => {
           return nextState;
         }
 
-        // Cho phép mở rộng dung lượng phòng lên tới 500+ học sinh để phục vụ test tải đa Tab / Ẩn Danh
+        // Bắt buộc học sinh phải nhập tên hợp lệ mới được vào phòng thi
+        if (isIncomingGeneric) {
+          return prev;
+        }
+
+        // Cho phép mở rộng dung lượng phòng lên tới 500+ học sinh
         const totalP = prev.redPlayers.length + prev.bluePlayers.length;
         const maxAllowed = Math.max(500, prev.settings?.roomCapacity || 500);
         if (totalP >= maxAllowed) {
@@ -673,9 +704,7 @@ export const App: React.FC = () => {
 
         if (role === 'PULLER') {
           AudioFX.spawnPop();
-          const totalNow = prev.redPlayers.length + prev.bluePlayers.length + 1;
-          const defaultLabel = `HS ${totalNow}`;
-          const finalName = (d.playerName && d.playerName.trim()) ? d.playerName.trim() : defaultLabel;
+          const finalName = incomingName;
           const newP: Player = {
             id: d.playerId || 'hs_' + Math.random(),
             label: finalName,
