@@ -453,6 +453,7 @@ interface RoomHubState {
   seqCounter: number;
   matchStatus: string;
   statusChangedAt: number;
+  forcePullTs: number;
   globalQIndex: number;
   gameType: string;
   quizDeck: any[];
@@ -494,6 +495,7 @@ function computeHeartbeatSignature(hb: any, quizHash: string): string {
     hb.bellAliveCount ?? 0,
     hb.bossHP ?? 1000,
     hb.worldEvent || 'NONE',
+    hb.forcePullTs ?? 0,
     quizHash
   ].join('|');
 }
@@ -507,6 +509,7 @@ function getOrCreateRoomHub(rawRoomId: string): RoomHubState {
       seqCounter: 1,
       matchStatus: 'LOBBY',
       statusChangedAt: 0,
+      forcePullTs: 0,
       globalQIndex: 0,
       gameType: 'TUG',
       quizDeck: [],
@@ -538,15 +541,23 @@ setInterval(() => {
 // Endpoint trả về mã phòng đang hoạt động trên Server (giúp Tab Ẩn Danh / Điện thoại tự động bắt đúng mã phòng của Giáo viên)
 app.get('/api/room/active', (_req, res) => {
   try {
+    const now = Date.now();
+    // Ưu tiên số 1: Mã phòng Giáo viên đang mở và phát nhịp tim trực tiếp trong 5 phút gần nhất
+    if (primaryActiveRoomId) {
+      const primaryRoom = roomsHub.get(primaryActiveRoomId);
+      if (primaryRoom && now - primaryRoom.updatedAt < 5 * 60 * 1000) {
+        return res.json({ ok: true, roomId: primaryActiveRoomId });
+      }
+    }
     let bestRoomId = primaryActiveRoomId || '12345';
     let bestScore = -1;
-    const now = Date.now();
     for (const [rId, rm] of roomsHub.entries()) {
       if (now - rm.updatedAt > 30 * 60 * 1000) continue;
       const pCount = Object.keys(rm.players || {}).length;
       const isPlaying = rm.matchStatus === 'PLAYING' || rm.latestHeartbeat?.status === 'PLAYING' ? 1000 : 0;
+      const hasHeartbeat = rm.latestHeartbeat ? 500 : 0;
       const hasQuiz = Array.isArray(rm.quizDeck) && rm.quizDeck.length > 0 ? 100 : 0;
-      const score = pCount * 50 + isPlaying + hasQuiz;
+      const score = pCount * 50 + isPlaying + hasHeartbeat + hasQuiz;
       if (score > bestScore) {
         bestScore = score;
         bestRoomId = rId;
@@ -584,10 +595,21 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     room.quizHash = computeQuizHash(payload.quiz);
   }
 
+  // Xử lý tín hiệu Kéo Học Sinh Vào Phòng từ Giáo viên
+  if (payload.type === 'FORCE_PULL_TO_WAITING') {
+    primaryActiveRoomId = room.roomId;
+    room.forcePullTs = now;
+    if (payload.gameType) {
+      room.gameType = payload.gameType;
+    }
+  }
+
   // Xử lý các tín hiệu chuyển trạng thái quan trọng từ Giáo viên (BẮT ĐẦU / CHUYỂN CÂU / ĐỔI TRÒ / KẾT THÚC)
   if (payload.type === 'FORCE_START_MATCH' || payload.type === 'MATCH_START' || payload.type === 'QUESTION_START') {
+    primaryActiveRoomId = room.roomId;
     room.matchStatus = 'PLAYING';
     room.statusChangedAt = now;
+    room.forcePullTs = now;
     if (typeof payload.qIndex === 'number') {
       room.globalQIndex = payload.qIndex;
     } else if (typeof payload.globalQIndex === 'number') {
@@ -602,10 +624,10 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
         e.msg.type !== 'GAME_SWITCH' &&
         e.msg.type !== 'GAME_SWITCHED' &&
         e.msg.type !== 'MATCH_ENDED' &&
-        e.msg.type !== 'FORCE_PULL_TO_WAITING' &&
         !(e.msg.type === 'QUESTION_START' && e.msg.qIndex !== room.globalQIndex)
     );
   } else if (payload.type === 'GAME_SWITCH' || payload.type === 'GAME_SWITCHED') {
+    primaryActiveRoomId = room.roomId;
     room.matchStatus = payload.status || 'LOBBY';
     room.statusChangedAt = now;
     room.globalQIndex = payload.qIndex ?? payload.globalQIndex ?? 0;
@@ -654,6 +676,7 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
       gameType: room.gameType,
       question: activeQ,
       quizHash: room.quizHash,
+      forcePullTs: room.forcePullTs || 0,
       // Không lưu lặp lại mảng quiz nặng trong từng heartbeat biến thiên
       quiz: undefined
     };
@@ -667,9 +690,10 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     return;
   }
 
-  // Cập nhật ngay latestHeartbeat khi có gói đồng bộ câu hỏi / bắt đầu trận đấu từ Giáo viên
+  // Cập nhật ngay latestHeartbeat khi có gói đồng bộ câu hỏi / kéo học sinh / bắt đầu trận đấu từ Giáo viên
   if (
     payload.type === 'QUIZ_SYNC' ||
+    payload.type === 'FORCE_PULL_TO_WAITING' ||
     payload.type === 'GAME_SWITCH' ||
     payload.type === 'GAME_SWITCHED' ||
     payload.type === 'MATCH_START' ||
@@ -678,6 +702,7 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     payload.type === 'PAUSE_TOGGLE' ||
     payload.type === 'MATCH_ENDED'
   ) {
+    primaryActiveRoomId = room.roomId;
     const safeQIdx =
       typeof payload.qIndex === 'number'
         ? payload.qIndex
@@ -698,6 +723,7 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
       globalQIndex: safeQIdx,
       question: activeQ,
       quizHash: room.quizHash,
+      forcePullTs: room.forcePullTs || 0,
       worldEvent: payload.worldEvent || room.latestHeartbeat?.worldEvent || 'NONE',
       worldEventTitle: payload.worldEventTitle ?? room.latestHeartbeat?.worldEventTitle ?? '',
       serverStartTime: payload.serverStartTime || Date.now(),
@@ -718,7 +744,8 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     (payload.type === 'AUTO_ENTER_ARENA' ||
       payload.type === 'PLAYER_READY_ROPE' ||
       payload.type === 'PLAYER_FINISH_QUIZ' ||
-      payload.type === 'PLAYER_UPDATE_NAME') &&
+      payload.type === 'PLAYER_UPDATE_NAME' ||
+      payload.type === 'TEAM_SWITCH_REQUEST') &&
     payload.playerId
   ) {
     const prevP = room.players[payload.playerId];
@@ -744,7 +771,13 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     const nextName =
       incomingCleanName && incomingCleanName !== 'Học sinh' && incomingCleanName !== 'Chưa lưu tên'
         ? incomingCleanName
-        : prevP?.playerName || incomingCleanName || 'Học sinh';
+        : prevP?.playerName && prevP.playerName !== 'Chưa lưu tên'
+        ? prevP.playerName
+        : incomingCleanName || `SBD #${String(payload.playerId).slice(-3).toUpperCase()}`;
+
+    const nextTeam = payload.newTeam || payload.preferredTeam || payload.team || prevP?.preferredTeam || 'RED';
+    const nextAvatar = payload.avatar || prevP?.avatar;
+    const sameAvatar = JSON.stringify(prevP?.avatar || null) === JSON.stringify(nextAvatar || null);
 
     if (
       prevP &&
@@ -752,8 +785,12 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
       prevP.savedScore === nextScore &&
       prevP.savedCorrect === nextCorrect &&
       prevP.playerName === nextName &&
+      prevP.preferredTeam === nextTeam &&
+      sameAvatar &&
+      now - (prevP.updatedAt || 0) < 3500 &&
       payload.type !== 'PLAYER_FINISH_QUIZ' &&
-      payload.type !== 'PLAYER_UPDATE_NAME'
+      payload.type !== 'PLAYER_UPDATE_NAME' &&
+      payload.type !== 'TEAM_SWITCH_REQUEST'
     ) {
       isDuplicatePlayerPing = true;
     }
@@ -763,8 +800,8 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
       playerId: payload.playerId,
       socketId: payload.senderId || prevP?.socketId || payload.playerId,
       playerName: nextName,
-      preferredTeam: payload.preferredTeam || payload.team || prevP?.preferredTeam || 'RED',
-      avatar: payload.avatar || prevP?.avatar,
+      preferredTeam: nextTeam,
+      avatar: nextAvatar,
       savedScore: nextScore,
       savedCorrect: nextCorrect,
       ready: nextReady,
@@ -778,7 +815,7 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
   ) {
     const existingP = room.players[payload.playerId] || {
       playerId: payload.playerId,
-      playerName: payload.playerName || 'Học sinh',
+      playerName: payload.playerName || `SBD #${String(payload.playerId).slice(-3).toUpperCase()}`,
       preferredTeam: payload.team || 'RED',
       ready: true,
       savedScore: 0,
@@ -843,6 +880,7 @@ app.post('/api/room/:roomId/publish', (req, res) => {
       seq: room.seqCounter,
       quizHash: room.quizHash,
       matchStatus: room.matchStatus,
+      forcePullTs: room.forcePullTs || 0,
       playerCount: Object.keys(room.players).length
     });
   } catch (err: any) {
@@ -863,6 +901,7 @@ app.post('/api/room/:roomId/batch', (req, res) => {
       seq: room.seqCounter,
       quizHash: room.quizHash,
       matchStatus: room.matchStatus,
+      forcePullTs: room.forcePullTs || 0,
       playerCount: Object.keys(room.players).length
     });
   } catch (err: any) {
@@ -880,17 +919,16 @@ app.get('/api/room/:roomId/poll', (req, res) => {
 
     // Khi học sinh mới vào hoặc vừa reconnect (sinceSeq === 0), KHÔNG phát lại 80 sự kiện lịch sử cũ
     // (tránh việc sự kiện GAME_SWITCH / MATCH_ENDED cũ làm văng học sinh ra khỏi phòng đang thi).
-    // Chỉ lấy các sự kiện trong 4 giây gần nhất của câu hiện tại.
+    // Riêng tín hiệu FORCE_PULL_TO_WAITING được giữ trong 30 giây để kéo toàn bộ học sinh vào phòng ngay lập tức!
     const newEvents =
       sinceSeq > 0
         ? room.events.filter(e => e.seq > sinceSeq)
         : room.events.filter(
             e =>
-              now - e.ts <= 4000 &&
+              (now - e.ts <= 5000 || (e.msg.type === 'FORCE_PULL_TO_WAITING' && now - e.ts <= 30000)) &&
               e.msg.type !== 'GAME_SWITCH' &&
               e.msg.type !== 'GAME_SWITCHED' &&
-              e.msg.type !== 'MATCH_ENDED' &&
-              e.msg.type !== 'FORCE_PULL_TO_WAITING'
+              e.msg.type !== 'MATCH_ENDED'
           );
 
     const needQuizSync = Boolean(room.quizHash && room.quizDeck.length > 0 && clientQuizHash !== room.quizHash);
@@ -904,6 +942,7 @@ app.get('/api/room/:roomId/poll', (req, res) => {
         ...room.latestHeartbeat,
         status: room.matchStatus || room.latestHeartbeat.status || 'LOBBY',
         globalQIndex: room.globalQIndex ?? room.latestHeartbeat.globalQIndex ?? 0,
+        forcePullTs: room.forcePullTs || 0,
         quizHash: room.quizHash,
         // Chỉ đính kèm mảng quiz khi máy học sinh chưa có phiên bản đề thi này (giảm 99% dung lượng mạng!)
         quiz: needQuizSync ? room.quizDeck : undefined
@@ -915,6 +954,7 @@ app.get('/api/room/:roomId/poll', (req, res) => {
       seq: room.seqCounter,
       serverTs: now,
       matchStatus: room.matchStatus,
+      forcePullTs: room.forcePullTs || 0,
       globalQIndex: room.globalQIndex,
       quizHash: room.quizHash,
       latestHeartbeat: heartbeatToSend,

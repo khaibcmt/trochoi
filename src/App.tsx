@@ -391,6 +391,7 @@ export const App: React.FC = () => {
       matchStateRef.current = nextMS;
       setTimeout(() => {
         const firstQ = normalizedDeck[0] ? { ...normalizedDeck[0], qIndex: 0, totalQuestions: normalizedDeck.length } : undefined;
+        const pullTs = Date.now();
         CloudNetwork.sendMessage({
           type: 'GAME_SWITCHED',
           gameType,
@@ -404,7 +405,17 @@ export const App: React.FC = () => {
           quiz: normalizedDeck,
           question: firstQ
         });
+        CloudNetwork.sendMessage({
+          type: 'FORCE_PULL_TO_WAITING',
+          roomId: activeRoomId,
+          gameType,
+          status: 'LOBBY',
+          globalQIndex: 0,
+          forcePullTs: pullTs,
+          question: firstQ
+        });
         broadcastHeartbeatRef.current(nextMS, normalizedDeck, activeRoomId);
+        CloudNetwork.reconnectImmediate();
       }, 20);
       return nextMS;
     });
@@ -521,12 +532,24 @@ export const App: React.FC = () => {
 
         if (existing) {
           const incomingName = (d.playerName || '').trim();
-          const isIncomingGeneric = !incomingName || incomingName === 'Học sinh' || /^HS\s+\d+$/i.test(incomingName) || /^Thí sinh\s*#?\d*$/i.test(incomingName);
-          const hasRealExistingName = existing.label && existing.label !== 'Học sinh' && !/^HS\s+\d+$/i.test(existing.label) && !/^Thí sinh\s*#?\d*$/i.test(existing.label);
+          const isIncomingGeneric =
+            !incomingName ||
+            incomingName === 'Học sinh' ||
+            incomingName === 'Chưa lưu tên' ||
+            /^HS\s+\d+$/i.test(incomingName) ||
+            /^Thí sinh\s*#?\d*$/i.test(incomingName) ||
+            /^SBD\s*#?[a-zA-Z0-9]+$/i.test(incomingName);
+          const hasRealExistingName =
+            Boolean(existing.label) &&
+            existing.label !== 'Học sinh' &&
+            existing.label !== 'Chưa lưu tên' &&
+            !/^HS\s+\d+$/i.test(existing.label) &&
+            !/^Thí sinh\s*#?\d*$/i.test(existing.label) &&
+            !/^SBD\s*#?[a-zA-Z0-9]+$/i.test(existing.label);
 
           const nextLabel = (!isIncomingGeneric && incomingName)
             ? incomingName
-            : (hasRealExistingName ? existing.label : (incomingName || existing.label));
+            : (hasRealExistingName ? existing.label : (incomingName && incomingName !== 'Chưa lưu tên' ? incomingName : existing.label));
 
           const nextReady = existing.ready || isReady;
           if (isReady && !existing.ready) {
@@ -541,11 +564,13 @@ export const App: React.FC = () => {
                 typeof d.savedScore === 'number' ? d.savedScore : (existing.fastScore || 0)
               );
           const nextCorrect = Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0);
+          const nextAvatar = d.avatar || existing.avatar;
+          const avatarChanged = JSON.stringify(existing.avatar || null) !== JSON.stringify(nextAvatar || null);
 
           const updatedPlayer: Player = {
             ...existing,
             label: nextLabel,
-            avatar: d.avatar || existing.avatar,
+            avatar: nextAvatar,
             ready: nextReady,
             fastScore: nextFastScore,
             correct: nextCorrect
@@ -567,6 +592,7 @@ export const App: React.FC = () => {
             existing.ready !== nextReady ||
             existing.fastScore !== nextFastScore ||
             existing.correct !== nextCorrect ||
+            avatarChanged ||
             (existingRedIdx !== -1 && existingBlueIdx !== -1);
 
           // Chỉ phản hồi ENTER_CONFIRMED nhẹ (< 1KB, không đính kèm cả mảng quiz nặng) khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi 50+ HS cùng kết nối

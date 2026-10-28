@@ -17,6 +17,7 @@ import { generateQuestionsClientSide, parseDocClientSide, getStoredGeminiKey } f
 import { auditQuizList, QuizAuditSummary } from '../services/quizAuditor';
 import { QuizAuditorModal } from './QuizAuditorModal';
 import { MathRenderer } from '../utils/katexHelper';
+import { CloudNetwork } from '../services/network';
 
 interface Props {
   subjectsDB: Record<string, SubjectData>;
@@ -1009,6 +1010,27 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={() => setShowQRModal(true)}
               >
                 📱 Hiện Mã QR Cho HS Quét
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', borderColor: '#fde047', fontWeight: 900 }}
+                onClick={() => {
+                  const pullTs = Date.now();
+                  CloudNetwork.sendMessage({
+                    type: 'FORCE_PULL_TO_WAITING',
+                    roomId: activeRoomId,
+                    gameType,
+                    status: 'LOBBY',
+                    globalQIndex: 0,
+                    forcePullTs: pullTs
+                  });
+                  CloudNetwork.reconnectImmediate();
+                  setTimeout(() => CloudNetwork.reconnectImmediate(), 500);
+                }}
+                title="Kéo toàn bộ học sinh đang mở trang web vào thẳng Phòng chờ & hiện nhân vật 3D"
+              >
+                🧲 Kéo HS Vào Phòng
               </button>
               <button
                 type="button"

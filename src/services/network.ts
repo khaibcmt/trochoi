@@ -950,6 +950,24 @@ class NetworkService {
     }
   }
 
+  async fetchActiveRoomId(): Promise<string | null> {
+    for (const origin of this.apiOrigins) {
+      try {
+        const res = await fetch(`${origin}/api/room/active?_t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.roomId) {
+            return String(data.roomId);
+          }
+        }
+      } catch {}
+    }
+    return null;
+  }
+
   disconnect() {
     this.isIntentionalDisconnect = true;
     if (this.reconnectTimer) {

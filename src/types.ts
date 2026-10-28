@@ -170,6 +170,7 @@ export interface CloudMessage {
   durationSec?: number;
   serverStartTime?: number;
   serverTs?: number;
+  forcePullTs?: number;
   isCorrect?: boolean;
   correctCountInTF?: number;
   gainedPts?: number;

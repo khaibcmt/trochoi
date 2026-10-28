@@ -562,12 +562,14 @@ export const HostArenaView: React.FC<Props> = ({
     scene.background = new THREE.Color(0x0f172a);
     scene.fog = null;
 
-    const camera = new THREE.PerspectiveCamera(48, vp.clientWidth / vp.clientHeight, 0.1, 100);
+    const initW = Math.max(320, vp.clientWidth || window.innerWidth || 800);
+    const initH = Math.max(220, vp.clientHeight || 360);
+    const camera = new THREE.PerspectiveCamera(48, initW / initH, 0.1, 100);
     camera.position.set(0, 5.2, 11.2);
     camera.lookAt(0, 1.6, 0);
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-    renderer.setSize(vp.clientWidth, vp.clientHeight);
+    renderer.setSize(initW, initH);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -707,16 +709,22 @@ export const HostArenaView: React.FC<Props> = ({
       targetRopeX: 0
     };
 
-    // Resize listener
+    // Resize listener + ResizeObserver đảm bảo khung 3D luôn có kích thước chuẩn và hiện nhân vật rõ nét 100%
     const handleResize = () => {
       if (!threeRef.current || !viewportRef.current) return;
-      const w = viewportRef.current.clientWidth;
-      const h = viewportRef.current.clientHeight;
+      const w = Math.max(320, viewportRef.current.clientWidth || window.innerWidth || 800);
+      const h = Math.max(220, viewportRef.current.clientHeight || 360);
       threeRef.current.camera.aspect = w / h;
       threeRef.current.camera.updateProjectionMatrix();
       threeRef.current.renderer.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
+    let resizeObs: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObs = new ResizeObserver(() => handleResize());
+      resizeObs.observe(vp);
+    }
+    setTimeout(handleResize, 60);
 
     // Render loop
     const animate = () => {
@@ -927,6 +935,7 @@ export const HostArenaView: React.FC<Props> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (resizeObs) resizeObs.disconnect();
       if (threeRef.current?.animFrameId) {
         cancelAnimationFrame(threeRef.current.animFrameId);
       }
@@ -972,11 +981,11 @@ export const HostArenaView: React.FC<Props> = ({
     applyRoundAtmosphere(matchState.currentRound || 1);
   }, [matchState.gameType, matchState.currentRound, matchState.status]);
 
-  // Sync 3D Players on Arena (Chỉ hiển thị tối đa 10 học sinh trên màn hình chính của giáo viên, ẩn học sinh bị loại trong Rung Chuông Vàng)
+  // Sync 3D Players on Arena (Hiển thị đầy đủ nhân vật 3D của học sinh trên sân khấu, ẩn học sinh bị loại trong Rung Chuông Vàng)
   useEffect(() => {
     if (!threeRef.current) return;
     const { scene, redPullers3D, bluePullers3D } = threeRef.current;
-    const max3D = Math.min(10, Math.max(2, matchState.settings?.max3DRenderCount || 10));
+    const max3D = Math.min(24, Math.max(12, matchState.settings?.max3DRenderCount || 20));
 
     const isBell = matchState.gameType === 'BELL';
     const isFast = matchState.gameType === 'FAST';
@@ -1012,20 +1021,23 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position up to 10 active players systematically on the main screen
+      // Position active players systematically on the main screen
       topRender.forEach((p, idx) => {
         const isRed = p.team === 'RED';
         const g = createCartoonCharacter(isRed ? 'RED' : 'BLUE', p);
         g.userData.playerData = p;
 
         if (isBoss) {
-          // Semi-circle combat formation facing the Boss (max 10 heroes)
-          const angle = -Math.PI * 0.68 + (idx / Math.max(1, topRender.length - 1)) * Math.PI * 1.36;
-          const rad = 5.8;
+          // Semi-circle combat formation facing the Boss
+          const ringIdx = Math.floor(idx / 10);
+          const posInRing = idx % 10;
+          const countInRing = Math.min(10, topRender.length - ringIdx * 10);
+          const angle = -Math.PI * 0.68 + (posInRing / Math.max(1, countInRing - 1)) * Math.PI * 1.36;
+          const rad = 5.8 + ringIdx * 1.6;
           g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
           g.lookAt(0, 2.5, -2.5);
         } else if (isBell) {
-          // Golden Bell: Seated on stage in 2 neat concentric rings (max 10 students)
+          // Golden Bell: Seated on stage in concentric rings
           let rad = 2.6;
           let tierY = 0.88;
           let angle = 0;
@@ -1034,23 +1046,28 @@ export const HostArenaView: React.FC<Props> = ({
             rad = 2.5;
             tierY = 0.88;
             angle = (idx / Math.max(1, count)) * Math.PI * 2;
-          } else {
-            const count = Math.max(1, topRender.length - 4);
+          } else if (idx < 12) {
+            const count = Math.min(8, Math.max(1, topRender.length - 4));
             rad = 4.6;
             tierY = 0.53;
             angle = ((idx - 4) / count) * Math.PI * 2;
+          } else {
+            const count = Math.max(1, topRender.length - 12);
+            rad = 6.3;
+            tierY = 0.22;
+            angle = ((idx - 12) / count) * Math.PI * 2;
           }
           g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.8);
           g.userData.baseBellY = tierY;
           g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
         } else {
-          // Speed racing: 2 rows of 5 racers (max 10 racers)
-          const cols = 5;
-          const spacingX = 2.1;
+          // Speed racing: rows of 6 racers
+          const cols = 6;
+          const spacingX = 1.95;
           const startX = -((cols - 1) * spacingX) / 2;
           const row = Math.floor(idx / cols);
           const col = idx % cols;
-          g.position.set(startX + col * spacingX, 0, 1.8 - row * 2.1);
+          g.position.set(startX + col * spacingX, 0, 1.8 - row * 1.9);
           g.lookAt(0, 1.5, -6);
         }
 
@@ -1059,8 +1076,8 @@ export const HostArenaView: React.FC<Props> = ({
         else bluePullers3D.push(g);
       });
     } else {
-      // Tug of war: Top 5 Red + Top 5 Blue by score (10 students total on main screen)
-      const perTeamMax = Math.max(1, Math.floor(max3D / 2));
+      // Tug of war: Hiển thị tối đa mỗi đội 12 nhân vật (xếp 2 hàng dọc dây kéo nếu > 5 người)
+      const perTeamMax = Math.max(6, Math.floor(max3D / 2));
       const sortedRed = [...matchState.redPlayers].sort((a, b) => {
         const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
@@ -1080,13 +1097,15 @@ export const HostArenaView: React.FC<Props> = ({
       redPullers3D.length = 0;
       bluePullers3D.length = 0;
 
-      // Position Red pullers alongside the rope (5 students)
+      // Position Red pullers alongside the rope
       redToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('RED', p);
         g.userData.playerData = p;
-        const spacing = 1.45;
-        const startX = -1.6 - idx * spacing;
-        const posZ = (idx % 2 === 0 ? 0.35 : -0.35);
+        const col = idx % 6;
+        const row = Math.floor(idx / 6);
+        const spacing = 1.32;
+        const startX = -1.55 - col * spacing;
+        const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
         g.position.set(startX, 0, posZ);
         g.userData.tugBaseX = startX;
         g.userData.tugBaseZ = posZ;
@@ -1095,13 +1114,15 @@ export const HostArenaView: React.FC<Props> = ({
         redPullers3D.push(g);
       });
 
-      // Position Blue pullers alongside the rope (5 students)
+      // Position Blue pullers alongside the rope
       blueToRender.forEach((p, idx) => {
         const g = createCartoonCharacter('BLUE', p);
         g.userData.playerData = p;
-        const spacing = 1.45;
-        const startX = 1.6 + idx * spacing;
-        const posZ = (idx % 2 === 0 ? 0.35 : -0.35);
+        const col = idx % 6;
+        const row = Math.floor(idx / 6);
+        const spacing = 1.32;
+        const startX = 1.55 + col * spacing;
+        const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
         g.position.set(startX, 0, posZ);
         g.userData.tugBaseX = startX;
         g.userData.tugBaseZ = posZ;
@@ -1435,21 +1456,30 @@ export const HostArenaView: React.FC<Props> = ({
   const handlePullAllStudentsToWaiting = () => {
     AudioFX.bonusLifeChime();
     confetti({ particleCount: 120, spread: 80, origin: { y: 0.4 } });
-    CloudNetwork.sendMessage({
-      type: 'FORCE_PULL_TO_WAITING',
-      roomId: activeRoomId,
-      gameType: matchState.gameType,
-      status: matchState.status
-    });
-    setTimeout(() => {
+    const pullTs = Date.now();
+    const safeQIdx = Math.min(Math.max(0, matchState.globalQIndex), Math.max(0, (quizList.length || 1) - 1));
+    const curQ = quizList[safeQIdx]
+      ? { ...quizList[safeQIdx], qIndex: safeQIdx, totalQuestions: quizList.length }
+      : undefined;
+
+    const sendPullPacket = () => {
       CloudNetwork.sendMessage({
         type: 'FORCE_PULL_TO_WAITING',
         roomId: activeRoomId,
         gameType: matchState.gameType,
-        status: matchState.status
+        status: matchState.status,
+        globalQIndex: safeQIdx,
+        forcePullTs: pullTs,
+        question: curQ,
+        quiz: quizList
       });
-    }, 250);
-    triggerRescueBanner('🧲 ĐÃ KÉO TẤT CẢ HỌC SINH VÀO PHÒNG CHỜ SẴN SÀNG THI ĐẤU!');
+      CloudNetwork.reconnectImmediate();
+    };
+
+    sendPullPacket();
+    setTimeout(sendPullPacket, 250);
+    setTimeout(() => CloudNetwork.reconnectImmediate(), 750);
+    triggerRescueBanner('🧲 ĐÃ KÉO TẤT CẢ HỌC SINH VÀO PHÒNG & HIỆN NHÂN VẬT 3D TRÊN SÂN KHẤU!');
   };
 
   // Kích hoạt Sự Kiện Bất Ngờ Toàn Sân (World Chaos Event - Chuẩn Game Show Quốc Tế)

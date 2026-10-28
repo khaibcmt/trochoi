@@ -26,9 +26,10 @@ interface Props {
 export const isPlaceholderOrEmptyName = (name: string): boolean => {
   const trimmed = (name || '').trim();
   if (trimmed.length < 2) return true;
-  if (/^(thí sinh|học sinh|hs|player)(\s*#?\d*)?$/i.test(trimmed)) return true;
+  if (/^(thí sinh|học sinh|hs|player|chưa lưu tên)(\s*#?\d*)?$/i.test(trimmed)) return true;
   if (/^thí sinh/i.test(trimmed)) return true;
   if (/^học sinh/i.test(trimmed)) return true;
+  if (/^chưa lưu tên/i.test(trimmed)) return true;
   if (/^vô danh/i.test(trimmed)) return true;
   return false;
 };
@@ -90,20 +91,27 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const [roomId, setRoomId] = useState(initialRoomId || '12345');
 
-  // Nếu mở Tab ở chế độ Ẩn Danh mà chưa truyền ?r= trên URL, tự động hỏi Server để lấy đúng Mã Phòng đang mở của Giáo viên
+  // Nếu mở Tab ở chế độ Ẩn Danh hoặc chưa truyền ?r= trên URL, tự động hỏi Server định kỳ để bắt đúng Mã Phòng đang mở của Giáo viên
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has('r') && !params.has('room')) {
-      fetch('/api/room/active')
-        .then(r => r.json())
-        .then(data => {
-          if (data && data.roomId && String(data.roomId) !== roomId) {
-            setRoomId(String(data.roomId));
+    let mounted = true;
+    const syncActiveRoom = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has('r') && !params.has('room')) {
+          const activeId = await CloudNetwork.fetchActiveRoomId();
+          if (mounted && activeId && String(activeId) !== roomId) {
+            setRoomId(String(activeId));
           }
-        })
-        .catch(() => {});
-    }
-  }, []);
+        }
+      } catch {}
+    };
+    syncActiveRoom();
+    const roomSyncTimer = setInterval(syncActiveRoom, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(roomSyncTimer);
+    };
+  }, [roomId]);
 
   const [studentName, setStudentName] = useState(() => {
     try {
@@ -425,6 +433,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const studentNameRef = useRef<string>(studentName);
   const tempInputNameRef = useRef<string>(tempInputName);
   const lastForceStartTsRef = useRef<number>(0);
+  const lastForcePullTsRef = useRef<number>(0);
   const teamRef = useRef<PlayerTeam>(team);
   const avatarRef = useRef<AvatarConfig>(avatar);
   const fastScoreRef = useRef<number>(fastScore);
@@ -445,9 +454,11 @@ export const StudentMobileView: React.FC<Props> = ({
   }, [tempInputName]);
   useEffect(() => {
     teamRef.current = team;
+    sendEnter(undefined, team);
   }, [team]);
   useEffect(() => {
     avatarRef.current = avatar;
+    sendEnter();
   }, [avatar]);
   useEffect(() => {
     fastScoreRef.current = fastScore;
@@ -494,12 +505,15 @@ export const StudentMobileView: React.FC<Props> = ({
   const handleSaveProfile = (name: string, av: AvatarConfig) => {
     setStudentName(name);
     studentNameRef.current = name;
+    setTempInputName(name);
+    tempInputNameRef.current = name;
     setAvatar(av);
     avatarRef.current = av;
     try {
       sessionStorage.setItem(`kc3d_name_${tabSessionId}`, name);
       sessionStorage.setItem(`kc3d_avatar_${tabSessionId}`, JSON.stringify(av));
     } catch {}
+    sendEnter(name);
   };
 
   const myPlayerIdRef = useRef<string>(myPlayerId);
@@ -507,8 +521,8 @@ export const StudentMobileView: React.FC<Props> = ({
     myPlayerIdRef.current = myPlayerId;
   }, [myPlayerId]);
 
-  // Đảm bảo khi Giáo viên bấm BẮT ĐẦU THI, học sinh đã nhập tên ở ô chờ (nhưng quên bấm Lưu) hoặc chưa kịp nhập tên
-  // đều được tự động gán/lưu tên hợp lệ ngay lập tức để 100% vào thẳng màn hình câu hỏi mà KHÔNG bị kẹt ở cửa sổ khóa!
+  // Đảm bảo khi Giáo viên bấm BẮT ĐẦU THI hoặc KÉO HS VÀO PHÒNG, học sinh đã nhập tên ở ô chờ (nhưng quên bấm Lưu) hoặc chưa kịp nhập tên
+  // đều được tự động gán/lưu tên hợp lệ ngay lập tức để 100% vào thẳng phòng và hiện nhân vật 3D mà KHÔNG bị kẹt ở cửa sổ khóa!
   const ensureValidStudentNameForMatchStart = (): string => {
     const curSaved = (studentNameRef.current || '').trim();
     if (!isPlaceholderOrEmptyName(curSaved)) {
@@ -543,23 +557,16 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
     let cleanName = (overrideName ?? studentNameRef.current ?? tempInputNameRef.current ?? '').trim();
-    if (!cleanName && !hasJoinedArenaRef.current) return;
+    const fallbackCode = (myPlayerIdRef.current || 'HS01').replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase() || '101';
 
     if ((!cleanName || isPlaceholderOrEmptyName(cleanName)) && hasJoinedArenaRef.current) {
+      cleanName = ensureValidStudentNameForMatchStart();
+    } else if (!cleanName || isPlaceholderOrEmptyName(cleanName)) {
       const typedCandidate = (tempInputNameRef.current || '').trim();
-      if (!isPlaceholderOrEmptyName(typedCandidate)) {
-        cleanName = typedCandidate;
-      } else if (hostMatchStatusRef.current === 'PLAYING') {
-        cleanName = ensureValidStudentNameForMatchStart();
-      } else if (!cleanName) {
-        cleanName = `SBD #${(myPlayerIdRef.current || '').slice(-4).toUpperCase() || Math.floor(100 + Math.random() * 900)}`;
-      }
-      studentNameRef.current = cleanName;
-      setStudentName(cleanName);
-      if (!tempInputNameRef.current) setTempInputName(cleanName);
+      cleanName = !isPlaceholderOrEmptyName(typedCandidate) ? typedCandidate : `SBD #${fallbackCode}`;
     }
 
-    const finalName = cleanName || 'SBD #101';
+    const finalName = cleanName || `SBD #${fallbackCode}`;
     const finalTeam = overrideTeam || teamRef.current;
 
     CloudNetwork.sendMessage({
@@ -846,15 +853,34 @@ export const StudentMobileView: React.FC<Props> = ({
     }
 
     if (d.type === 'FORCE_PULL_TO_WAITING') {
+      if (typeof d.forcePullTs === 'number' && d.forcePullTs > 0) {
+        lastForcePullTsRef.current = d.forcePullTs;
+      } else {
+        lastForcePullTsRef.current = Date.now();
+      }
       hasJoinedArenaRef.current = true;
-      waitingRoomLockedRef.current = true;
-      const curName = studentNameRef.current.trim();
-      sendEnter(curName || 'Chưa lưu tên');
-      if (screenRef.current === 'LOBBY') {
+      setShowNameAlert(false);
+      const validName = ensureValidStudentNameForMatchStart();
+      if (d.question) {
+        const qIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current;
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
+      const isCurrentlyPlaying = d.status === 'PLAYING' || hostMatchStatusRef.current === 'PLAYING';
+      if (isCurrentlyPlaying && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
+        waitingRoomLockedRef.current = false;
+        setScreen('QUIZ');
+        AudioFX.pullHeave();
+        triggerBonusToast('🚀 Thầy/Cô đã kéo bạn vào thẳng sàn đấu đang diễn ra!');
+      } else if (screenRef.current === 'LOBBY') {
+        waitingRoomLockedRef.current = true;
         setScreen('WAITING');
         AudioFX.bonusLifeChime();
-        triggerBonusToast('🧲 Thầy/Cô đã kéo bạn vào phòng chờ! Vui lòng điền Họ Tên và bấm Lưu Tên để chuẩn bị thi đấu!');
+        triggerBonusToast(`🧲 Thầy/Cô đã kéo bạn (${validName}) vào phòng chờ thi đấu!`);
       }
+      sendEnter(validName);
+      setTimeout(() => sendEnter(validName), 250);
+      setTimeout(() => sendEnter(validName), 800);
       return;
     }
 
@@ -1253,6 +1279,28 @@ export const StudentMobileView: React.FC<Props> = ({
         startMsRef.current = Date.now();
       }
 
+      // Nếu Giáo viên vừa bấm "Kéo HS Vào Phòng Chờ" (forcePullTs trong 45s gần nhất), tự động kéo học sinh từ LOBBY vào ngay!
+      if (
+        typeof d.forcePullTs === 'number' &&
+        d.forcePullTs > lastForcePullTsRef.current &&
+        Date.now() - d.forcePullTs <= 45000
+      ) {
+        lastForcePullTsRef.current = d.forcePullTs;
+        hasJoinedArenaRef.current = true;
+        setShowNameAlert(false);
+        const validName = ensureValidStudentNameForMatchStart();
+        if (effectiveHeartbeatStatus === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
+          waitingRoomLockedRef.current = false;
+          setScreen('QUIZ');
+        } else if (screenRef.current === 'LOBBY') {
+          waitingRoomLockedRef.current = true;
+          setScreen('WAITING');
+          AudioFX.bonusLifeChime();
+          triggerBonusToast(`🧲 Thầy/Cô đã kéo bạn (${validName}) vào phòng chờ thi đấu!`);
+        }
+        sendEnter(validName);
+      }
+
       // Kéo 100% học sinh từ Sảnh / Phòng chờ vào phòng thi và mở đáp án ngay khi Giáo viên đang PLAYING
       if (effectiveHeartbeatStatus === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && (screenRef.current === 'WAITING' || screenRef.current === 'LOBBY')) {
         hasJoinedArenaRef.current = true;
@@ -1334,29 +1382,25 @@ export const StudentMobileView: React.FC<Props> = ({
       () => {
         setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
         setNetworkState('CONNECTED');
-        if (hasJoinedArenaRef.current) {
-          sendEnter();
-        }
+        // Gửi ngay thông tin nhân vật lên Server/Host ngay cả khi học sinh đang ở Sảnh (LOBBY) để hiện nhân vật 3D tức thì!
+        sendEnter();
       },
       (newStatus) => {
         setNetworkState(newStatus);
         if (newStatus === 'CONNECTED') {
           setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-          if (hasJoinedArenaRef.current) {
-            sendEnter();
-          }
+          sendEnter();
         }
       }
     );
 
-    // Đồng bộ định kỳ chống rớt mạng / chống văng
+    // Đồng bộ định kỳ chống rớt mạng / chống văng và đảm bảo nhân vật 3D luôn xuất hiện trên màn hình Giáo viên
     let lastSyncTs = Date.now();
     let lastSyncedScore = fastScoreRef.current;
     const interval = setInterval(() => {
-      if (!hasJoinedArenaRef.current) return;
       const now = Date.now();
       const scoreChanged = fastScoreRef.current !== lastSyncedScore;
-      const neededDelay = hasConfirmedEnterRef.current ? 6000 : 2500;
+      const neededDelay = hasConfirmedEnterRef.current ? 4500 : 2000;
       if (scoreChanged || now - lastSyncTs >= neededDelay) {
         lastSyncTs = now;
         lastSyncedScore = fastScoreRef.current;
