@@ -163,11 +163,13 @@ export interface CloudMessage {
   bellTotalCount?: number;
   subj?: string;
   quiz?: QuizItem[];
+  quizHash?: string;
   question?: QuizItem;
   emoji?: string;
   winner?: string;
   durationSec?: number;
   serverStartTime?: number;
+  serverTs?: number;
   isCorrect?: boolean;
   correctCountInTF?: number;
   gainedPts?: number;

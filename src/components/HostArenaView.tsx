@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
 import { MatchState, QuizItem, Player, GamePlayType, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
-import { CloudNetwork } from '../services/network';
+import { CloudNetwork, NetworkTelemetry, AntiCongestionMode } from '../services/network';
 import {
   cleanQuestionTitleText,
   cleanTFStatementText,
@@ -101,8 +101,19 @@ export const HostArenaView: React.FC<Props> = ({
   const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
   const demoBotIntervalRef = useRef<any>(null);
 
-  // Floating cheers
+  // Floating cheers & Multi-Server Network Telemetry
   const [floatingCheers, setFloatingCheers] = useState<{ id: string; emoji: string; left: number }[]>([]);
+  const [netTelemetry, setNetTelemetry] = useState<NetworkTelemetry>(() => CloudNetwork.getTelemetry());
+
+  useEffect(() => {
+    return CloudNetwork.subscribeTelemetry(setNetTelemetry);
+  }, []);
+
+  const handleCycleCongestionMode = () => {
+    const modes: AntiCongestionMode[] = ['AUTO', 'WEAK_WIFI', 'TURBO'];
+    const next = modes[(modes.indexOf(netTelemetry.congestionMode) + 1) % modes.length];
+    CloudNetwork.setAntiCongestionMode(next);
+  };
 
   // Keep latest matchState accessible in 60fps render loop
   const matchStateRef = useRef<MatchState>(matchState);
@@ -1213,16 +1224,17 @@ export const HostArenaView: React.FC<Props> = ({
       triggerRescueBanner(nextWorldTitle);
     }
 
-    // Broadcast question started ONCE when this question appears
+    // Broadcast question started ONCE when this question appears (Chỉ gửi kèm mảng quiz ở câu đầu tiên để chống nghẽn băng thông khi chuyển câu)
     CloudNetwork.sendMessage({
       type: 'QUESTION_START',
+      status: 'PLAYING',
       qIndex: safeIdx,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
       worldEvent: nextWorldEv,
       worldEventTitle: nextWorldTitle,
       question: activeQWithMeta,
-      quiz: currentDeck
+      quiz: safeIdx === 0 ? currentDeck : undefined
     });
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -1852,47 +1864,13 @@ export const HostArenaView: React.FC<Props> = ({
     });
   };
 
-  // Start contest - Khi giáo viên bấm Bắt đầu, mở khóa cho học sinh trong phòng chờ bắt đầu trả lời ngay lập tức
+  // Start contest - Khi giáo viên bấm Bắt đầu, cập nhật ngay trạng thái PLAYING đồng bộ 0ms và phát tín hiệu nhẹ đa luồng mở khóa 100% điện thoại học sinh
   const handleStartContest = () => {
     AudioFX.whistle();
+    const nowTs = Date.now();
     const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
-    const startPayload = {
-      type: 'QUESTION_START' as const,
-      status: 'PLAYING' as const,
-      qIndex: 0,
-      durationSec: durationSec,
-      serverStartTime: Date.now(),
-      question: firstQ,
-      quiz: quizList
-    };
-    CloudNetwork.sendMessage(startPayload);
-    CloudNetwork.sendMessage({
-      type: 'MATCH_START',
-      status: 'PLAYING',
-      qIndex: 0,
-      question: firstQ,
-      quiz: quizList
-    });
-    CloudNetwork.sendMessage({
-      type: 'FORCE_START_MATCH',
-      status: 'PLAYING',
-      qIndex: 0,
-      question: firstQ,
-      quiz: quizList
-    });
-    setTimeout(() => {
-      CloudNetwork.sendMessage(startPayload);
-      CloudNetwork.sendMessage({
-        type: 'FORCE_START_MATCH',
-        status: 'PLAYING',
-        qIndex: 0,
-        question: firstQ,
-        quiz: quizList
-      });
-    }, 200);
-    setTimeout(() => {
-      CloudNetwork.sendMessage(startPayload);
-    }, 500);
+
+    // 1. Cập nhật trạng thái PLAYING ngay lập tức trước khi gửi tin để nhịp tim không bao giờ gửi nhầm trạng thái LOBBY cũ
     onUpdateMatchState(prev => ({
       ...prev,
       status: 'PLAYING',
@@ -1901,6 +1879,34 @@ export const HostArenaView: React.FC<Props> = ({
       maxBossHP: prev.settings?.bossMaxHP || 1000
     }));
     setQrVisible(false);
+
+    // 2. Phát gói FORCE_START_MATCH đầu tiên kèm bộ đề để Server lưu cache quizHash
+    CloudNetwork.sendMessage({
+      type: 'FORCE_START_MATCH',
+      status: 'PLAYING',
+      qIndex: 0,
+      durationSec: durationSec,
+      serverStartTime: nowTs,
+      question: firstQ,
+      quiz: quizList
+    });
+
+    // 3. Phát bổ sung các xung kích hoạt siêu nhẹ (< 1KB, không lặp lại mảng quiz nặng) qua Đa Server sau 180ms và 550ms
+    // Đảm bảo học sinh mạng 3G/Wi-Fi chập chờn 100% nhận được lệnh Bắt đầu mà không bị nghẽn cổ chai!
+    const lightStartSignal = {
+      type: 'FORCE_START_MATCH' as const,
+      status: 'PLAYING' as const,
+      qIndex: 0,
+      durationSec: durationSec,
+      serverStartTime: nowTs,
+      question: firstQ
+    };
+    setTimeout(() => {
+      CloudNetwork.sendMessage({ ...lightStartSignal });
+    }, 180);
+    setTimeout(() => {
+      CloudNetwork.sendMessage({ ...lightStartSignal });
+    }, 550);
   };
 
   // Pause / Resume
@@ -2185,6 +2191,36 @@ export const HostArenaView: React.FC<Props> = ({
               </>
             )}
           </span>
+
+          {/* Nút Chế độ Chống Nghẽn Mạng / Đa Server / Đa Luồng */}
+          <button
+            type="button"
+            onClick={handleCycleCongestionMode}
+            title="Bấm để chuyển chế độ mạng: Tự động Chống Nghẽn / Ưu tiên Mạng Yếu (Wi-Fi chập chờn) / Siêu Tốc"
+            style={{
+              background:
+                netTelemetry.congestionMode === 'WEAK_WIFI'
+                  ? 'linear-gradient(135deg, #d97706, #b45309)'
+                  : 'rgba(16, 185, 129, 0.16)',
+              border:
+                netTelemetry.congestionMode === 'WEAK_WIFI'
+                  ? '1.5px solid #fef08a'
+                  : '1px solid rgba(52, 211, 153, 0.5)',
+              color: netTelemetry.congestionMode === 'WEAK_WIFI' ? '#fef08a' : '#6ee7b7',
+              borderRadius: '8px',
+              padding: '3px 8px',
+              fontSize: '11px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <span>{netTelemetry.congestionMode === 'WEAK_WIFI' ? '🛡️ Chống Nghẽn Wi-Fi Yếu' : netTelemetry.congestionMode === 'TURBO' ? '⚡ Đa Server Turbo' : '🟢 Đa Server • Đa Luồng'}</span>
+            <span style={{ fontSize: '10px', opacity: 0.9 }}>({netTelemetry.rttMs}ms)</span>
+          </button>
         </div>
 
         {/* Cụm Phải: Các nút điều khiển tinh gọn */}

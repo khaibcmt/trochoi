@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat, WagerLevel, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
-import { CloudNetwork, NetworkConnStatus } from '../services/network';
+import { CloudNetwork, NetworkConnStatus, NetworkTelemetry, AntiCongestionMode } from '../services/network';
 import {
   cleanQuestionTitleText,
   cleanTFStatementText,
@@ -189,6 +189,23 @@ export const StudentMobileView: React.FC<Props> = ({
   // Connection & Screen state (Khôi phục riêng theo từng Tab khi F5, còn mở Tab mới sẽ vào màn hình tạo nhân vật mới)
   const [connStatus, setConnStatus] = useState('🟢 Đã kết nối thông suốt sân đấu 3D!');
   const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
+  const [netTelemetry, setNetTelemetry] = useState<NetworkTelemetry>(() => CloudNetwork.getTelemetry());
+  useEffect(() => {
+    const unsub = CloudNetwork.subscribeTelemetry((t) => setNetTelemetry(t));
+    return () => unsub();
+  }, []);
+  const handleToggleAntiCongestion = () => {
+    const modes: AntiCongestionMode[] = ['AUTO', 'WEAK_WIFI', 'TURBO'];
+    const next = modes[(modes.indexOf(netTelemetry.congestionMode) + 1) % modes.length];
+    CloudNetwork.setAntiCongestionMode(next);
+    if (next === 'WEAK_WIFI') {
+      triggerBonusToast('🛡️ Đã bật Chế độ Chống Nghẽn Wi-Fi Yếu / 3G-4G (Nén gói tin & chống văng tuyệt đối)!');
+    } else if (next === 'TURBO') {
+      triggerBonusToast('⚡ Đã bật Chế độ Đa Server Siêu Tốc (Phản hồi tức thì)!');
+    } else {
+      triggerBonusToast('🟢 Đã bật Chế độ Đa Luồng Tự Động Thích Ứng Mạng!');
+    }
+  };
   const [screen, setScreen] = useState<'LOBBY' | 'WAITING' | 'QUIZ' | 'ELIMINATED' | 'ENDED'>(() => {
     try {
       const savedName = (sessionStorage.getItem(`kc3d_name_${tabSessionId}`) || localStorage.getItem('kc3d_last_name') || '').trim();
@@ -406,6 +423,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Keep refs in sync with latest profile & score so network callbacks NEVER use stale closure values
   const studentNameRef = useRef<string>(studentName);
+  const tempInputNameRef = useRef<string>(tempInputName);
+  const lastForceStartTsRef = useRef<number>(0);
   const teamRef = useRef<PlayerTeam>(team);
   const avatarRef = useRef<AvatarConfig>(avatar);
   const fastScoreRef = useRef<number>(fastScore);
@@ -421,6 +440,9 @@ export const StudentMobileView: React.FC<Props> = ({
   useEffect(() => {
     studentNameRef.current = studentName;
   }, [studentName]);
+  useEffect(() => {
+    tempInputNameRef.current = tempInputName;
+  }, [tempInputName]);
   useEffect(() => {
     teamRef.current = team;
   }, [team]);
@@ -485,18 +507,59 @@ export const StudentMobileView: React.FC<Props> = ({
     myPlayerIdRef.current = myPlayerId;
   }, [myPlayerId]);
 
+  // Đảm bảo khi Giáo viên bấm BẮT ĐẦU THI, học sinh đã nhập tên ở ô chờ (nhưng quên bấm Lưu) hoặc chưa kịp nhập tên
+  // đều được tự động gán/lưu tên hợp lệ ngay lập tức để 100% vào thẳng màn hình câu hỏi mà KHÔNG bị kẹt ở cửa sổ khóa!
+  const ensureValidStudentNameForMatchStart = (): string => {
+    const curSaved = (studentNameRef.current || '').trim();
+    if (!isPlaceholderOrEmptyName(curSaved)) {
+      return curSaved;
+    }
+    const curTyped = (tempInputNameRef.current || '').trim();
+    if (!isPlaceholderOrEmptyName(curTyped)) {
+      studentNameRef.current = curTyped;
+      setStudentName(curTyped);
+      setTempInputName(curTyped);
+      setShowNameAlert(false);
+      try {
+        sessionStorage.setItem(`kc3d_name_${tabSessionId}`, curTyped);
+        localStorage.setItem('kc3d_last_name', curTyped);
+        sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
+      } catch {}
+      return curTyped;
+    }
+    const fallbackCode = (myPlayerIdRef.current || 'HS01').replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase() || String(Math.floor(100 + Math.random() * 900));
+    const autoName = `SBD #${fallbackCode}`;
+    studentNameRef.current = autoName;
+    tempInputNameRef.current = autoName;
+    setStudentName(autoName);
+    setTempInputName(autoName);
+    setShowNameAlert(false);
+    try {
+      sessionStorage.setItem(`kc3d_name_${tabSessionId}`, autoName);
+      sessionStorage.setItem(`kc3d_joined_${tabSessionId}`, '1');
+    } catch {}
+    return autoName;
+  };
+
   const sendEnter = (overrideName?: string, overrideTeam?: PlayerTeam) => {
-    let cleanName = (overrideName ?? studentNameRef.current ?? '').trim();
+    let cleanName = (overrideName ?? studentNameRef.current ?? tempInputNameRef.current ?? '').trim();
     if (!cleanName && !hasJoinedArenaRef.current) return;
 
-    if (!cleanName && hasJoinedArenaRef.current) {
-      cleanName = `Thí sinh #${Math.floor(100 + Math.random() * 900)}`;
+    if ((!cleanName || isPlaceholderOrEmptyName(cleanName)) && hasJoinedArenaRef.current) {
+      const typedCandidate = (tempInputNameRef.current || '').trim();
+      if (!isPlaceholderOrEmptyName(typedCandidate)) {
+        cleanName = typedCandidate;
+      } else if (hostMatchStatusRef.current === 'PLAYING') {
+        cleanName = ensureValidStudentNameForMatchStart();
+      } else if (!cleanName) {
+        cleanName = `SBD #${(myPlayerIdRef.current || '').slice(-4).toUpperCase() || Math.floor(100 + Math.random() * 900)}`;
+      }
       studentNameRef.current = cleanName;
       setStudentName(cleanName);
-      setTempInputName(cleanName);
+      if (!tempInputNameRef.current) setTempInputName(cleanName);
     }
 
-    const finalName = cleanName || 'Học sinh';
+    const finalName = cleanName || 'SBD #101';
     const finalTeam = overrideTeam || teamRef.current;
 
     CloudNetwork.sendMessage({
@@ -860,10 +923,15 @@ export const StudentMobileView: React.FC<Props> = ({
 
     if (d.type === 'WELCOME_ACK' || d.type === 'HOST_STATE_SYNC') {
       // HOTFIX 1.3: Khóa tạm thời nút bấm khi nhận gói đồng bộ trạng thái (syncState)
-      triggerSyncStateLock(300);
+      triggerSyncStateLock(260);
       if (d.status) {
-        setHostMatchStatus(d.status);
-        hostMatchStatusRef.current = d.status;
+        if (d.status === 'PLAYING') {
+          lastForceStartTsRef.current = Date.now();
+        }
+        if (!(d.status === 'LOBBY' && Date.now() - lastForceStartTsRef.current < 12000)) {
+          setHostMatchStatus(d.status);
+          hostMatchStatusRef.current = d.status;
+        }
       }
       if (typeof d.globalQIndex === 'number' && d.status === 'PLAYING') {
         currentGlobalQIndexRef.current = d.globalQIndex;
@@ -880,7 +948,9 @@ export const StudentMobileView: React.FC<Props> = ({
       if (d.status === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
         hasJoinedArenaRef.current = true;
         waitingRoomLockedRef.current = false;
+        const validName = ensureValidStudentNameForMatchStart();
         setScreen('QUIZ');
+        sendEnter(validName);
       }
     }
     else if (d.type === 'ENTER_CONFIRMED' && d.playerId === myPlayerId) {
@@ -889,8 +959,13 @@ export const StudentMobileView: React.FC<Props> = ({
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
       if (d.matchStatus) {
-        setHostMatchStatus(d.matchStatus);
-        hostMatchStatusRef.current = d.matchStatus;
+        if (d.matchStatus === 'PLAYING') {
+          lastForceStartTsRef.current = Date.now();
+        }
+        if (!(d.matchStatus === 'LOBBY' && Date.now() - lastForceStartTsRef.current < 12000)) {
+          setHostMatchStatus(d.matchStatus);
+          hostMatchStatusRef.current = d.matchStatus;
+        }
       }
       if (typeof d.globalQIndex === 'number' && d.matchStatus === 'PLAYING') {
         currentGlobalQIndexRef.current = d.globalQIndex;
@@ -924,6 +999,7 @@ export const StudentMobileView: React.FC<Props> = ({
       } else if (d.matchStatus === 'PLAYING') {
         hasJoinedArenaRef.current = true;
         waitingRoomLockedRef.current = false;
+        ensureValidStudentNameForMatchStart();
         setScreen('QUIZ');
       }
     }
@@ -940,14 +1016,16 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     }
     else if (d.type === 'FORCE_START_MATCH' || d.type === 'MATCH_START') {
-      // Giáo viên bấm BẮT ĐẦU THI -> Kéo 100% học sinh vào phòng, mở đáp án và đồng bộ tất cả về cùng câu hỏi!
-      triggerSyncStateLock(350);
+      // Giáo viên bấm BẮT ĐẦU THI -> Kéo 100% học sinh vào phòng, tự động lưu tên nếu quên bấm Lưu, mở đáp án và đồng bộ tất cả về cùng câu hỏi!
+      lastForceStartTsRef.current = Date.now();
+      triggerSyncStateLock(260);
       hasJoinedArenaRef.current = true;
       hasFinishedAllQuestionsRef.current = false;
       maxReachedQIndexRef.current = 0;
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
       waitingRoomLockedRef.current = false;
+      const validName = ensureValidStudentNameForMatchStart();
       activeStudentTimerQIndexRef.current = -1;
       startMsRef.current = Date.now();
       setRemSec(30);
@@ -972,6 +1050,7 @@ export const StudentMobileView: React.FC<Props> = ({
       }
       if (!eliminatedRef.current) {
         setScreen('QUIZ');
+        sendEnter(validName);
         AudioFX.pullHeave();
         triggerBonusToast('🚀 GIÁO VIÊN ĐÃ BẮT ĐẦU! ĐÃ MỞ KHÓA ĐÁP ÁN & ĐỒNG BỘ CÂU HỎI TOÀN LỚP!');
       }
@@ -1093,9 +1172,19 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     }
     else if (d.type === 'HOST_HEARTBEAT') {
-      if (d.status) {
-        setHostMatchStatus(d.status);
-        hostMatchStatusRef.current = d.status;
+      // Chống gói nhịp tim cũ (trễ mạng) mang status 'LOBBY' ghi đè làm khóa đáp án sau khi Giáo viên vừa bấm Bắt đầu
+      const isStaleLobbyHeartbeat =
+        d.status === 'LOBBY' &&
+        (Date.now() - lastForceStartTsRef.current < 12000 || hostMatchStatusRef.current === 'PLAYING');
+
+      const effectiveHeartbeatStatus = isStaleLobbyHeartbeat ? 'PLAYING' : d.status;
+
+      if (effectiveHeartbeatStatus) {
+        if (effectiveHeartbeatStatus === 'PLAYING') {
+          lastForceStartTsRef.current = Date.now();
+        }
+        setHostMatchStatus(effectiveHeartbeatStatus);
+        hostMatchStatusRef.current = effectiveHeartbeatStatus;
       }
       if (d.gameType === 'BOSS') {
         const hp = d.bossHP ?? 1000;
@@ -1143,7 +1232,7 @@ export const StudentMobileView: React.FC<Props> = ({
         d.globalQIndex !== currentGlobalQIndexRef.current
       ) {
         const totalCount = Math.max(1, (d.quiz && d.quiz.length) || quizDeckRef.current.length || 1);
-        if (d.globalQIndex >= totalCount && d.status === 'PLAYING') {
+        if (d.globalQIndex >= totalCount && effectiveHeartbeatStatus === 'PLAYING') {
           advanceStudentQuestionOrFinish(totalCount - 1);
           return;
         }
@@ -1165,10 +1254,12 @@ export const StudentMobileView: React.FC<Props> = ({
       }
 
       // Kéo 100% học sinh từ Sảnh / Phòng chờ vào phòng thi và mở đáp án ngay khi Giáo viên đang PLAYING
-      if (d.status === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && (screenRef.current === 'WAITING' || screenRef.current === 'LOBBY')) {
+      if (effectiveHeartbeatStatus === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && (screenRef.current === 'WAITING' || screenRef.current === 'LOBBY')) {
         hasJoinedArenaRef.current = true;
         waitingRoomLockedRef.current = false;
+        const validName = ensureValidStudentNameForMatchStart();
         setScreen('QUIZ');
+        sendEnter(validName);
         triggerBonusToast('🚀 Giáo viên đã bắt đầu trận đấu — Đã mở khóa câu trả lời đồng loạt!');
       }
     }
@@ -1176,10 +1267,12 @@ export const StudentMobileView: React.FC<Props> = ({
       if (hasFinishedAllQuestionsRef.current && (d.qIndex ?? 0) > 0) {
         return;
       }
+      lastForceStartTsRef.current = Date.now();
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
       waitingRoomLockedRef.current = false;
       hasJoinedArenaRef.current = true;
+      const validName = ensureValidStudentNameForMatchStart();
       if (typeof d.qIndex === 'number') {
         const totalCount = Math.max(1, (d.quiz && d.quiz.length) || quizDeckRef.current.length || 1);
         if (d.qIndex >= totalCount) {
@@ -1193,7 +1286,7 @@ export const StudentMobileView: React.FC<Props> = ({
         setCurrentGlobalQIndex(d.qIndex);
         if (isNewQuestion || d.qIndex === 0) {
           // HOTFIX 1.3: Khóa tạm thời nút bấm khi chuyển sang câu hỏi mới đồng bộ từ giáo viên
-          triggerSyncStateLock(350);
+          triggerSyncStateLock(260);
           activeStudentTimerQIndexRef.current = -1;
           setLastCompletedQIndex(-1);
           clearFreeze();
@@ -1224,6 +1317,7 @@ export const StudentMobileView: React.FC<Props> = ({
         }
         if (!eliminatedRef.current) {
           setScreen('QUIZ');
+          sendEnter(validName);
         }
       }
     }
@@ -2423,6 +2517,33 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handleToggleAntiCongestion}
+            style={{
+              background: netTelemetry.congestionMode === 'WEAK_WIFI' || netTelemetry.rttMs > 300
+                ? 'linear-gradient(135deg, #065f46, #047857)'
+                : netTelemetry.congestionMode === 'TURBO'
+                ? 'linear-gradient(135deg, #b45309, #d97706)'
+                : 'rgba(15, 23, 42, 0.9)',
+              border: '1.5px solid ' + (netTelemetry.congestionMode === 'WEAK_WIFI' || netTelemetry.rttMs > 300 ? '#34d399' : '#38bdf8'),
+              color: '#ffffff',
+              padding: '4px 9px',
+              borderRadius: '999px',
+              fontSize: '10.5px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.35)'
+            }}
+            title="Chuyển chế độ Đa Server • Đa Luồng • Chống Nghẽn Mạng Yếu (Wi-Fi chập chờn / 3G-4G)"
+          >
+            {netTelemetry.congestionMode === 'WEAK_WIFI' || netTelemetry.rttMs > 300
+              ? `🛡️ Chống Nghẽn Wi-Fi (${netTelemetry.rttMs || 45}ms)`
+              : netTelemetry.congestionMode === 'TURBO'
+              ? `⚡ Đa Server Turbo (${netTelemetry.rttMs || 28}ms)`
+              : `🟢 Đa Server • Đa Luồng (${netTelemetry.rttMs || 35}ms)`}
+          </button>
           {screen !== 'LOBBY' && (
             <button
               type="button"
@@ -2919,7 +3040,20 @@ export const StudentMobileView: React.FC<Props> = ({
               <input
                 type="text"
                 value={tempInputName}
-                onChange={(e) => setTempInputName(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTempInputName(val);
+                  tempInputNameRef.current = val;
+                  const trimmed = val.trim();
+                  if (!isPlaceholderOrEmptyName(trimmed)) {
+                    setStudentName(trimmed);
+                    studentNameRef.current = trimmed;
+                    try {
+                      sessionStorage.setItem(`kc3d_name_${tabSessionId}`, trimmed);
+                      localStorage.setItem('kc3d_last_name', trimmed);
+                    } catch {}
+                  }
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateNameInWaiting(); }}
                 placeholder="Nhập Họ và Tên thật (VD: Nguyễn Văn An - 12A1)..."
                 style={{

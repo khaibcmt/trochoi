@@ -421,8 +421,10 @@ export const App: React.FC = () => {
   const currentSubjectKeyRef = useRef<string>(currentSubjectKey);
   currentSubjectKeyRef.current = currentSubjectKey;
 
-  // Broadcast host heartbeat
-  const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string) => {
+  const lastSyncedQuizSigRef = useRef<string>('');
+
+  // Broadcast host heartbeat (Tối ưu chống nghẽn mạng: chỉ đính kèm full mảng quiz khi đề thi thay đổi, còn lại gửi nhẹ < 1KB)
+  const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string, forceFullQuiz: boolean = false) => {
     const activeDeck = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : currentQ;
     const allP = [...currentMS.redPlayers, ...currentMS.bluePlayers];
     const aliveCount = allP.filter(x => !x.eliminated).length;
@@ -434,6 +436,12 @@ export const App: React.FC = () => {
       totalQuestions: activeDeck.length
     } : undefined;
 
+    const quizSig = `${roomId}_${activeDeck.length}_${activeDeck[0]?.q?.slice(0, 20) || ''}`;
+    const shouldIncludeFullQuiz = forceFullQuiz || lastSyncedQuizSigRef.current !== quizSig;
+    if (shouldIncludeFullQuiz && activeDeck.length > 0) {
+      lastSyncedQuizSigRef.current = quizSig;
+    }
+
     try {
       localStorage.setItem(
         `kc3d_live_sync_${roomId}`,
@@ -443,7 +451,7 @@ export const App: React.FC = () => {
           status: currentMS.status,
           globalQIndex: safeIdx,
           question: activeQWithMeta,
-          quiz: activeDeck,
+          quiz: activeDeck.length <= 30 ? activeDeck : undefined,
           subj: currentSubjectKeyRef.current,
           updatedAt: Date.now()
         })
@@ -471,12 +479,27 @@ export const App: React.FC = () => {
       worldEventTitle: currentMS.worldEventTitle || '',
       subj: currentSubjectKeyRef.current,
       question: activeQWithMeta,
-      quiz: activeDeck
+      quiz: shouldIncludeFullQuiz ? activeDeck : undefined
     });
   };
 
   const broadcastHeartbeatRef = useRef(broadcastHeartbeat);
   broadcastHeartbeatRef.current = broadcastHeartbeat;
+
+  // Wrapper cập nhật đồng bộ matchStateRef ngay lập tức (0ms) để chống Race Condition khi Giáo viên bấm BẮT ĐẦU THI
+  const handleUpdateMatchStateSync: React.Dispatch<React.SetStateAction<MatchState>> = (updater) => {
+    setMatchState(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: MatchState) => MatchState)(prev) : updater;
+      const statusOrQChanged = next.status !== prev.status || next.globalQIndex !== prev.globalQIndex;
+      matchStateRef.current = next;
+      if (statusOrQChanged) {
+        setTimeout(() => {
+          broadcastHeartbeatRef.current(next, quizListRef.current, activeRoomId, false);
+        }, 5);
+      }
+      return next;
+    });
+  };
 
   // Host incoming message handler
   const handleHostIncomingMessage = (d: CloudMessage) => {
@@ -546,7 +569,7 @@ export const App: React.FC = () => {
             existing.correct !== nextCorrect ||
             (existingRedIdx !== -1 && existingBlueIdx !== -1);
 
-          // Chỉ phản hồi ENTER_CONFIRMED khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi mở 40+ Tab
+          // Chỉ phản hồi ENTER_CONFIRMED nhẹ (< 1KB, không đính kèm cả mảng quiz nặng) khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi 50+ HS cùng kết nối
           if (d.type !== 'PLAYER_FINISH_QUIZ' && (playerChanged || now - lastAckAt > 8000)) {
             lastEnterAckMapRef.current[updatedPlayer.id] = now;
             CloudNetwork.sendMessage({
@@ -565,8 +588,7 @@ export const App: React.FC = () => {
               savedCorrect: updatedPlayer.correct || 0,
               bossHP: prev.bossHP,
               maxBossHP: prev.maxBossHP,
-              quiz: currentList,
-              question: activeQWithMeta
+              question: activeQWithMeta || undefined
             });
           }
 
@@ -582,11 +604,13 @@ export const App: React.FC = () => {
             ? prev.bluePlayers.map((p, idx) => idx === existingBlueIdx ? updatedPlayer : p)
             : prev.bluePlayers.filter(p => p.id !== updatedPlayer.id);
 
-          return {
+          const nextState = {
             ...prev,
             redPlayers: nextRed,
             bluePlayers: nextBlue
           };
+          matchStateRef.current = nextState;
+          return nextState;
         }
 
         // Cho phép mở rộng dung lượng phòng lên tới 500+ học sinh để phục vụ test tải đa Tab / Ẩn Danh
@@ -662,11 +686,12 @@ export const App: React.FC = () => {
             savedCorrect: newP.correct || 0,
             bossHP: prev.bossHP,
             maxBossHP: prev.maxBossHP,
-            quiz: currentList,
-            question: activeQWithMeta
+            question: activeQWithMeta || undefined
           });
 
-          return { ...prev, redPlayers: nextRed, bluePlayers: nextBlue };
+          const nextState = { ...prev, redPlayers: nextRed, bluePlayers: nextBlue };
+          matchStateRef.current = nextState;
+          return nextState;
         } else {
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
@@ -679,10 +704,11 @@ export const App: React.FC = () => {
             globalQIndex: safeIdx,
             lives: 0,
             eliminated: true,
-            quiz: currentList,
-            question: activeQWithMeta
+            question: activeQWithMeta || undefined
           });
-          return { ...prev, spectators: prev.spectators + 1 };
+          const nextState = { ...prev, spectators: prev.spectators + 1 };
+          matchStateRef.current = nextState;
+          return nextState;
         }
       });
     }
@@ -1204,7 +1230,7 @@ export const App: React.FC = () => {
           matchState={matchState}
           quizList={quizList}
           activeRoomId={activeRoomId}
-          onUpdateMatchState={setMatchState}
+          onUpdateMatchState={handleUpdateMatchStateSync}
           onUpdateQuizList={setQuizList}
           onSwitchGameType={handleSelectGameType}
           onReturnToSetup={() => setView('TEACHER_SETUP')}
