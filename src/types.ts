@@ -180,6 +180,10 @@ export interface CloudMessage {
   grade?: number;
   remainingSec?: number;
   top10?: any[];
+  playerIds?: string[];
+  chunkIndex?: number;
+  totalChunks?: number;
+  quizChunk?: QuizItem[];
   allRanks?: any[];
   rankings?: any[];
   avatar?: AvatarConfig;

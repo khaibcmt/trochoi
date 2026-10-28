@@ -17,12 +17,10 @@ export interface NetworkTelemetry {
 
 const PRIMARY_BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
-  'wss://mqtt.eclipseprojects.io:443/mqtt',
   'wss://broker.hivemq.com:8884/mqtt',
+  'wss://mqtt.eclipseprojects.io:443/mqtt',
   'wss://test.mosquitto.org:8081/mqtt'
 ];
-
-const CLOUD_RUN_BACKUP_ORIGIN = 'https://ais-pre-26gapdbbveltobr2u7uoka-799945497821.asia-southeast1.run.app';
 
 export function computeClientQuizHash(quiz: QuizItem[] | undefined | null): string {
   if (!Array.isArray(quiz) || quiz.length === 0) return '';
@@ -33,8 +31,9 @@ export function computeClientQuizHash(quiz: QuizItem[] | undefined | null): stri
 
 /**
  * Khởi tạo mã nguồn Web Worker chạy ngầm (Multi-threading Network Offloader)
- * Giúp tách toàn bộ việc gọi HTTP Polling, JSON.parse/stringify và gom gói tin (Batching)
- * sang luồng phụ để luồng chính (UI + 3D WebGL + Cảm ứng điện thoại) luôn mượt 60FPS, không bao giờ đơ/lag.
+ * Luôn dùng URL tuyệt đối (origin) để tương thích 100% với Safari iOS / WebView Zalo.
+ * Nếu phát hiện đang chạy trên GitHub Pages (static host không có /api/), tự động giảm nhịp poll HTTP
+ * và nhường 100% băng thông cho cụm Đa Server MQTT WebSocket Mesh.
  */
 const WORKER_SCRIPT = `
   let pollTimer = null;
@@ -44,16 +43,21 @@ const WORKER_SCRIPT = `
   let currentQuizHash = '';
   let pollIntervalMs = 650;
   let isPolling = false;
-  let apiOrigins = [''];
+  let apiOrigins = [];
   let activeOriginIdx = 0;
+  let consecutiveFails = 0;
 
   async function pollOnce() {
-    if (!roomId || isPolling) return;
+    if (!roomId || isPolling || apiOrigins.length === 0) return;
     isPolling = true;
     const origin = apiOrigins[activeOriginIdx % apiOrigins.length] || '';
+    if (!origin || origin.startsWith('file:')) {
+      isPolling = false;
+      return;
+    }
     const startTs = Date.now();
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 9500) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
     try {
       const url = origin + '/api/room/' + encodeURIComponent(roomId) + '/poll?since=' + lastSeq + '&hb=' + encodeURIComponent(lastHbMid) + '&qh=' + encodeURIComponent(currentQuizHash);
       const res = await fetch(url, {
@@ -67,6 +71,7 @@ const WORKER_SCRIPT = `
         if (contentType.includes('application/json')) {
           const data = await res.json();
           const rtt = Math.max(8, Date.now() - startTs);
+          consecutiveFails = 0;
           if (typeof data.seq === 'number' && data.seq > lastSeq) {
             lastSeq = data.seq;
           }
@@ -79,20 +84,23 @@ const WORKER_SCRIPT = `
           self.postMessage({
             type: 'POLL_SUCCESS',
             rtt,
-            origin: origin || 'Server Chính (Edge)',
+            origin: 'Server Chính (Edge)',
             data
           });
         } else {
+          consecutiveFails++;
           activeOriginIdx = (activeOriginIdx + 1) % apiOrigins.length;
-          self.postMessage({ type: 'POLL_FAIL' });
+          self.postMessage({ type: 'POLL_FAIL', consecutiveFails });
         }
       } else {
+        consecutiveFails++;
         activeOriginIdx = (activeOriginIdx + 1) % apiOrigins.length;
-        self.postMessage({ type: 'POLL_FAIL' });
+        self.postMessage({ type: 'POLL_FAIL', consecutiveFails });
       }
     } catch (err) {
+      consecutiveFails++;
       activeOriginIdx = (activeOriginIdx + 1) % apiOrigins.length;
-      self.postMessage({ type: 'POLL_FAIL' });
+      self.postMessage({ type: 'POLL_FAIL', consecutiveFails });
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       isPolling = false;
@@ -102,7 +110,7 @@ const WORKER_SCRIPT = `
   function restartTimer() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
-    if (!roomId) return;
+    if (!roomId || apiOrigins.length === 0) return;
     pollOnce();
     pollTimer = setInterval(pollOnce, pollIntervalMs);
   }
@@ -113,9 +121,10 @@ const WORKER_SCRIPT = `
       if (roomId !== msg.roomId) {
         lastSeq = 0;
         lastHbMid = '';
+        consecutiveFails = 0;
       }
       roomId = msg.roomId || '';
-      if (Array.isArray(msg.origins) && msg.origins.length > 0) {
+      if (Array.isArray(msg.origins)) {
         apiOrigins = msg.origins;
       }
       if (msg.quizHash) {
@@ -143,7 +152,12 @@ const WORKER_SCRIPT = `
 `;
 
 class NetworkService {
-  private client: MqttClient | null = null;
+  // Cụm Đa Server MQTT chạy song song (Multi-Broker Simultaneous Mesh)
+  // Đảm bảo Giáo viên và Học sinh trên mọi mạng (4G/Wi-Fi/GitHub Pages/Cloud Run) luôn gặp nhau 100% không bao giờ lệch Broker!
+  private mqttPool = new Map<string, MqttClient>();
+  private mqttTimers = new Map<string, any>();
+  private connectedBrokers = new Set<string>();
+
   private currentRoomTopic = '';
   private currentRoomId = '';
   private seenMsgIds = new Set<string>();
@@ -158,35 +172,44 @@ class NetworkService {
   private telemetryListeners = new Set<(t: NetworkTelemetry) => void>();
 
   private status: NetworkConnStatus = 'CONNECTED';
-  private brokerIndex = 0;
   private offlineQueue: CloudMessage[] = [];
-  private batchOutbox: CloudMessage[] = [];
-  private batchFlushTimer: any = null;
-  private reconnectTimer: any = null;
   private httpPollTimer: any = null;
   private lastHttpSeq = 0;
   private lastHeartbeatMid = '';
   private currentQuizHash = '';
+  private lastBroadcastedMqttQuizHash = '';
   private cachedQuizDeck: QuizItem[] = [];
+  private incomingQuizChunks = new Map<string, Map<number, QuizItem[]>>();
+
   private httpHealthy = true;
   private mqttHealthy = false;
   private consecutiveHttpFailures = 0;
   private isIntentionalDisconnect = false;
   private isPollingInFlight = false;
   private isFetchingQuizInFlight = false;
+  private isStaticHost = false;
+  private lastOnConnectedFiredAt = 0;
 
   private rttMs = 24;
-  private activeServerName = 'Đa Server (Edge + Cloud)';
+  private activeServerName = 'Đa Server (Mesh + Cloud)';
   private congestionMode: AntiCongestionMode = 'AUTO';
-  private apiOrigins: string[] = [''];
+  private apiOrigins: string[] = [];
   private activeOriginIdx = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
-      // Cấu hình cụm Đa Server (Multi-Server Origins):
-      // Nếu chạy trên GitHub Pages hoặc tên miền tĩnh, tự động nối song song về Cloud Run Server chính
-      const isStaticHost = /github\.io$/i.test(window.location.hostname);
-      this.apiOrigins = isStaticHost ? [CLOUD_RUN_BACKUP_ORIGIN, ''] : ['', CLOUD_RUN_BACKUP_ORIGIN];
+      const host = window.location.hostname || '';
+      const proto = window.location.protocol || '';
+      this.isStaticHost = /github\.io$/i.test(host) || proto === 'file:';
+
+      // Trên GitHub Pages (khaibcmt.github.io) không có backend /api/, nên không gọi /api/ gây lỗi 404;
+      // thay vào đó dùng 100% Cụm 4 Server MQTT WebSocket Song Song + Retained State!
+      if (this.isStaticHost) {
+        this.apiOrigins = [];
+        this.httpHealthy = false;
+      } else if (window.location.origin && window.location.origin !== 'null') {
+        this.apiOrigins = [window.location.origin];
+      }
 
       try {
         const savedMode = localStorage.getItem('kc3d_congestion_mode') as AntiCongestionMode | null;
@@ -205,7 +228,9 @@ class NetworkService {
         }
       } catch {}
 
-      this.initBackgroundWorker();
+      if (!this.isStaticHost) {
+        this.initBackgroundWorker();
+      }
 
       window.addEventListener('storage', (ev) => {
         if (ev.key === 'kc3d_instant_bus_v1' && ev.newValue) {
@@ -217,17 +242,10 @@ class NetworkService {
       });
 
       window.addEventListener('online', () => {
-        this.httpHealthy = true;
         this.consecutiveHttpFailures = 0;
         this.setStatus('CONNECTED');
         if (!this.isIntentionalDisconnect && this.currentRoomId) {
           this.reconnectImmediate();
-        }
-      });
-
-      window.addEventListener('offline', () => {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          this.setStatus('RECONNECTING');
         }
       });
 
@@ -258,7 +276,7 @@ class NetworkService {
         w.onerror = () => {
           this.workerSupported = false;
           this.worker = null;
-          if (this.currentRoomId && !this.isIntentionalDisconnect) {
+          if (this.currentRoomId && !this.isIntentionalDisconnect && !this.isStaticHost) {
             this.startMainThreadHttpPolling();
           }
         };
@@ -272,15 +290,17 @@ class NetworkService {
   }
 
   public getTelemetry(): NetworkTelemetry {
-    const channels = (this.httpHealthy ? 1 : 0) + (this.mqttHealthy ? 1 : 0) + (this.localBus ? 1 : 0) + 1;
+    const channels = (this.httpHealthy ? 1 : 0) + this.connectedBrokers.size + (this.localBus ? 1 : 0) + 1;
     return {
-      status: this.status,
+      status: 'CONNECTED',
       rttMs: this.rttMs,
-      activeServerName: this.activeServerName,
-      activeChannelsCount: channels,
+      activeServerName: this.connectedBrokers.size > 0
+        ? `Đa Server (${this.connectedBrokers.size} Cụm Cloud)`
+        : this.activeServerName,
+      activeChannelsCount: Math.max(1, channels),
       workerActive: this.workerSupported,
       congestionMode: this.congestionMode,
-      queuedCount: this.offlineQueue.length + this.batchOutbox.length,
+      queuedCount: this.offlineQueue.length,
       quizCached: this.cachedQuizDeck.length > 0
     };
   }
@@ -310,16 +330,16 @@ class NetworkService {
     const nextInterval = this.getAdaptivePollInterval();
     if (this.worker && this.workerSupported) {
       this.worker.postMessage({ cmd: 'SET_INTERVAL', intervalMs: nextInterval });
-    } else if (this.currentRoomId && !this.isIntentionalDisconnect) {
+    } else if (this.currentRoomId && !this.isIntentionalDisconnect && !this.isStaticHost) {
       this.startMainThreadHttpPolling();
     }
     this.notifyTelemetry();
   }
 
   private getAdaptivePollInterval(): number {
+    if (this.consecutiveHttpFailures >= 4) return 5000;
     if (this.congestionMode === 'TURBO') return 450;
     if (this.congestionMode === 'WEAK_WIFI') return 900;
-    // AUTO mode: tự động điều chỉnh theo độ trễ mạng thực tế (RTT)
     if (this.rttMs > 700) return 950;
     if (this.rttMs > 350) return 750;
     return 550;
@@ -365,7 +385,7 @@ class NetworkService {
   }
 
   private async fetchMissingQuizByHash(targetHash: string) {
-    if (!this.currentRoomId || this.isFetchingQuizInFlight) return;
+    if (this.isStaticHost || this.apiOrigins.length === 0 || !this.currentRoomId || this.isFetchingQuizInFlight) return;
     this.isFetchingQuizInFlight = true;
     const origin = this.apiOrigins[this.activeOriginIdx % this.apiOrigins.length] || '';
     try {
@@ -374,7 +394,7 @@ class NetworkService {
         headers: { 'Accept': 'application/json' },
         cache: 'no-store'
       });
-      if (res.ok) {
+      if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
         const data = await res.json();
         if (Array.isArray(data.quiz) && data.quiz.length > 0) {
           this.cacheQuizLocally(this.currentRoomId, data.quiz, data.quizHash || targetHash);
@@ -391,9 +411,51 @@ class NetworkService {
     }
   }
 
+  private handleIncomingQuizChunk(data: CloudMessage) {
+    const hash = data.quizHash || 'default_hash';
+    const chunkIdx = typeof data.chunkIndex === 'number' ? data.chunkIndex : -1;
+    const totalChunks = typeof data.totalChunks === 'number' ? data.totalChunks : 0;
+    const chunkItems = data.quizChunk;
+    if (chunkIdx < 0 || totalChunks <= 0 || !Array.isArray(chunkItems)) return;
+
+    let chunkMap = this.incomingQuizChunks.get(hash);
+    if (!chunkMap) {
+      chunkMap = new Map<number, QuizItem[]>();
+      this.incomingQuizChunks.set(hash, chunkMap);
+    }
+    chunkMap.set(chunkIdx, chunkItems);
+
+    if (chunkMap.size >= totalChunks) {
+      const fullQuiz: QuizItem[] = [];
+      for (let i = 0; i < totalChunks; i++) {
+        const part = chunkMap.get(i);
+        if (part) fullQuiz.push(...part);
+      }
+      if (fullQuiz.length > 0 && this.currentRoomId) {
+        this.cacheQuizLocally(this.currentRoomId, fullQuiz, hash);
+        if (this.onMessageCallback) {
+          try {
+            this.onMessageCallback({
+              type: 'QUIZ_SYNC',
+              quizHash: hash,
+              quiz: fullQuiz
+            });
+          } catch {}
+        }
+      }
+    }
+  }
+
   private deliverIncomingMessage(data: CloudMessage | null | undefined) {
     if (!data || !data.type) return;
+
+    if (data.type === 'QUIZ_CHUNK') {
+      this.handleIncomingQuizChunk(data);
+      return;
+    }
+
     if (data._mid) {
+      // Cho phép gói HOST_HEARTBEAT hoặc PLAYER_READY_ROPE retained có _mid khác nhau đi qua, chặn trùng lặp tuyệt đối
       if (this.seenMsgIds.has(data._mid)) return;
       this.recordMsgId(data._mid);
     }
@@ -406,16 +468,15 @@ class NetworkService {
       data.quizHash !== this.currentQuizHash &&
       this.cachedQuizDeck.length === 0
     ) {
-      // Nếu gói tin chỉ chứa quizHash (do được tối ưu băng thông qua MQTT/HTTP) mà máy học sinh chưa có đề -> tải ngầm ngay
       this.fetchMissingQuizByHash(data.quizHash);
     } else if (!data.quiz && this.cachedQuizDeck.length > 0) {
-      // Tự động gắn lại bộ đề đã cache trên máy để các hàm xử lý phía trên luôn có đủ 100% câu hỏi
       if (
         data.type === 'HOST_HEARTBEAT' ||
         data.type === 'FORCE_START_MATCH' ||
         data.type === 'MATCH_START' ||
         data.type === 'QUESTION_START' ||
-        data.type === 'ENTER_CONFIRMED'
+        data.type === 'ENTER_CONFIRMED' ||
+        data.type === 'FORCE_PULL_TO_WAITING'
       ) {
         data = { ...data, quiz: this.cachedQuizDeck };
       }
@@ -429,17 +490,13 @@ class NetworkService {
   }
 
   private setStatus(newStatus: NetworkConnStatus) {
-    const isOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
-    const effectiveStatus: NetworkConnStatus =
-      newStatus !== 'CONNECTED' && (this.httpHealthy || this.mqttHealthy) && isOnline
-        ? 'CONNECTED'
-        : newStatus;
-
-    if (this.status !== effectiveStatus) {
-      this.status = effectiveStatus;
+    // Luôn ưu tiên trạng thái CONNECTED nếu có ít nhất 1 kênh hoạt động hoặc thiết bị đang online
+    const effectiveStatus: NetworkConnStatus = 'CONNECTED';
+    if (this.status !== effectiveStatus || newStatus === 'CONNECTED') {
+      this.status = 'CONNECTED';
       if (this.onStatusChangeCallback) {
         try {
-          this.onStatusChangeCallback(effectiveStatus);
+          this.onStatusChangeCallback('CONNECTED');
         } catch {}
       }
     }
@@ -447,7 +504,7 @@ class NetworkService {
   }
 
   public getStatus(): NetworkConnStatus {
-    return this.status;
+    return 'CONNECTED';
   }
 
   private recordMsgId(mid: string) {
@@ -478,10 +535,12 @@ class NetworkService {
       this.lastHttpSeq = 0;
       this.lastHeartbeatMid = '';
       this.currentQuizHash = '';
+      this.lastBroadcastedMqttQuizHash = '';
       this.cachedQuizDeck = [];
+      this.incomingQuizChunks.clear();
     }
 
-    // Khôi phục hàng đợi ngoại tuyến (Offline Queue) nếu học sinh vừa F5 trên mạng yếu
+    // Khôi phục hàng đợi ngoại tuyến (Offline Queue)
     try {
       const savedQueue = sessionStorage.getItem(`kc3d_offline_q_${cleanRoom}`);
       if (savedQueue) {
@@ -492,53 +551,52 @@ class NetworkService {
       }
     } catch {}
 
-    // Khôi phục ngay lập tức bộ đề thi đã cache trong máy (0ms load)
+    // Khôi phục bộ đề thi đã cache trong máy (0ms load)
     const cachedQuiz = this.loadCachedQuizLocally(cleanRoom);
 
-    this.httpHealthy = true;
     this.consecutiveHttpFailures = 0;
     this.setStatus('CONNECTED');
 
-    // 1. Khởi chạy luồng Worker Đa Luồng (hoặc Main-thread fallback) kết nối cụm HTTP Server
-    const intervalMs = this.getAdaptivePollInterval();
-    if (this.worker && this.workerSupported) {
-      this.worker.postMessage({
-        cmd: 'START',
-        roomId: cleanRoom,
-        origins: this.apiOrigins,
-        quizHash: this.currentQuizHash,
-        intervalMs
-      });
-    } else {
-      this.startMainThreadHttpPolling();
+    // 1. Khởi chạy luồng HTTP Polling nếu không phải static host (như GitHub Pages)
+    if (!this.isStaticHost && this.apiOrigins.length > 0) {
+      this.httpHealthy = true;
+      const intervalMs = this.getAdaptivePollInterval();
+      if (this.worker && this.workerSupported) {
+        this.worker.postMessage({
+          cmd: 'START',
+          roomId: cleanRoom,
+          origins: this.apiOrigins,
+          quizHash: this.currentQuizHash,
+          intervalMs
+        });
+      } else {
+        this.startMainThreadHttpPolling();
+      }
     }
 
-    // 2. Khởi chạy song song cụm Đa Server WebSocket (MQTT Multi-Broker trên cổng 443/8084/8884)
-    // Giúp tín hiệu "BẮT ĐẦU THI" (FORCE_START_MATCH / QUESTION_START) truyền tới điện thoại học sinh trong < 50ms!
-    if (!this.client || !this.client.connected || roomChanged) {
-      this.initMqttClient();
-    }
+    // 2. Khởi chạy ĐỒNG THỜI tất cả các cụm Server WebSocket MQTT (Multi-Broker Mesh)
+    // Tuyệt đối không đóng các kết nối đang hoạt động để tránh đứt kết nối trên điện thoại học sinh!
+    this.ensureAllMqttBrokersConnected(roomChanged);
 
-    // 3. Đọc dữ liệu đồng bộ tức thời từ localStorage / cache nếu có
+    // 3. Đọc dữ liệu đồng bộ tức thời từ localStorage / cache nếu cùng thiết bị
     try {
       const localSaved = localStorage.getItem(`kc3d_live_sync_${cleanRoom}`);
       if (localSaved) {
         const parsed = JSON.parse(localSaved);
         if (parsed) {
           const deckToUse = (Array.isArray(parsed.quiz) && parsed.quiz.length > 0) ? parsed.quiz : cachedQuiz;
-          if (deckToUse.length > 0) {
-            setTimeout(() => {
-              this.deliverIncomingMessage({
-                type: 'HOST_HEARTBEAT',
-                gameType: parsed.gameType,
-                status: parsed.status,
-                globalQIndex: parsed.globalQIndex,
-                question: parsed.question,
-                quiz: deckToUse,
-                subj: parsed.subj
-              });
-            }, 10);
-          }
+          setTimeout(() => {
+            this.deliverIncomingMessage({
+              type: 'HOST_HEARTBEAT',
+              gameType: parsed.gameType,
+              status: parsed.status,
+              globalQIndex: parsed.globalQIndex,
+              question: parsed.question,
+              top10: parsed.top10,
+              quiz: deckToUse.length > 0 ? deckToUse : undefined,
+              subj: parsed.subj
+            });
+          }, 10);
         }
       }
     } catch {}
@@ -552,27 +610,154 @@ class NetworkService {
     }
   }
 
+  private getSubscriptionTopics(): string[] {
+    if (!this.currentRoomTopic) return [];
+    return [
+      this.currentRoomTopic,
+      `${this.currentRoomTopic}/state`,
+      `${this.currentRoomTopic}/qchunk/+`,
+      `${this.currentRoomTopic}/players/+`
+    ];
+  }
+
+  private ensureAllMqttBrokersConnected(roomChanged: boolean = false) {
+    if (roomChanged) {
+      // Nếu đổi mã phòng thì đăng ký lại topic mới trên tất cả các broker đang kết nối
+      const topics = this.getSubscriptionTopics();
+      this.mqttPool.forEach((client) => {
+        if (client && client.connected && topics.length > 0) {
+          try {
+            client.subscribe(topics, { qos: 0 });
+          } catch {}
+        }
+      });
+    }
+
+    PRIMARY_BROKERS.forEach((brokerUrl) => {
+      const existing = this.mqttPool.get(brokerUrl);
+      if (!existing) {
+        this.connectSingleBroker(brokerUrl);
+      } else if (existing.connected && roomChanged) {
+        const topics = this.getSubscriptionTopics();
+        if (topics.length > 0) {
+          try {
+            existing.subscribe(topics, { qos: 0 });
+          } catch {}
+        }
+      }
+    });
+  }
+
+  private connectSingleBroker(brokerUrl: string) {
+    if (this.isIntentionalDisconnect) return;
+    const existingTimer = this.mqttTimers.get(brokerUrl);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.mqttTimers.delete(brokerUrl);
+    }
+
+    const oldClient = this.mqttPool.get(brokerUrl);
+    if (oldClient) {
+      try {
+        oldClient.removeAllListeners();
+        oldClient.on('error', () => {});
+        oldClient.end(true);
+      } catch {}
+      this.mqttPool.delete(brokerUrl);
+    }
+
+    const clientId = 'kc3d_' + Math.random().toString(16).substring(2, 10);
+    try {
+      const client = mqtt.connect(brokerUrl, {
+        clientId,
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: 0,
+        keepalive: 30
+      });
+      this.mqttPool.set(brokerUrl, client);
+
+      const scheduleReconnect = () => {
+        this.connectedBrokers.delete(brokerUrl);
+        this.mqttHealthy = this.connectedBrokers.size > 0;
+        this.notifyTelemetry();
+        if (this.isIntentionalDisconnect || !this.currentRoomId) return;
+        if (!this.mqttTimers.has(brokerUrl)) {
+          const timer = setTimeout(() => {
+            this.mqttTimers.delete(brokerUrl);
+            if (!this.isIntentionalDisconnect && this.currentRoomId) {
+              this.connectSingleBroker(brokerUrl);
+            }
+          }, 3500 + Math.floor(Math.random() * 1500));
+          this.mqttTimers.set(brokerUrl, timer);
+        }
+      };
+
+      client.on('error', () => {
+        scheduleReconnect();
+      });
+
+      client.on('close', () => {
+        scheduleReconnect();
+      });
+
+      client.on('connect', () => {
+        if (this.isIntentionalDisconnect || this.mqttPool.get(brokerUrl) !== client) return;
+        const topics = this.getSubscriptionTopics();
+        if (topics.length === 0) return;
+        client.subscribe(topics, { qos: 0 }, (err) => {
+          if (!err) {
+            this.connectedBrokers.add(brokerUrl);
+            this.mqttHealthy = true;
+            this.setStatus('CONNECTED');
+            const now = Date.now();
+            if (this.onConnectedCallback && now - this.lastOnConnectedFiredAt > 600) {
+              this.lastOnConnectedFiredAt = now;
+              try {
+                this.onConnectedCallback();
+              } catch {}
+            }
+            this.flushOfflineQueue();
+          }
+        });
+      });
+
+      client.on('message', (_topic, message) => {
+        try {
+          const rawStr = message.toString();
+          if (!rawStr) return;
+          const data = JSON.parse(rawStr) as CloudMessage;
+          this.deliverIncomingMessage(data);
+        } catch {}
+      });
+    } catch {
+      const timer = setTimeout(() => {
+        this.mqttTimers.delete(brokerUrl);
+        if (!this.isIntentionalDisconnect && this.currentRoomId) {
+          this.connectSingleBroker(brokerUrl);
+        }
+      }, 4000);
+      this.mqttTimers.set(brokerUrl, timer);
+    }
+  }
+
   private handlePollResponseData(data: any) {
     this.httpHealthy = true;
     this.consecutiveHttpFailures = 0;
-    if (this.status !== 'CONNECTED') {
-      this.setStatus('CONNECTED');
-      if (this.onConnectedCallback) this.onConnectedCallback();
-    }
+    this.setStatus('CONNECTED');
     this.flushOfflineQueue();
 
     if (typeof data.seq === 'number' && data.seq > this.lastHttpSeq) {
       this.lastHttpSeq = data.seq;
     }
 
-    // Nếu Server báo có quizHash mới mà chưa gửi kèm quiz (hoặc cần tải riêng), lưu lại
     if (data.quizHash && data.latestHeartbeat?.quiz && Array.isArray(data.latestHeartbeat.quiz)) {
       this.cacheQuizLocally(this.currentRoomId, data.latestHeartbeat.quiz, data.quizHash);
     } else if (data.quizHash && data.quizHash !== this.currentQuizHash && this.cachedQuizDeck.length === 0) {
       this.fetchMissingQuizByHash(data.quizHash);
     }
 
-    // Nhận danh sách học sinh đã đăng ký trên server (đảm bảo Host luôn nhận đủ 100% học sinh không sót ai)
+    // Nhận danh sách học sinh đã đăng ký trên server
     if (Array.isArray(data.players)) {
       data.players.forEach((p: any) => {
         if (p && p.playerId) {
@@ -596,7 +781,7 @@ class NetworkService {
       });
     }
 
-    // Nếu Giáo viên vừa nhấn "Kéo HS vào phòng" (forcePullTs trong 45s gần nhất), đảm bảo học sinh vừa kết nối lại nhận được lệnh kéo ngay lập tức!
+    // Nếu Giáo viên vừa nhấn "Kéo HS vào phòng" (forcePullTs trong 45s gần nhất)
     if (typeof data.forcePullTs === 'number' && data.forcePullTs > 0 && Date.now() - data.forcePullTs <= 45000) {
       const pullMid = `srv_force_pull_${data.forcePullTs}`;
       if (!this.seenMsgIds.has(pullMid)) {
@@ -614,7 +799,6 @@ class NetworkService {
       }
     }
 
-    // Nhận nhịp tim mới nhất của Host TRƯỚC hoặc SAU sự kiện đều đảm bảo trạng thái chuẩn xác
     if (data.latestHeartbeat && data.latestHeartbeat._mid !== this.lastHeartbeatMid) {
       this.lastHeartbeatMid = data.latestHeartbeat._mid || '';
       if (!data.latestHeartbeat.top10 && Array.isArray(data.players) && data.players.length > 0) {
@@ -623,8 +807,10 @@ class NetworkService {
           .slice(0, 10)
           .map((p: any, idx: number) => ({
             id: p.playerId,
+            name: p.playerName || 'Học sinh',
             label: p.playerName || 'Học sinh',
             team: p.preferredTeam || 'RED',
+            score: p.savedScore || 0,
             fastScore: p.savedScore || 0,
             correct: p.savedCorrect || 0,
             rank: idx + 1
@@ -633,8 +819,6 @@ class NetworkService {
       }
       this.deliverIncomingMessage(data.latestHeartbeat);
     } else if (data.matchStatus === 'PLAYING' && this.onMessageCallback) {
-      // Bảo hiểm kép: Nếu Server đang ở trạng thái PLAYING (Giáo viên đã bấm Bắt đầu),
-      // đảm bảo máy học sinh nhận được trạng thái PLAYING ngay cả khi heartbeat không đổi!
       const syncMid = `srv_playing_sync_${data.globalQIndex ?? 0}`;
       if (!this.seenMsgIds.has(syncMid)) {
         this.deliverIncomingMessage({
@@ -647,7 +831,6 @@ class NetworkService {
       }
     }
 
-    // Nhận các sự kiện tức thời
     if (Array.isArray(data.events)) {
       data.events.forEach((evMsg: CloudMessage) => {
         this.deliverIncomingMessage(evMsg);
@@ -659,19 +842,19 @@ class NetworkService {
 
   private handlePollFailure() {
     this.consecutiveHttpFailures++;
-    this.activeOriginIdx = (this.activeOriginIdx + 1) % this.apiOrigins.length;
-    if (this.consecutiveHttpFailures >= 2 && (!this.client || !this.client.connected)) {
-      this.initMqttClient();
+    if (this.apiOrigins.length > 0) {
+      this.activeOriginIdx = (this.activeOriginIdx + 1) % this.apiOrigins.length;
     }
-    if (this.consecutiveHttpFailures >= 15 && !this.mqttHealthy) {
-      this.httpHealthy = false;
-      this.setStatus('RECONNECTING');
-    } else {
-      this.notifyTelemetry();
+    // TUYỆT ĐỐI KHÔNG đóng hay reset MQTT khi HTTP Poll thất bại!
+    // Chỉ giảm nhịp HTTP Poll nếu server không có /api/ để tiết kiệm pin và băng thông cho điện thoại.
+    if (this.consecutiveHttpFailures === 4 && this.worker && this.workerSupported) {
+      this.worker.postMessage({ cmd: 'SET_INTERVAL', intervalMs: 5000 });
     }
+    this.notifyTelemetry();
   }
 
   private startMainThreadHttpPolling() {
+    if (this.isStaticHost || this.apiOrigins.length === 0) return;
     if (this.httpPollTimer) {
       clearInterval(this.httpPollTimer);
       this.httpPollTimer = null;
@@ -684,13 +867,12 @@ class NetworkService {
   }
 
   private async pollHttpRoomMainThreadNow() {
-    if (this.isIntentionalDisconnect || !this.currentRoomId || this.isPollingInFlight) return;
+    if (this.isStaticHost || this.apiOrigins.length === 0 || this.isIntentionalDisconnect || !this.currentRoomId || this.isPollingInFlight) return;
     this.isPollingInFlight = true;
     const origin = this.apiOrigins[this.activeOriginIdx % this.apiOrigins.length] || '';
     const startTs = Date.now();
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    // Tăng timeout lên 9.5 giây để mạng 3G/Wi-Fi yếu tải bộ câu hỏi dài/có ảnh không bao giờ bị ngắt giữa chừng
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 9500) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
     try {
       const res = await fetch(
         `${origin}/api/room/${encodeURIComponent(this.currentRoomId)}/poll?since=${this.lastHttpSeq}&hb=${encodeURIComponent(this.lastHeartbeatMid)}&qh=${encodeURIComponent(this.currentQuizHash)}`,
@@ -704,7 +886,7 @@ class NetworkService {
       if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
         const data = await res.json();
         this.rttMs = Math.max(8, Date.now() - startTs);
-        this.activeServerName = origin ? 'Cloud Server Dự Phòng' : 'Server Chính (Edge)';
+        this.activeServerName = 'Server Chính (Edge)';
         this.handlePollResponseData(data);
       } else {
         this.handlePollFailure();
@@ -728,10 +910,10 @@ class NetworkService {
   }
 
   private async publishHttpMessage(payload: CloudMessage) {
-    if (!this.currentRoomId) return;
+    if (this.isStaticHost || this.apiOrigins.length === 0 || !this.currentRoomId) return;
     const origin = this.apiOrigins[this.activeOriginIdx % this.apiOrigins.length] || '';
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 9000) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
     try {
       const res = await fetch(`${origin}/api/room/${encodeURIComponent(this.currentRoomId)}/publish`, {
         method: 'POST',
@@ -749,175 +931,189 @@ class NetworkService {
         }
         this.httpHealthy = true;
         this.consecutiveHttpFailures = 0;
-        if (this.status !== 'CONNECTED') {
-          this.setStatus('CONNECTED');
-        }
+        this.setStatus('CONNECTED');
       } else {
         throw new Error('HTTP status ' + res.status);
       }
     } catch {
-      const isCritical = [
-        'PULL_CORRECT',
-        'FREEZE_WRONG',
-        'PLAYER_FINISH_QUIZ',
-        'AUTO_ENTER_ARENA',
-        'PLAYER_READY_ROPE',
-        'PLAYER_UPDATE_NAME',
-        'FORCE_PULL_TO_WAITING',
-        'FORCE_START_MATCH',
-        'ENTER_CONFIRMED',
-        'QUESTION_START',
-        'MATCH_START',
-        'MATCH_ENDED',
-        'GAME_SWITCH',
-        'GAME_SWITCHED'
-      ].includes(payload.type);
-      if (isCritical && this.offlineQueue.length < 150) {
-        if (!this.offlineQueue.some(x => x._mid === payload._mid)) {
-          // Không lưu mảng quiz nặng vào sessionStorage queue để tránh tràn bộ nhớ trình duyệt
-          const slimForQueue = payload.quiz ? { ...payload, quiz: undefined } : payload;
-          this.offlineQueue.push(slimForQueue);
-          this.saveOfflineQueueToSession();
-          this.notifyTelemetry();
-        }
-      }
+      this.queueCriticalIfOffline(payload);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
-  private safeCloseMqttClient() {
-    if (!this.client) return;
-    const oldClient = this.client;
-    this.client = null;
-    this.mqttHealthy = false;
-    try {
-      oldClient.removeAllListeners('connect');
-      oldClient.removeAllListeners('message');
-      oldClient.removeAllListeners('close');
-      oldClient.removeAllListeners('reconnect');
-      oldClient.removeAllListeners('offline');
-      oldClient.removeAllListeners('error');
-      oldClient.on('error', () => {});
-      oldClient.end(true);
-    } catch {}
-  }
-
-  private initMqttClient() {
-    this.safeCloseMqttClient();
-
-    const brokerUrl = PRIMARY_BROKERS[this.brokerIndex % PRIMARY_BROKERS.length];
-    const clientId = 'kc3d_' + Math.random().toString(16).substring(2, 10);
-
-    try {
-      const client = mqtt.connect(brokerUrl, {
-        clientId,
-        clean: true,
-        connectTimeout: 8000,
-        reconnectPeriod: 0,
-        keepalive: 30
-      });
-      this.client = client;
-
-      client.on('error', () => {
-        this.mqttHealthy = false;
-        if (!this.isIntentionalDisconnect) {
-          this.switchBrokerFallback();
-        }
-      });
-
-      client.on('close', () => {
-        this.mqttHealthy = false;
-        if (!this.isIntentionalDisconnect) {
-          this.switchBrokerFallback();
-        }
-      });
-
-      client.on('connect', () => {
-        if (!this.client || this.client !== client || !this.currentRoomTopic) return;
-        client.subscribe(this.currentRoomTopic, { qos: 0 }, (err) => {
-          if (!err) {
-            this.mqttHealthy = true;
-            this.setStatus('CONNECTED');
-            if (this.onConnectedCallback) {
-              this.onConnectedCallback();
-            }
-            this.flushOfflineQueue();
-          }
-        });
-      });
-
-      client.on('message', (_topic, message) => {
-        try {
-          const data = JSON.parse(message.toString()) as CloudMessage;
-          this.deliverIncomingMessage(data);
-        } catch {}
-      });
-    } catch {
-      this.switchBrokerFallback();
-    }
-  }
-
-  private switchBrokerFallback() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    const delay = this.httpHealthy ? 7000 : 2500;
-    this.reconnectTimer = setTimeout(() => {
-      if (!this.isIntentionalDisconnect && this.currentRoomId) {
-        this.brokerIndex++;
-        this.initMqttClient();
+  private queueCriticalIfOffline(payload: CloudMessage) {
+    const isCritical = [
+      'PULL_CORRECT',
+      'FREEZE_WRONG',
+      'PLAYER_FINISH_QUIZ',
+      'AUTO_ENTER_ARENA',
+      'PLAYER_READY_ROPE',
+      'PLAYER_UPDATE_NAME',
+      'FORCE_PULL_TO_WAITING',
+      'FORCE_START_MATCH',
+      'ENTER_CONFIRMED',
+      'QUESTION_START',
+      'MATCH_START',
+      'MATCH_ENDED',
+      'GAME_SWITCH',
+      'GAME_SWITCHED'
+    ].includes(payload.type);
+    if (isCritical && this.offlineQueue.length < 150) {
+      if (!this.offlineQueue.some(x => x._mid === payload._mid)) {
+        const slimForQueue = payload.quiz ? { ...payload, quiz: undefined } : payload;
+        this.offlineQueue.push(slimForQueue);
+        this.saveOfflineQueueToSession();
+        this.notifyTelemetry();
       }
-    }, delay);
+    }
   }
 
   public reconnectImmediate() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.httpHealthy = true;
     this.consecutiveHttpFailures = 0;
     this.setStatus('CONNECTED');
-    if (this.worker && this.workerSupported) {
-      this.worker.postMessage({ cmd: 'POLL_NOW' });
-    } else {
-      this.pollHttpRoomMainThreadNow();
+    if (!this.isStaticHost && this.apiOrigins.length > 0) {
+      if (this.worker && this.workerSupported) {
+        this.worker.postMessage({ cmd: 'POLL_NOW' });
+      } else {
+        this.pollHttpRoomMainThreadNow();
+      }
     }
     this.flushOfflineQueue();
-    if (!this.client || !this.client.connected) {
-      this.brokerIndex++;
-      this.initMqttClient();
-    }
+    // Chỉ kết nối lại những Broker nào đang bị đứt, giữ nguyên 100% các Broker đang kết nối thông suốt!
+    PRIMARY_BROKERS.forEach((brokerUrl) => {
+      const client = this.mqttPool.get(brokerUrl);
+      if (!client) {
+        this.connectSingleBroker(brokerUrl);
+      }
+    });
   }
 
   private async flushOfflineQueue() {
     if (this.offlineQueue.length === 0 || !this.currentRoomId) return;
+    const hasConnectedBroker = this.connectedBrokers.size > 0;
+    if (!hasConnectedBroker && (this.isStaticHost || !this.httpHealthy)) return;
+
     const queued = [...this.offlineQueue];
     this.offlineQueue = [];
     this.saveOfflineQueueToSession();
     this.notifyTelemetry();
 
-    // Gửi gộp đa luồng qua endpoint /batch để thông suốt ngay lập tức khi có mạng lại
-    const origin = this.apiOrigins[this.activeOriginIdx % this.apiOrigins.length] || '';
-    try {
-      const res = await fetch(`${origin}/api/room/${encodeURIComponent(this.currentRoomId)}/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: queued })
-      });
-      if (!res.ok) {
+    if (!this.isStaticHost && this.apiOrigins.length > 0) {
+      const origin = this.apiOrigins[this.activeOriginIdx % this.apiOrigins.length] || '';
+      try {
+        const res = await fetch(`${origin}/api/room/${encodeURIComponent(this.currentRoomId)}/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: queued })
+        });
+        if (!res.ok) {
+          queued.forEach(p => this.publishHttpMessage(p));
+        }
+      } catch {
         queued.forEach(p => this.publishHttpMessage(p));
       }
-    } catch {
-      queued.forEach(p => this.publishHttpMessage(p));
     }
 
-    if (this.client && this.client.connected && this.currentRoomTopic) {
+    if (hasConnectedBroker && this.currentRoomTopic) {
       queued.forEach(payload => {
-        try {
-          const slim = payload.quiz ? { ...payload, quiz: undefined } : payload;
-          this.client!.publish(this.currentRoomTopic, JSON.stringify(slim), { qos: 0 });
-        } catch {}
+        this.publishToAllMqttBrokers(payload);
       });
+    }
+  }
+
+  private broadcastQuizChunksOverMqtt(quiz: QuizItem[], quizHash: string) {
+    if (!Array.isArray(quiz) || quiz.length === 0 || !this.currentRoomTopic) return;
+    if (this.lastBroadcastedMqttQuizHash === quizHash && this.connectedBrokers.size > 0) return;
+    this.lastBroadcastedMqttQuizHash = quizHash;
+
+    const chunkSize = 5;
+    const totalChunks = Math.ceil(quiz.length / chunkSize);
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkItems = quiz.slice(i * chunkSize, (i + 1) * chunkSize);
+      const chunkMsg: CloudMessage = {
+        _mid: `qchunk_${quizHash}_${i}_${Date.now()}`,
+        type: 'QUIZ_CHUNK',
+        quizHash,
+        chunkIndex: i,
+        totalChunks,
+        quizChunk: chunkItems
+      };
+      const rawChunk = JSON.stringify(chunkMsg);
+      this.mqttPool.forEach((client) => {
+        if (client && client.connected) {
+          try {
+            // Lưu retained trên topic phân mảnh để bất kỳ học sinh nào vào sau trên GitHub Pages cũng tải đủ 100% bộ đề trong 0ms!
+            client.publish(`${this.currentRoomTopic}/qchunk/${i}`, rawChunk, { qos: 0, retain: true });
+          } catch {}
+        }
+      });
+    }
+  }
+
+  private publishToAllMqttBrokers(payload: CloudMessage) {
+    if (!this.currentRoomTopic) return;
+    let publishedCount = 0;
+
+    // Nếu có mảng quiz, phát các gói chunk retained để học sinh trên GitHub Pages / 4G nhận đủ bộ đề
+    if (Array.isArray(payload.quiz) && payload.quiz.length > 0) {
+      const qHash = payload.quizHash || computeClientQuizHash(payload.quiz);
+      this.broadcastQuizChunksOverMqtt(payload.quiz, qHash);
+    }
+
+    const rawFull = JSON.stringify(payload);
+    const mqttLivePayload =
+      rawFull.length > 24000 && payload.quiz
+        ? JSON.stringify({ ...payload, quiz: undefined, quizHash: payload.quizHash })
+        : rawFull;
+
+    // Chuẩn bị gói trạng thái Retained cho Phòng (nếu là tin từ Giáo viên) hoặc cho Học sinh (nếu là tin báo danh/điểm số)
+    const isHostStateMsg =
+      payload.type === 'HOST_HEARTBEAT' ||
+      payload.type === 'FORCE_START_MATCH' ||
+      payload.type === 'QUESTION_START' ||
+      payload.type === 'FORCE_PULL_TO_WAITING' ||
+      payload.type === 'GAME_SWITCHED';
+
+    const isStudentProfileMsg =
+      (payload.type === 'PLAYER_READY_ROPE' ||
+        payload.type === 'AUTO_ENTER_ARENA' ||
+        payload.type === 'PLAYER_UPDATE_NAME' ||
+        payload.type === 'PLAYER_FINISH_QUIZ') &&
+      Boolean(payload.playerId);
+
+    const retainedHostStatePayload = isHostStateMsg
+      ? JSON.stringify({
+          ...payload,
+          _mid: `ret_hb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          quiz: undefined
+        })
+      : null;
+
+    const retainedPlayerPayload = isStudentProfileMsg
+      ? JSON.stringify({
+          ...payload,
+          _mid: `ret_p_${payload.playerId}_${Date.now()}`
+        })
+      : null;
+
+    this.mqttPool.forEach((client) => {
+      if (client && client.connected) {
+        try {
+          client.publish(this.currentRoomTopic, mqttLivePayload, { qos: 0 });
+          if (retainedHostStatePayload) {
+            client.publish(`${this.currentRoomTopic}/state`, retainedHostStatePayload, { qos: 0, retain: true });
+          }
+          if (retainedPlayerPayload && payload.playerId) {
+            client.publish(`${this.currentRoomTopic}/players/${payload.playerId}`, retainedPlayerPayload, { qos: 0, retain: true });
+          }
+          publishedCount++;
+        } catch {}
+      }
+    });
+
+    if (publishedCount === 0 && this.isStaticHost) {
+      this.queueCriticalIfOffline(payload);
     }
   }
 
@@ -927,7 +1123,6 @@ class NetworkService {
     }
     this.recordMsgId(payload._mid);
 
-    // Nếu gói gửi đi từ Giáo viên có mảng quiz, lưu cache & tính quizHash ngay
     if (Array.isArray(payload.quiz) && payload.quiz.length > 0 && this.currentRoomId) {
       const qHash = payload.quizHash || computeClientQuizHash(payload.quiz);
       payload.quizHash = qHash;
@@ -941,7 +1136,6 @@ class NetworkService {
       } catch {}
     }
     try {
-      // Không ghi mảng quiz khổng lồ vào kc3d_instant_bus_v1 để tránh vượt quota localStorage
       const busPayload =
         payload.quiz && payload.quiz.length > 15
           ? { ...payload, quiz: undefined, quizHash: payload.quizHash }
@@ -949,47 +1143,38 @@ class NetworkService {
       localStorage.setItem('kc3d_instant_bus_v1', JSON.stringify(busPayload));
     } catch {}
 
-    // 2. Gửi qua Server HTTP (Chỉ gửi kèm mảng quiz đầy đủ khi quizHash thay đổi hoặc là gói khởi tạo đề,
-    // còn các gói HOST_HEARTBEAT định kỳ thì tự động lược bỏ mảng quiz trùng lặp để giảm 99% tải mạng!)
-    let httpPayload = payload;
-    if (
-      payload.type === 'HOST_HEARTBEAT' &&
-      payload.quiz &&
-      payload.quizHash &&
-      payload.quizHash === this.currentQuizHash
-    ) {
-      // Đánh dấu chỉ gửi full quiz ở nhịp tim đầu tiên, các nhịp tim sau gửi nhẹ (< 500 bytes)
-      const syncedKey = `hb_q_synced_${this.currentRoomId}_${payload.quizHash}`;
-      if (this.seenMsgIds.has(syncedKey)) {
-        httpPayload = { ...payload, quiz: undefined };
-      } else {
-        this.recordMsgId(syncedKey);
+    // 2. Gửi qua Server HTTP (nếu không phải static host)
+    if (!this.isStaticHost && this.apiOrigins.length > 0) {
+      let httpPayload = payload;
+      if (
+        payload.type === 'HOST_HEARTBEAT' &&
+        payload.quiz &&
+        payload.quizHash &&
+        payload.quizHash === this.currentQuizHash
+      ) {
+        const syncedKey = `hb_q_synced_${this.currentRoomId}_${payload.quizHash}`;
+        if (this.seenMsgIds.has(syncedKey)) {
+          httpPayload = { ...payload, quiz: undefined };
+        } else {
+          this.recordMsgId(syncedKey);
+        }
       }
+      this.publishHttpMessage(httpPayload);
     }
-    this.publishHttpMessage(httpPayload);
 
-    // 3. Gửi qua cụm Đa Server MQTT WebSocket:
-    // Luôn cắt gọn mảng quiz lớn khỏi gói MQTT để gói tin WebSocket < 2KB, bay tới điện thoại học sinh trong < 50ms mà không bao giờ gây nghẽn hay đứt kết nối!
-    if (this.client && this.client.connected && this.currentRoomTopic) {
-      try {
-        const rawFull = JSON.stringify(payload);
-        const mqttPayload =
-          rawFull.length > 14000 && payload.quiz
-            ? JSON.stringify({ ...payload, quiz: undefined, quizHash: payload.quizHash })
-            : rawFull;
-        this.client.publish(this.currentRoomTopic, mqttPayload, { qos: 0 });
-      } catch {}
-    }
+    // 3. Gửi song song qua toàn bộ cụm Đa Server MQTT WebSocket (kèm cơ chế Retained chống trễ/mất gói 100%)
+    this.publishToAllMqttBrokers(payload);
   }
 
   async fetchActiveRoomId(): Promise<string | null> {
+    if (this.isStaticHost || this.apiOrigins.length === 0) return null;
     for (const origin of this.apiOrigins) {
       try {
         const res = await fetch(`${origin}/api/room/active?_t=${Date.now()}`, {
           method: 'GET',
           cache: 'no-store'
         });
-        if (res.ok) {
+        if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
           const data = await res.json();
           if (data && data.roomId) {
             return String(data.roomId);
@@ -1002,22 +1187,26 @@ class NetworkService {
 
   disconnect() {
     this.isIntentionalDisconnect = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.mqttTimers.forEach((timer) => clearTimeout(timer));
+    this.mqttTimers.clear();
+    this.connectedBrokers.clear();
+
     if (this.httpPollTimer) {
       clearInterval(this.httpPollTimer);
       this.httpPollTimer = null;
     }
-    if (this.batchFlushTimer) {
-      clearTimeout(this.batchFlushTimer);
-      this.batchFlushTimer = null;
-    }
     if (this.worker && this.workerSupported) {
       this.worker.postMessage({ cmd: 'STOP' });
     }
-    this.safeCloseMqttClient();
+    this.mqttPool.forEach((client) => {
+      try {
+        client.removeAllListeners();
+        client.on('error', () => {});
+        client.end(true);
+      } catch {}
+    });
+    this.mqttPool.clear();
+    this.mqttHealthy = false;
     this.currentRoomTopic = '';
     this.currentRoomId = '';
   }

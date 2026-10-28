@@ -460,14 +460,18 @@ export const App: React.FC = () => {
       .slice(0, 10)
       .map((p, idx) => ({
         id: p.id,
+        name: p.label,
         label: p.label,
         team: p.team,
+        score: p.fastScore || 0,
         fastScore: p.fastScore || 0,
         correct: p.correct || 0,
         lives: p.lives ?? 3,
         eliminated: Boolean(p.eliminated),
         rank: idx + 1
       }));
+
+    const playerIds = allP.map(p => p.id);
 
     const quizSig = `${roomId}_${activeDeck.length}_${activeDeck[0]?.q?.slice(0, 20) || ''}`;
     const shouldIncludeFullQuiz = forceFullQuiz || lastSyncedQuizSigRef.current !== quizSig;
@@ -485,6 +489,7 @@ export const App: React.FC = () => {
           globalQIndex: safeIdx,
           question: activeQWithMeta,
           top10: top10List,
+          playerIds,
           quiz: activeDeck.length <= 30 ? activeDeck : undefined,
           subj: currentSubjectKeyRef.current,
           updatedAt: Date.now()
@@ -513,6 +518,7 @@ export const App: React.FC = () => {
       worldEventTitle: currentMS.worldEventTitle || '',
       subj: currentSubjectKeyRef.current,
       top10: top10List,
+      playerIds,
       question: activeQWithMeta,
       quiz: shouldIncludeFullQuiz ? activeDeck : undefined
     });
@@ -662,6 +668,9 @@ export const App: React.FC = () => {
             bluePlayers: nextBlue
           };
           matchStateRef.current = nextState;
+          setTimeout(() => {
+            broadcastHeartbeatRef.current(nextState, quizListRef.current, activeRoomId, false);
+          }, 15);
           return nextState;
         }
 
@@ -746,6 +755,9 @@ export const App: React.FC = () => {
 
           const nextState = { ...prev, redPlayers: nextRed, bluePlayers: nextBlue };
           matchStateRef.current = nextState;
+          setTimeout(() => {
+            broadcastHeartbeatRef.current(nextState, quizListRef.current, activeRoomId, false);
+          }, 15);
           return nextState;
         } else {
           CloudNetwork.sendMessage({
@@ -789,7 +801,28 @@ export const App: React.FC = () => {
       setMatchState(prev => {
         if (prev.status === 'ENDED') return prev;
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        const pObj = allP.find(x => x.id === d.playerId);
+        let pObj = allP.find(x => x.id === d.playerId);
+        if (!pObj && d.playerId && d.playerName && d.playerName.trim().length >= 2) {
+          const assignedTeam: 'RED' | 'BLUE' = d.team || (prev.redPlayers.length <= prev.bluePlayers.length ? 'RED' : 'BLUE');
+          pObj = {
+            id: d.playerId,
+            label: d.playerName.trim(),
+            team: assignedTeam,
+            ready: true,
+            spawned: false,
+            correct: 0,
+            freeze: 0,
+            role: 'PULLER',
+            lives: 3,
+            wrongTotal: 0,
+            streak: 0,
+            eliminated: false,
+            fastScore: 0,
+            avatar: d.avatar
+          };
+          if (assignedTeam === 'RED') prev.redPlayers = [...prev.redPlayers, pObj];
+          else prev.bluePlayers = [...prev.bluePlayers, pObj];
+        }
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;

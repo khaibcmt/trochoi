@@ -820,6 +820,59 @@ export const StudentMobileView: React.FC<Props> = ({
     }
   };
 
+  const syncTop10State = (
+    incomingList?: any[],
+    peerUpdate?: { id: string; name: string; team: PlayerTeam; score: number; correct: number }
+  ) => {
+    setTop10List(prev => {
+      const map = new Map<string, { id: string; name: string; team: PlayerTeam; score: number; correct: number }>();
+
+      const sourceBase = Array.isArray(incomingList) && incomingList.length > 0 ? incomingList : prev;
+      sourceBase.forEach((raw: any) => {
+        if (!raw) return;
+        const pid = String(raw.id || raw.playerId || '');
+        const pname = String(raw.name || raw.label || raw.playerName || '').trim();
+        if (!pid || !pname || isPlaceholderOrEmptyName(pname)) return;
+        const pscore = typeof raw.score === 'number' ? raw.score : typeof raw.fastScore === 'number' ? raw.fastScore : 0;
+        const pcorrect = typeof raw.correct === 'number' ? raw.correct : typeof raw.savedCorrect === 'number' ? raw.savedCorrect : 0;
+        map.set(pid, {
+          id: pid,
+          name: pname,
+          team: raw.team || raw.preferredTeam || 'RED',
+          score: pscore,
+          correct: pcorrect
+        });
+      });
+
+      if (peerUpdate && peerUpdate.id && !isPlaceholderOrEmptyName(peerUpdate.name)) {
+        const ex = map.get(peerUpdate.id);
+        map.set(peerUpdate.id, {
+          id: peerUpdate.id,
+          name: peerUpdate.name,
+          team: peerUpdate.team || ex?.team || 'RED',
+          score: Math.max(ex?.score ?? 0, peerUpdate.score),
+          correct: Math.max(ex?.correct ?? 0, peerUpdate.correct)
+        });
+      }
+
+      const myName = (studentNameRef.current || '').trim();
+      if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(myName)) {
+        const exMe = map.get(myPlayerIdRef.current);
+        map.set(myPlayerIdRef.current, {
+          id: myPlayerIdRef.current,
+          name: myName,
+          team: teamRef.current,
+          score: Math.max(exMe?.score ?? 0, fastScoreRef.current),
+          correct: Math.max(exMe?.correct ?? 0, myCorrectCountRef.current)
+        });
+      }
+
+      return Array.from(map.values())
+        .sort((a, b) => b.score - a.score || b.correct - a.correct)
+        .slice(0, 10);
+    });
+  };
+
   const handleIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
 
@@ -832,7 +885,24 @@ export const StudentMobileView: React.FC<Props> = ({
       quizDeckRef.current = d.quiz;
     }
     if (Array.isArray(d.top10)) {
-      setTop10List(d.top10);
+      syncTop10State(d.top10);
+    }
+    if (
+      (d.type === 'PLAYER_READY_ROPE' ||
+        d.type === 'AUTO_ENTER_ARENA' ||
+        d.type === 'PLAYER_UPDATE_NAME' ||
+        d.type === 'PLAYER_FINISH_QUIZ') &&
+      d.playerId &&
+      d.playerName &&
+      !isPlaceholderOrEmptyName(d.playerName)
+    ) {
+      syncTop10State(undefined, {
+        id: d.playerId,
+        name: d.playerName.trim(),
+        team: d.preferredTeam || d.team || 'RED',
+        score: typeof d.savedScore === 'number' ? d.savedScore : 0,
+        correct: typeof d.savedCorrect === 'number' ? d.savedCorrect : 0
+      });
     }
     if (typeof d.bossHP === 'number') {
       setBossHP(d.bossHP);
@@ -1313,6 +1383,13 @@ export const StudentMobileView: React.FC<Props> = ({
         }
       }
 
+      // Nếu Học sinh đã vào phòng mà trên danh sách playerIds của Giáo viên chưa có ID của học sinh này -> lập tức gửi báo danh lại ngay!
+      if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(studentNameRef.current)) {
+        if (!Array.isArray(d.playerIds) || !d.playerIds.includes(myPlayerIdRef.current)) {
+          sendEnter(studentNameRef.current);
+        }
+      }
+
       // Kéo học sinh đã nhập tên từ Phòng chờ vào phòng thi và mở đáp án ngay khi Giáo viên đang PLAYING
       if (effectiveHeartbeatStatus === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && (screenRef.current === 'WAITING' || (screenRef.current === 'LOBBY' && hasJoinedArenaRef.current))) {
         const validName = ensureValidStudentNameForMatchStart();
@@ -1775,6 +1852,8 @@ export const StudentMobileView: React.FC<Props> = ({
       CloudNetwork.sendMessage({
         type: 'PULL_CORRECT',
         playerId: myPlayerId,
+        playerName: studentNameRef.current,
+        avatar: avatarRef.current,
         team,
         globalQIndex: currentGlobalQIndexRef.current,
         elapsedSec,
@@ -1784,6 +1863,14 @@ export const StudentMobileView: React.FC<Props> = ({
         totalScore: nextTotalScore,
         savedCorrect: nextCorrectCount,
         hasUsedSpecialWager: activeWager > 1
+      });
+
+      syncTop10State(undefined, {
+        id: myPlayerId,
+        name: studentNameRef.current,
+        team,
+        score: nextTotalScore,
+        correct: nextCorrectCount
       });
 
       setLastCompletedQIndex(currentGlobalQIndexRef.current);
@@ -1892,6 +1979,8 @@ export const StudentMobileView: React.FC<Props> = ({
       CloudNetwork.sendMessage({
         type: 'FREEZE_WRONG',
         playerId: myPlayerId,
+        playerName: studentNameRef.current,
+        avatar: avatarRef.current,
         team,
         globalQIndex: currentGlobalQIndexRef.current,
         wagerLevel: activeWager,
@@ -1899,6 +1988,14 @@ export const StudentMobileView: React.FC<Props> = ({
         totalScore: nextTotalScore,
         savedCorrect: myCorrectCountRef.current,
         hasUsedSpecialWager: activeWager > 1
+      });
+
+      syncTop10State(undefined, {
+        id: myPlayerId,
+        name: studentNameRef.current,
+        team,
+        score: nextTotalScore,
+        correct: myCorrectCountRef.current
       });
 
       setLastCompletedQIndex(currentGlobalQIndexRef.current);
@@ -1994,7 +2091,15 @@ export const StudentMobileView: React.FC<Props> = ({
       savedCorrect: myCorrectCountRef.current
     };
 
-    // Gửi ngay tức thì + gửi lặp bảo đảm 100% hiển thị ngay lập tức trên màn hình chính
+    // Cập nhật ngay chính học sinh vào Bảng Top 10 trên màn hình của mình và phát tín hiệu báo danh đa luồng
+    syncTop10State(undefined, {
+      id: myPlayerId,
+      name: cleanName,
+      team: finalTm,
+      score: fastScoreRef.current,
+      correct: myCorrectCountRef.current
+    });
+
     CloudNetwork.sendMessage(joinPayload);
     setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 250);
     setTimeout(() => CloudNetwork.sendMessage({ ...joinPayload }), 800);
@@ -2528,12 +2633,12 @@ export const StudentMobileView: React.FC<Props> = ({
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    {item.name}
+                    {item.name || (item as any).label || 'Học sinh'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                   <span style={{ fontSize: '12px', fontWeight: 800, color: '#4ade80' }}>
-                    {item.correct} đúng
+                    {item.correct ?? (item as any).savedCorrect ?? 0} đúng
                   </span>
                   <span
                     style={{
@@ -2546,7 +2651,7 @@ export const StudentMobileView: React.FC<Props> = ({
                       border: '1px solid rgba(56, 189, 248, 0.35)'
                     }}
                   >
-                    {item.score}đ
+                    {item.score ?? (item as any).fastScore ?? 0}đ
                   </span>
                 </div>
               </div>
@@ -2566,30 +2671,9 @@ export const StudentMobileView: React.FC<Props> = ({
         }
       `}</style>
 
-      {/* Auto-reconnecting status bar (without manual reconnect buttons) */}
-      {networkState !== 'CONNECTED' && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 99999,
-          background: 'linear-gradient(135deg, #b45309, #d97706)',
-          color: '#ffffff',
-          padding: '8px 14px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-          borderBottom: '2px solid #fef08a',
-          textAlign: 'center',
-          fontSize: '12.5px',
-          fontWeight: 900
-        }}>
-          🟡 Đang tự động đồng bộ mạng... Điểm số ({fastScore}đ • {myCorrectCount} câu đúng) được bảo lưu 100%!
-        </div>
-      )}
-
       {/* Tab switch anti-cheat warning banner */}
       {tabWarning && (
-        <div style={{ position: 'fixed', top: networkState !== 'CONNECTED' ? '40px' : 0, left: 0, right: 0, background: '#ef4444', color: '#fff', padding: '10px', textAlign: 'center', fontWeight: 900, zIndex: 1000 }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: '#ef4444', color: '#fff', padding: '10px', textAlign: 'center', fontWeight: 900, zIndex: 1000 }}>
           {tabWarning}
         </div>
       )}
