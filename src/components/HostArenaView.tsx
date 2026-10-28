@@ -159,8 +159,9 @@ export const HostArenaView: React.FC<Props> = ({
       base = 'https://khaibcmt.github.io/edu/';
     }
     const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : ''));
-    const rUrl = `${base}?r=${activeRoomId}&t=R${gmFlag}`;
-    const bUrl = `${base}?r=${activeRoomId}&t=B${gmFlag}`;
+    const bkIdx = CloudNetwork.getActiveBrokerIndex();
+    const rUrl = `${base}?r=${activeRoomId}&t=R${gmFlag}&bk=${bkIdx}`;
+    const bUrl = `${base}?r=${activeRoomId}&t=B${gmFlag}&bk=${bkIdx}`;
     setQrRedUrl(rUrl);
     setQrBlueUrl(bUrl);
 

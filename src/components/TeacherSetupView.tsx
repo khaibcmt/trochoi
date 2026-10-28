@@ -123,7 +123,8 @@ export const TeacherSetupView: React.FC<Props> = ({
       base = 'https://khaibcmt.github.io/edu/';
     }
     const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
-    const url = `${base}?r=${activeRoomId}&t=R${gmFlag}`;
+    const bkIdx = CloudNetwork.getActiveBrokerIndex();
+    const url = `${base}?r=${activeRoomId}&t=R${gmFlag}&bk=${bkIdx}`;
     setRoomQRUrl(url);
     QRCode.toDataURL(url, { width: 220, margin: 1, errorCorrectionLevel: 'H' }).then(setRoomQRImg).catch(() => {});
   }, [activeRoomId, gameType]);

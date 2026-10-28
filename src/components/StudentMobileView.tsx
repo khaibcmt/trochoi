@@ -1472,6 +1472,15 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Connect to room with network status tracking (Luôn dùng ref mới nhất, giữ kết nối xuyên suốt 100%)
   useEffect(() => {
+    let pinnedBroker: number | undefined = undefined;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const bkVal = urlParams.get('bk') || urlParams.get('b');
+      if (bkVal !== null && !isNaN(Number(bkVal))) {
+        pinnedBroker = Number(bkVal);
+      }
+    } catch {}
+
     CloudNetwork.connect(
       roomId,
       (msg) => handleIncomingMessageRef.current(msg),
@@ -1487,7 +1496,8 @@ export const StudentMobileView: React.FC<Props> = ({
           setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
           sendEnter();
         }
-      }
+      },
+      pinnedBroker
     );
 
     // Đồng bộ định kỳ chống rớt mạng / chống văng và đảm bảo nhân vật 3D luôn xuất hiện trên màn hình Giáo viên
