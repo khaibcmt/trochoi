@@ -2385,398 +2385,36 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Thông tin liên hệ và góp ý sản phẩm ở cuối màn hình cài đặt */}
+        {/* Dòng liên hệ & Mời Thầy Khải Ly Cà Phê gọn 1 hàng ở cuối khung cài đặt */}
         <div
           style={{
-            marginTop: '16px',
-            marginBottom: '8px',
-            padding: '16px 20px',
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)',
-            border: '2px solid transparent',
-            backgroundImage: 'linear-gradient(#0f172a, #0f172a), linear-gradient(135deg, #f59e0b, #ec4899, #38bdf8, #10b981)',
-            backgroundOrigin: 'border-box',
-            backgroundClip: 'padding-box, border-box',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(245, 158, 11, 0.25)',
-            textAlign: 'center',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '10px'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{
-              background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
-              color: '#0f172a',
-              padding: '4px 14px',
-              borderRadius: '999px',
-              fontWeight: 900,
-              fontSize: '12px',
-              letterSpacing: '0.5px',
-              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)'
-            }}>
-              💌 THÔNG TIN LIÊN HỆ & GÓP Ý PHẦN MỀM
-            </span>
-          </div>
-
-          <div style={{
+            marginTop: '8px',
+            padding: '5px 12px',
+            borderRadius: '10px',
+            background: 'linear-gradient(90deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
+            border: '1.5px solid #38bdf8',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '13.5px',
+            flexWrap: 'nowrap',
+            overflowX: 'auto',
+            gap: '6px',
+            fontSize: '11.5px',
             fontWeight: 800,
-            color: '#f8fafc'
-          }}>
-            <span>Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả:</span>
-            <span style={{
-              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-              color: '#ffffff',
-              padding: '4px 12px',
-              borderRadius: '10px',
-              fontWeight: 900,
-              boxShadow: '0 2px 10px rgba(239, 68, 68, 0.45)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px'
-            }}>
-              👨‍🏫 Hồ Tấn Khải
-            </span>
-            <span style={{
-              background: 'rgba(56, 189, 248, 0.18)',
-              border: '1.5px solid #38bdf8',
-              color: '#7dd3fc',
-              padding: '4px 12px',
-              borderRadius: '10px',
-              fontWeight: 800
-            }}>
-              🏫 Trường THPT Mang Thít
-            </span>
-            <a
-              href="mailto:khaibcmt@gmail.com"
-              style={{
-                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-                color: '#ffffff',
-                padding: '4px 12px',
-                borderRadius: '10px',
-                border: '1.5px solid #7dd3fc',
-                fontWeight: 900,
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                boxShadow: '0 2px 10px rgba(2, 132, 199, 0.45)',
-                cursor: 'pointer'
-              }}
-              title="Gửi Email trực tiếp cho tác giả"
-            >
-              ✉️ Email: khaibcmt@gmail.com
-            </a>
-            <a
-              href="https://zalo.me/0939580982"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                background: 'linear-gradient(135deg, #059669, #047857)',
-                color: '#ffffff',
-                padding: '4px 12px',
-                borderRadius: '10px',
-                border: '1.5px solid #6ee7b7',
-                fontWeight: 900,
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                boxShadow: '0 2px 10px rgba(5, 150, 105, 0.45)',
-                cursor: 'pointer'
-              }}
-              title="Nhắn tin Zalo trực tiếp: 0939580982"
-            >
-              💬 Nhắn tin Zalo: 0939580982
-            </a>
-            {onOpenCoffeeModal && (
-              <button
-                type="button"
-                onClick={onOpenCoffeeModal}
-                style={{
-                  position: 'relative',
-                  background: 'linear-gradient(135deg, #d97706, #78350f)',
-                  color: '#fef08a',
-                  padding: '5px 15px',
-                  borderRadius: '999px',
-                  border: '2px solid #fde047',
-                  fontWeight: 900,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 3px 14px rgba(217, 119, 6, 0.55)',
-                  cursor: 'pointer'
-                }}
-                title="Mời Thầy Khải một ly cà phê qua VietQR Agribank"
-              >
-                <span style={{ fontSize: '16px', lineHeight: 1 }}>☕</span>
-                <span>Mời Thầy Khải Ly Cà Phê</span>
-              </button>
-            )}
-          </div>
-
-          <div style={{
-            fontSize: '13.5px',
-            fontWeight: 900,
-            background: 'linear-gradient(90deg, #fef08a 0%, #f472b6 50%, #67e8f9 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            letterSpacing: '0.3px',
-            marginTop: '2px'
-          }}>
-            ✨ Xin chân thành cảm ơn quý đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn! ✨
-          </div>
-        </div>
-      </div>
-
-      {/* LUÔN HIỆN THANH MỞ SÂN ĐẤU & HIỆN MÃ QR (Always-Visible Pinned Launch Bar) */}
-      <aside className="sticky-launch-bar" style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(3, 7, 18, 0.99) 100%)',
-        backdropFilter: 'blur(10px)',
-        borderTop: '3px solid #38bdf8',
-        boxShadow: '0 -10px 30px rgba(0,0,0,0.7)',
-        padding: '8px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        zIndex: 500
-      }}>
-        <style>{`
-          @keyframes setupFooterSteam {
-            0% { transform: translateY(0) scaleX(1); opacity: 0.2; }
-            50% { transform: translateY(-5px) scaleX(1.2); opacity: 0.85; }
-            100% { transform: translateY(-9px) scaleX(1.3); opacity: 0; }
-          }
-          @keyframes setupCoffeeGlow {
-            0%, 100% { transform: scale(1); box-shadow: 0 2px 12px rgba(217, 119, 6, 0.5); }
-            50% { transform: scale(1.03); box-shadow: 0 4px 18px rgba(250, 204, 21, 0.8); }
-          }
-          .btn-setup-coffee {
-            position: relative;
-            animation: setupCoffeeGlow 2.8s infinite ease-in-out;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-          }
-          .btn-setup-coffee:hover {
-            transform: translateY(-2px) scale(1.05) !important;
-            box-shadow: 0 6px 22px rgba(250, 204, 21, 0.95) !important;
-          }
-          .setup-steam-badge {
-            position: absolute;
-            top: -8px;
-            left: 12px;
-            font-size: 11px;
-            pointer-events: none;
-            animation: setupFooterSteam 2s infinite ease-out;
-          }
-        `}</style>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', width: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{
-              background: gameType === 'BELL' ? '#f59e0b' : gameType === 'FAST' ? '#9333ea' : gameType === 'BOSS' ? '#ef4444' : '#0284c7',
-              color: '#fff',
-              padding: '5px 12px',
-              borderRadius: '12px',
-              fontSize: '12.5px',
-              fontWeight: 900,
-              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-              {gameType === 'BELL' ? '🔔 Rung Chuông Vàng 3D' : gameType === 'FAST' ? '⚡ Ai Nhanh Nhất 3D' : gameType === 'BOSS' ? '🐉 Đánh Boss 3D' : '⚔️ Kéo Co 3D'}
-            </div>
-
-            <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 800 }}>
-              🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> • Đã vào: <b style={{ color: '#4ade80' }}>{connectedStudentCount}/{matchSettings.roomCapacity} HS</b> • Đếm ngược: <b style={{ color: '#fde047' }}>{matchSettings.questionDurationSec}s</b>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            {onOpenCoffeeModal && (
-              <button
-                type="button"
-                className="btn-setup-coffee"
-                onClick={onOpenCoffeeModal}
-                style={{
-                  background: 'linear-gradient(135deg, #d97706 0%, #78350f 100%)',
-                  color: '#fef08a',
-                  border: '2px solid #fde047',
-                  borderRadius: '999px',
-                  padding: '7px 15px',
-                  fontSize: '13px',
-                  fontWeight: 900,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-                title="Bấm để mời Thầy Khải một ly cà phê qua VietQR Agribank"
-              >
-                <span className="setup-steam-badge">♨️</span>
-                <span style={{ fontSize: '16px', lineHeight: 1 }}>☕</span>
-                <span>Mời Thầy Khải Ly Cà Phê</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="btn-action-sm"
-              style={{
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                color: '#ffffff',
-                borderColor: '#fbbf24',
-                padding: '8px 14px',
-                fontSize: '13px',
-                fontWeight: 900
-              }}
-              onClick={() => {
-                if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng mới toanh.\n• Xóa sạch 100% danh sách học sinh cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới.\n\nThầy/Cô có muốn tiếp tục?')) {
-                  onNewSession?.();
-                }
-              }}
-              title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ khi chuyển sang tiết/lớp khác"
-            >
-              🔄 Đổi Lớp / Phiên Mới
-            </button>
-            {onSwitchToStudentMode && (
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ background: '#334155', color: '#f8fafc', borderColor: '#475569', padding: '8px 14px', fontSize: '13px' }}
-                onClick={handleSwitchToStudentWithSync}
-                title="Mở giao diện điện thoại học sinh để thi đấu thử"
-              >
-                📱 Thử Vai Học Sinh
-              </button>
-            )}
-
-            {/* NÚT ẨN / HIỆN MÃ QR PHÒNG */}
-            <button
-              type="button"
-              className="btn-action-sm"
-              style={{
-                background: showQRModal ? 'linear-gradient(135deg, #0284c7, #0369a1)' : '#1e293b',
-                color: '#ffffff',
-                borderColor: '#38bdf8',
-                padding: '8px 15px',
-                fontSize: '13px',
-                fontWeight: 900,
-                boxShadow: showQRModal ? '0 0 15px rgba(56, 189, 248, 0.5)' : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-              onClick={() => setShowQRModal(!showQRModal)}
-              title="Bấm để ẩn hoặc hiện mã QR phòng cho học sinh quét trước"
-            >
-              {showQRModal ? '🙈 ẨN MÃ QR' : '📱 ẨN / HIỆN MÃ QR'}
-            </button>
-
-            <button
-              type="button"
-              className="btn-launch"
-              style={{
-                padding: '9px 20px',
-                fontSize: '14.5px',
-                boxShadow: '0 0 25px rgba(56, 189, 248, 0.6), inset 0 2px 3px rgba(255,255,255,0.7)'
-              }}
-              onClick={handleStartArena}
-              title="Chuẩn bị vào sàn đấu 3D để tập hợp đủ học sinh trước khi bấm Bắt đầu"
-            >
-              📣 CHUẨN BỊ VÀO SÀN ĐẤU (TẬP HỢP HS)
-            </button>
-          </div>
-        </div>
-
-        {/* Dòng liên hệ và cảm ơn ở thanh dưới cùng của màn hình cài đặt đầu tiên */}
-        <div
-          style={{
-            borderTop: '1px solid rgba(56, 189, 248, 0.35)',
-            paddingTop: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexWrap: 'wrap',
-            gap: '8px',
-            textAlign: 'center',
-            fontSize: '12.5px',
-            fontWeight: 800,
-            lineHeight: 1.4
+            color: '#f8fafc',
+            whiteSpace: 'nowrap'
           }}
         >
-          <span style={{ color: '#e2e8f0' }}>Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả:</span>
-          <span style={{
-            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-            color: '#ffffff',
-            padding: '2px 9px',
-            borderRadius: '6px',
-            fontWeight: 900,
-            boxShadow: '0 1px 6px rgba(239, 68, 68, 0.45)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px'
-          }}>
+          <span style={{ color: '#cbd5e1' }}>Liên hệ & góp ý:</span>
+          <span style={{ background: '#dc2626', color: '#fff', padding: '1px 7px', borderRadius: '5px', fontWeight: 900 }}>
             👨‍🏫 Hồ Tấn Khải
           </span>
-          <span style={{
-            background: 'rgba(56, 189, 248, 0.16)',
-            color: '#38bdf8',
-            border: '1px solid rgba(56, 189, 248, 0.5)',
-            padding: '2px 9px',
-            borderRadius: '6px',
-            fontWeight: 800
-          }}>
-            🏫 Trường THPT Mang Thít
-          </span>
-          <a
-            href="mailto:khaibcmt@gmail.com"
-            style={{
-              color: '#fde047',
-              textDecoration: 'none',
-              background: 'rgba(253, 224, 71, 0.15)',
-              border: '1px solid rgba(253, 224, 71, 0.5)',
-              padding: '2px 9px',
-              borderRadius: '6px',
-              fontWeight: 900,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            title="Gửi Email trực tiếp"
-          >
-            ✉️ Email: khaibcmt@gmail.com
+          <span style={{ color: '#7dd3fc', fontWeight: 900 }}>🏫 THPT Mang Thít</span>
+          <a href="mailto:khaibcmt@gmail.com" style={{ color: '#fde047', textDecoration: 'none' }}>
+            ✉️ khaibcmt@gmail.com
           </a>
-          <a
-            href="https://zalo.me/0939580982"
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              color: '#4ade80',
-              textDecoration: 'none',
-              background: 'rgba(74, 222, 128, 0.15)',
-              border: '1px solid rgba(74, 222, 128, 0.5)',
-              padding: '2px 9px',
-              borderRadius: '6px',
-              fontWeight: 900,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            title="Nhắn tin Zalo trực tiếp: 0939580982"
-          >
-            💬 Nhắn tin Zalo: 0939580982
+          <a href="https://zalo.me/0939580982" target="_blank" rel="noreferrer" style={{ color: '#4ade80', textDecoration: 'none' }}>
+            💬 Zalo: 0939580982
           </a>
           {onOpenCoffeeModal && (
             <button
@@ -2785,32 +2423,184 @@ export const TeacherSetupView: React.FC<Props> = ({
               style={{
                 background: 'linear-gradient(135deg, #d97706, #78350f)',
                 color: '#fef08a',
-                border: '1.5px solid #fde047',
-                padding: '2px 10px',
+                padding: '2px 9px',
                 borderRadius: '999px',
+                border: '1px solid #fde047',
                 fontWeight: 900,
-                fontSize: '12px',
+                fontSize: '11.5px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(217, 119, 6, 0.45)'
+                cursor: 'pointer'
               }}
-              title="Mời Thầy Khải Ly Cà Phê qua VietQR Agribank"
+              title="Mời Thầy Khải một ly cà phê qua VietQR Agribank"
             >
               ☕ Mời Thầy Khải Ly Cà Phê
             </button>
           )}
-          <span style={{
-            color: '#f472b6',
-            fontWeight: 900,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            textShadow: '0 0 10px rgba(244, 114, 182, 0.3)'
-          }}>
-            • Xin cảm ơn quý đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn!
+          <span style={{ color: '#f472b6', fontWeight: 900 }}>
+            • Cảm ơn quý đồng nghiệp đã góp ý!
           </span>
+        </div>
+      </div>
+
+      {/* CHÂN TRANG CỐ ĐỊNH 1 HÀNG SIÊU GỌN (Single-Row Ultra-Compact Footer) */}
+      <aside
+        className="sticky-launch-bar"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '36px',
+          background: 'linear-gradient(90deg, #090d16 0%, #1e1b4b 50%, #090d16 100%)',
+          borderTop: '1.5px solid #38bdf8',
+          boxShadow: '0 -4px 14px rgba(0,0,0,0.6)',
+          padding: '0 10px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+          gap: '8px',
+          zIndex: 500,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {/* Nhóm trái: Thông tin tác giả + Mời Thầy Khải Ly Cà Phê */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 800, flexShrink: 0 }}>
+          <span style={{ color: '#94a3b8' }}>Liên hệ & góp ý:</span>
+          <span style={{ background: '#dc2626', color: '#ffffff', padding: '1px 6px', borderRadius: '4px', fontWeight: 900 }}>
+            👨‍🏫 Hồ Tấn Khải
+          </span>
+          <span style={{ color: '#38bdf8', fontWeight: 800 }}>🏫 THPT Mang Thít</span>
+          <a
+            href="mailto:khaibcmt@gmail.com"
+            style={{ color: '#fde047', textDecoration: 'none', fontWeight: 800 }}
+            title="Gửi Email trực tiếp"
+          >
+            ✉️ khaibcmt@gmail.com
+          </a>
+          <a
+            href="https://zalo.me/0939580982"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: '#4ade80', textDecoration: 'none', fontWeight: 800 }}
+            title="Nhắn tin Zalo: 0939580982"
+          >
+            💬 Zalo: 0939580982
+          </a>
+          <span style={{ color: '#f472b6', fontWeight: 800 }}>• Cảm ơn quý đồng nghiệp!</span>
+          {onOpenCoffeeModal && (
+            <button
+              type="button"
+              onClick={onOpenCoffeeModal}
+              style={{
+                background: 'linear-gradient(135deg, #d97706 0%, #78350f 100%)',
+                color: '#fef08a',
+                border: '1px solid #fde047',
+                borderRadius: '999px',
+                padding: '2px 9px',
+                fontSize: '11.5px',
+                fontWeight: 900,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 6px rgba(217, 119, 6, 0.5)'
+              }}
+              title="Bấm để mời Thầy Khải một ly cà phê qua VietQR Agribank"
+            >
+              <span>☕</span>
+              <span>Mời Thầy Khải Ly Cà Phê</span>
+            </button>
+          )}
+        </div>
+
+        {/* Nhóm phải: Trạng thái phòng & các nút điều khiển nhanh gọn trên cùng 1 hàng */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+          <span style={{ fontSize: '11.5px', color: '#e2e8f0', fontWeight: 800 }}>
+            🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{connectedStudentCount}</b> HS)
+          </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng mới toanh.\n• Xóa sạch 100% danh sách học sinh cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới.\n\nThầy/Cô có muốn tiếp tục?')) {
+                onNewSession?.();
+              }
+            }}
+            style={{
+              background: '#d97706',
+              color: '#ffffff',
+              border: '1px solid #fbbf24',
+              borderRadius: '6px',
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: 900,
+              cursor: 'pointer'
+            }}
+            title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ"
+          >
+            🔄 Đổi Lớp
+          </button>
+
+          {onSwitchToStudentMode && (
+            <button
+              type="button"
+              onClick={handleSwitchToStudentWithSync}
+              style={{
+                background: '#334155',
+                color: '#f8fafc',
+                border: '1px solid #64748b',
+                borderRadius: '6px',
+                padding: '2px 8px',
+                fontSize: '11px',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+              title="Mở giao diện điện thoại học sinh để thi đấu thử"
+            >
+              📱 Thử HS
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowQRModal(!showQRModal)}
+            style={{
+              background: showQRModal ? '#0284c7' : '#1e293b',
+              color: '#ffffff',
+              border: '1px solid #38bdf8',
+              borderRadius: '6px',
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: 900,
+              cursor: 'pointer'
+            }}
+            title="Bấm để ẩn hoặc hiện mã QR phòng"
+          >
+            {showQRModal ? '🙈 Ẩn QR' : '📱 Mã QR'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleStartArena}
+            style={{
+              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+              color: '#ffffff',
+              border: '1px solid #7dd3fc',
+              borderRadius: '6px',
+              padding: '3px 10px',
+              fontSize: '11.5px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              boxShadow: '0 0 10px rgba(56, 189, 248, 0.5)'
+            }}
+            title="Chuẩn bị vào sàn đấu 3D"
+          >
+            📣 VÀO SÀN ĐẤU
+          </button>
         </div>
       </aside>
 
