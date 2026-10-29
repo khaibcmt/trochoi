@@ -49,6 +49,7 @@ interface Props {
   connectedPlayers?: Player[];
   onNewSession?: (customRoomId?: string) => void;
   onResetClass?: () => void;
+  onOpenCoffeeModal?: () => void;
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -80,7 +81,8 @@ export const TeacherSetupView: React.FC<Props> = ({
   connectedStudentCount = 0,
   connectedPlayers = [],
   onNewSession,
-  onResetClass
+  onResetClass,
+  onOpenCoffeeModal
 }) => {
   // 3 Khung Dạng Thức Chia Sẵn Riêng Biệt (Chuẩn THPT 2018)
   const mcEditorRef = useRef<HTMLDivElement>(null);
@@ -2386,22 +2388,149 @@ export const TeacherSetupView: React.FC<Props> = ({
         {/* Thông tin liên hệ và góp ý sản phẩm ở cuối màn hình cài đặt */}
         <div
           style={{
-            marginTop: '12px',
-            padding: '12px 16px',
-            borderRadius: '14px',
-            background: 'linear-gradient(90deg, #eff6ff 0%, #fef3c7 50%, #eff6ff 100%)',
-            border: '2px solid #0284c7',
+            marginTop: '16px',
+            marginBottom: '8px',
+            padding: '16px 20px',
+            borderRadius: '16px',
+            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)',
+            border: '2px solid transparent',
+            backgroundImage: 'linear-gradient(#0f172a, #0f172a), linear-gradient(135deg, #f59e0b, #ec4899, #38bdf8, #10b981)',
+            backgroundOrigin: 'border-box',
+            backgroundClip: 'padding-box, border-box',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(245, 158, 11, 0.25)',
             textAlign: 'center',
-            color: '#0f172a',
-            fontSize: '13.5px',
-            fontWeight: 800,
-            lineHeight: 1.5
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '10px'
           }}
         >
-          Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả <b style={{ color: '#b91c1c' }}>Hồ Tấn Khải</b> Trường THPT mang Thít - Email: <b style={{ color: '#0369a1' }}>khaibcmt@gmail.com</b> - Nhắn tin Zalo: <b style={{ color: '#047857' }}>0939580982</b>.{' '}
-          <span style={{ color: '#7c2d12', fontWeight: 900 }}>
-            Xin cảm ơn quí đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn !!
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{
+              background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
+              color: '#0f172a',
+              padding: '4px 14px',
+              borderRadius: '999px',
+              fontWeight: 900,
+              fontSize: '12px',
+              letterSpacing: '0.5px',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)'
+            }}>
+              💌 THÔNG TIN LIÊN HỆ & GÓP Ý PHẦN MỀM
+            </span>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            gap: '10px',
+            fontSize: '13.5px',
+            fontWeight: 800,
+            color: '#f8fafc'
+          }}>
+            <span>Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả:</span>
+            <span style={{
+              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+              color: '#ffffff',
+              padding: '4px 12px',
+              borderRadius: '10px',
+              fontWeight: 900,
+              boxShadow: '0 2px 10px rgba(239, 68, 68, 0.45)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+              👨‍🏫 Hồ Tấn Khải
+            </span>
+            <span style={{
+              background: 'rgba(56, 189, 248, 0.18)',
+              border: '1.5px solid #38bdf8',
+              color: '#7dd3fc',
+              padding: '4px 12px',
+              borderRadius: '10px',
+              fontWeight: 800
+            }}>
+              🏫 Trường THPT Mang Thít
+            </span>
+            <a
+              href="mailto:khaibcmt@gmail.com"
+              style={{
+                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                color: '#ffffff',
+                padding: '4px 12px',
+                borderRadius: '10px',
+                border: '1.5px solid #7dd3fc',
+                fontWeight: 900,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 10px rgba(2, 132, 199, 0.45)',
+                cursor: 'pointer'
+              }}
+              title="Gửi Email trực tiếp cho tác giả"
+            >
+              ✉️ Email: khaibcmt@gmail.com
+            </a>
+            <a
+              href="https://zalo.me/0939580982"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                background: 'linear-gradient(135deg, #059669, #047857)',
+                color: '#ffffff',
+                padding: '4px 12px',
+                borderRadius: '10px',
+                border: '1.5px solid #6ee7b7',
+                fontWeight: 900,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 10px rgba(5, 150, 105, 0.45)',
+                cursor: 'pointer'
+              }}
+              title="Nhắn tin Zalo trực tiếp: 0939580982"
+            >
+              💬 Nhắn tin Zalo: 0939580982
+            </a>
+            {onOpenCoffeeModal && (
+              <button
+                type="button"
+                onClick={onOpenCoffeeModal}
+                style={{
+                  background: 'linear-gradient(135deg, #d97706, #b45309)',
+                  color: '#ffffff',
+                  padding: '4px 14px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #fde047',
+                  fontWeight: 900,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 10px rgba(217, 119, 6, 0.5)',
+                  cursor: 'pointer'
+                }}
+                title="Mời tác giả Hồ Tấn Khải một ly cà phê qua VietQR"
+              >
+                ☕ Mời Tác Giả Ly Cà Phê
+              </button>
+            )}
+          </div>
+
+          <div style={{
+            fontSize: '13.5px',
+            fontWeight: 900,
+            background: 'linear-gradient(90deg, #fef08a 0%, #f472b6 50%, #67e8f9 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            letterSpacing: '0.3px',
+            marginTop: '2px'
+          }}>
+            ✨ Xin chân thành cảm ơn quý đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn! ✨
+          </div>
         </div>
       </div>
 
@@ -2518,15 +2647,90 @@ export const TeacherSetupView: React.FC<Props> = ({
         <div
           style={{
             borderTop: '1px solid rgba(56, 189, 248, 0.35)',
-            paddingTop: '5px',
+            paddingTop: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
             textAlign: 'center',
             fontSize: '12.5px',
             fontWeight: 800,
-            color: '#fef08a',
-            lineHeight: 1.35
+            lineHeight: 1.4
           }}
         >
-          Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả <b style={{ color: '#ffffff' }}>Hồ Tấn Khải</b> Trường THPT mang Thít - Email: <b style={{ color: '#38bdf8' }}>khaibcmt@gmail.com</b> - Nhắn tin Zalo: <b style={{ color: '#4ade80' }}>0939580982</b>. Xin cảm ơn quí đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn !!
+          <span style={{ color: '#e2e8f0' }}>Mọi chi tiết liên hệ và góp ý sản phẩm vui lòng liên hệ tác giả:</span>
+          <span style={{
+            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+            color: '#ffffff',
+            padding: '2px 9px',
+            borderRadius: '6px',
+            fontWeight: 900,
+            boxShadow: '0 1px 6px rgba(239, 68, 68, 0.45)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            👨‍🏫 Hồ Tấn Khải
+          </span>
+          <span style={{
+            background: 'rgba(56, 189, 248, 0.16)',
+            color: '#38bdf8',
+            border: '1px solid rgba(56, 189, 248, 0.5)',
+            padding: '2px 9px',
+            borderRadius: '6px',
+            fontWeight: 800
+          }}>
+            🏫 Trường THPT Mang Thít
+          </span>
+          <a
+            href="mailto:khaibcmt@gmail.com"
+            style={{
+              color: '#fde047',
+              textDecoration: 'none',
+              background: 'rgba(253, 224, 71, 0.15)',
+              border: '1px solid rgba(253, 224, 71, 0.5)',
+              padding: '2px 9px',
+              borderRadius: '6px',
+              fontWeight: 900,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            title="Gửi Email trực tiếp"
+          >
+            ✉️ Email: khaibcmt@gmail.com
+          </a>
+          <a
+            href="https://zalo.me/0939580982"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              color: '#4ade80',
+              textDecoration: 'none',
+              background: 'rgba(74, 222, 128, 0.15)',
+              border: '1px solid rgba(74, 222, 128, 0.5)',
+              padding: '2px 9px',
+              borderRadius: '6px',
+              fontWeight: 900,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            title="Nhắn tin Zalo trực tiếp: 0939580982"
+          >
+            💬 Nhắn tin Zalo: 0939580982
+          </a>
+          <span style={{
+            color: '#f472b6',
+            fontWeight: 900,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            textShadow: '0 0 10px rgba(244, 114, 182, 0.3)'
+          }}>
+            • Xin cảm ơn quý đồng nghiệp đã góp ý để sản phẩm ngày càng tốt hơn!
+          </span>
         </div>
       </aside>
 

@@ -5,9 +5,10 @@ interface Props {
   onOpenKeyModal?: () => void;
   onOpenNationalDossier?: () => void;
   onOpenCloudSync?: () => void;
+  onOpenCoffeeModal?: () => void;
 }
 
-export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier, onOpenCloudSync }) => {
+export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKeyModal, onOpenNationalDossier, onOpenCloudSync, onOpenCoffeeModal }) => {
   return (
     <header id="top-author-banner">
       <div className="brand-left">
@@ -71,6 +72,25 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
         >
           ⚙️ Cài đặt AI Key
         </button>
+        {onOpenCoffeeModal && (
+          <button
+            className="btn-fullscreen-top"
+            onClick={onOpenCoffeeModal}
+            title="Mời tác giả Hồ Tấn Khải ly cà phê qua VietQR Agribank"
+            style={{
+              background: 'linear-gradient(135deg, #b45309, #78350f)',
+              color: '#fef08a',
+              borderColor: '#f59e0b',
+              fontWeight: 900,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              boxShadow: '0 2px 8px rgba(217, 119, 6, 0.4)'
+            }}
+          >
+            ☕ Mời Cà Phê
+          </button>
+        )}
         <span className="author-badge">👨‍🏫 Tác giả: Hồ Tấn Khải</span>
         <span className="school-badge">🏫 Trường THPT Mang Thít</span>
         <button className="btn-fullscreen-top" onClick={onToggleFullScreen} title="Phóng toàn màn hình">

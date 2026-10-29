@@ -28,6 +28,7 @@ import { StudentMobileView } from './components/StudentMobileView';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { NationalJuryDossierModal } from './components/NationalJuryDossierModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { BuyMeCoffeeModal, FloatingCoffeeButton } from './components/BuyMeCoffeeModal';
 import { CloudBackupData } from './types';
 import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
@@ -96,6 +97,9 @@ export const App: React.FC = () => {
   // Cloud Sync & Backup Modal
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [cloudSyncInitialTab, setCloudSyncInitialTab] = useState<'GOOGLE' | 'PASSWORD'>('GOOGLE');
+
+  // Mời Tác Giả Ly Cà Phê (VietQR) Modal
+  const [showCoffeeModal, setShowCoffeeModal] = useState(false);
 
   const handleOpenCloudSync = (tab: 'GOOGLE' | 'PASSWORD' = 'GOOGLE') => {
     setCloudSyncInitialTab(tab);
@@ -1371,6 +1375,7 @@ export const App: React.FC = () => {
           onOpenKeyModal={() => setShowKeyModal(true)}
           onOpenNationalDossier={() => setShowNationalDossier(true)}
           onOpenCloudSync={() => handleOpenCloudSync('GOOGLE')}
+          onOpenCoffeeModal={() => setShowCoffeeModal(true)}
         />
       )}
 
@@ -1405,6 +1410,7 @@ export const App: React.FC = () => {
           connectedPlayers={[...matchState.redPlayers, ...matchState.bluePlayers]}
           onNewSession={handleCreateNewSession}
           onResetClass={handleResetCurrentClass}
+          onOpenCoffeeModal={() => setShowCoffeeModal(true)}
         />
       )}
 
@@ -1466,6 +1472,17 @@ export const App: React.FC = () => {
         activeQuizList={quizList}
         onApplyBackup={handleApplyBackup}
         initialTab={cloudSyncInitialTab}
+      />
+
+      {/* Nút Nổi Kích Hoạt Mời Tác Giả Ly Cà Phê (Floating Button) */}
+      {view !== 'STUDENT_MOBILE' && (
+        <FloatingCoffeeButton onClick={() => setShowCoffeeModal(true)} />
+      )}
+
+      {/* Hộp Thoại Popup Mời Tác Giả Ly Cà Phê (VietQR Động Agribank) */}
+      <BuyMeCoffeeModal
+        isOpen={showCoffeeModal}
+        onClose={() => setShowCoffeeModal(false)}
       />
     </div>
   );
