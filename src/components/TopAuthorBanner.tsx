@@ -76,7 +76,7 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
           <button
             className="btn-fullscreen-top"
             onClick={onOpenCoffeeModal}
-            title="Mời tác giả Hồ Tấn Khải ly cà phê qua VietQR Agribank"
+            title="Mời Thầy Khải ly cà phê qua VietQR Agribank"
             style={{
               background: 'linear-gradient(135deg, #b45309, #78350f)',
               color: '#fef08a',
@@ -88,7 +88,7 @@ export const TopAuthorBanner: React.FC<Props> = ({ onToggleFullScreen, onOpenKey
               boxShadow: '0 2px 8px rgba(217, 119, 6, 0.4)'
             }}
           >
-            ☕ Mời Cà Phê
+            ☕ Mời Thầy Khải Ly Cà Phê
           </button>
         )}
         <span className="author-badge">👨‍🏫 Tác giả: Hồ Tấn Khải</span>

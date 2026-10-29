@@ -163,11 +163,11 @@ export const BuyMeCoffeeModal: React.FC<BuyMeCoffeeModalProps> = ({ isOpen, onCl
               letterSpacing: '0.3px'
             }}
           >
-            MỜI TÁC GIẢ LY CÀ PHÊ
+            MỜI THẦY KHẢI LY CÀ PHÊ
           </h2>
 
           <p style={{ margin: 0, fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5, padding: '0 10px' }}>
-            Phần mềm <b>Đấu Trường 3D</b> được xây dựng và chia sẻ hoàn toàn <b>miễn phí</b> phục vụ cộng đồng giáo dục. Sự ủng hộ của quý thầy cô và đồng nghiệp là nguồn động lực to lớn giúp tác giả duy trì máy chủ và phát triển nhiều tính năng mới!
+            Phần mềm <b>Đấu Trường 3D</b> được xây dựng và chia sẻ hoàn toàn <b>miễn phí</b> phục vụ cộng đồng giáo dục. Sự ủng hộ của quý thầy cô và đồng nghiệp là nguồn động lực to lớn giúp Thầy Khải duy trì máy chủ và phát triển nhiều tính năng mới!
           </p>
         </div>
 
@@ -361,26 +361,27 @@ export const FloatingCoffeeButton: React.FC<{ onClick: () => void }> = ({ onClic
       <style>{`
         @keyframes floatCoffeeSteam {
           0% { transform: translateY(0) scaleX(1); opacity: 0.15; }
-          50% { transform: translateY(-5px) scaleX(1.2); opacity: 0.8; }
+          50% { transform: translateY(-5px) scaleX(1.2); opacity: 0.85; }
           100% { transform: translateY(-10px) scaleX(1.3); opacity: 0; }
         }
         @keyframes coffeeGentlePulse {
-          0%, 100% { transform: scale(1); box-shadow: 0 4px 18px rgba(217, 119, 6, 0.45); }
-          50% { transform: scale(1.03); box-shadow: 0 6px 24px rgba(245, 158, 11, 0.7); }
+          0%, 100% { transform: scale(1); box-shadow: 0 3px 12px rgba(217, 119, 6, 0.45); }
+          50% { transform: scale(1.03); box-shadow: 0 5px 18px rgba(245, 158, 11, 0.75); }
         }
-        .btn-floating-coffee {
+        .btn-footer-coffee {
+          position: relative;
           animation: coffeeGentlePulse 3s infinite ease-in-out;
           transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
-        .btn-floating-coffee:hover {
-          transform: translateY(-2px) scale(1.06) !important;
-          box-shadow: 0 8px 28px rgba(245, 158, 11, 0.85) !important;
+        .btn-footer-coffee:hover {
+          transform: translateY(-2px) scale(1.05) !important;
+          box-shadow: 0 6px 22px rgba(245, 158, 11, 0.9) !important;
         }
         .coffee-steam-icon {
           position: absolute;
-          top: -8px;
-          left: 14px;
-          font-size: 13px;
+          top: -9px;
+          left: 12px;
+          font-size: 12px;
           pointer-events: none;
           animation: floatCoffeeSteam 2s infinite ease-out;
         }
@@ -388,31 +389,28 @@ export const FloatingCoffeeButton: React.FC<{ onClick: () => void }> = ({ onClic
 
       <button
         type="button"
-        className="btn-floating-coffee"
+        className="btn-footer-coffee"
         onClick={onClick}
-        title="Bấm để mời tác giả Hồ Tấn Khải một ly cà phê qua VietQR Agribank"
+        title="Bấm để mời Thầy Khải một ly cà phê qua VietQR Agribank"
         style={{
-          position: 'fixed',
-          bottom: '86px',
-          right: '18px',
-          zIndex: 800,
-          background: 'linear-gradient(135deg, #b45309 0%, #78350f 100%)',
+          background: 'linear-gradient(135deg, #d97706 0%, #78350f 100%)',
           border: '2px solid #fef08a',
           borderRadius: '999px',
-          padding: '8px 16px',
-          display: 'flex',
+          padding: '5px 14px',
+          display: 'inline-flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
           cursor: 'pointer',
           color: '#ffffff',
           fontWeight: 900,
-          fontSize: '13px'
+          fontSize: '12.5px',
+          whiteSpace: 'nowrap'
         }}
       >
         <span className="coffee-steam-icon">♨️</span>
-        <span style={{ fontSize: '18px', lineHeight: 1 }}>☕</span>
+        <span style={{ fontSize: '16px', lineHeight: 1 }}>☕</span>
         <span style={{ color: '#fef08a', textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>
-          Mời Tác Giả Ly Cà Phê
+          Mời Thầy Khải Ly Cà Phê
         </span>
       </button>
     </>

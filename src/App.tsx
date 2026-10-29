@@ -28,7 +28,7 @@ import { StudentMobileView } from './components/StudentMobileView';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { NationalJuryDossierModal } from './components/NationalJuryDossierModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
-import { BuyMeCoffeeModal, FloatingCoffeeButton } from './components/BuyMeCoffeeModal';
+import { BuyMeCoffeeModal } from './components/BuyMeCoffeeModal';
 import { CloudBackupData } from './types';
 import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
@@ -1474,14 +1474,9 @@ export const App: React.FC = () => {
         initialTab={cloudSyncInitialTab}
       />
 
-      {/* Nút Nổi Kích Hoạt Mời Tác Giả Ly Cà Phê (Floating Button) */}
-      {view !== 'STUDENT_MOBILE' && (
-        <FloatingCoffeeButton onClick={() => setShowCoffeeModal(true)} />
-      )}
-
-      {/* Hộp Thoại Popup Mời Tác Giả Ly Cà Phê (VietQR Động Agribank) */}
+      {/* Hộp Thoại Popup Mời Thầy Khải Ly Cà Phê (Chỉ hiện ở màn hình cài đặt) */}
       <BuyMeCoffeeModal
-        isOpen={showCoffeeModal}
+        isOpen={view === 'TEACHER_SETUP' && showCoffeeModal}
         onClose={() => setShowCoffeeModal(false)}
       />
     </div>

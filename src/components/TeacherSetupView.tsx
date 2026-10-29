@@ -2501,21 +2501,23 @@ export const TeacherSetupView: React.FC<Props> = ({
                 type="button"
                 onClick={onOpenCoffeeModal}
                 style={{
-                  background: 'linear-gradient(135deg, #d97706, #b45309)',
-                  color: '#ffffff',
-                  padding: '4px 14px',
-                  borderRadius: '10px',
-                  border: '1.5px solid #fde047',
+                  position: 'relative',
+                  background: 'linear-gradient(135deg, #d97706, #78350f)',
+                  color: '#fef08a',
+                  padding: '5px 15px',
+                  borderRadius: '999px',
+                  border: '2px solid #fde047',
                   fontWeight: 900,
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  boxShadow: '0 2px 10px rgba(217, 119, 6, 0.5)',
+                  boxShadow: '0 3px 14px rgba(217, 119, 6, 0.55)',
                   cursor: 'pointer'
                 }}
-                title="Mời tác giả Hồ Tấn Khải một ly cà phê qua VietQR"
+                title="Mời Thầy Khải một ly cà phê qua VietQR Agribank"
               >
-                ☕ Mời Tác Giả Ly Cà Phê
+                <span style={{ fontSize: '16px', lineHeight: 1 }}>☕</span>
+                <span>Mời Thầy Khải Ly Cà Phê</span>
               </button>
             )}
           </div>
@@ -2550,6 +2552,34 @@ export const TeacherSetupView: React.FC<Props> = ({
         gap: '6px',
         zIndex: 500
       }}>
+        <style>{`
+          @keyframes setupFooterSteam {
+            0% { transform: translateY(0) scaleX(1); opacity: 0.2; }
+            50% { transform: translateY(-5px) scaleX(1.2); opacity: 0.85; }
+            100% { transform: translateY(-9px) scaleX(1.3); opacity: 0; }
+          }
+          @keyframes setupCoffeeGlow {
+            0%, 100% { transform: scale(1); box-shadow: 0 2px 12px rgba(217, 119, 6, 0.5); }
+            50% { transform: scale(1.03); box-shadow: 0 4px 18px rgba(250, 204, 21, 0.8); }
+          }
+          .btn-setup-coffee {
+            position: relative;
+            animation: setupCoffeeGlow 2.8s infinite ease-in-out;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .btn-setup-coffee:hover {
+            transform: translateY(-2px) scale(1.05) !important;
+            box-shadow: 0 6px 22px rgba(250, 204, 21, 0.95) !important;
+          }
+          .setup-steam-badge {
+            position: absolute;
+            top: -8px;
+            left: 12px;
+            font-size: 11px;
+            pointer-events: none;
+            animation: setupFooterSteam 2s infinite ease-out;
+          }
+        `}</style>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', width: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div style={{
@@ -2573,6 +2603,33 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {onOpenCoffeeModal && (
+              <button
+                type="button"
+                className="btn-setup-coffee"
+                onClick={onOpenCoffeeModal}
+                style={{
+                  background: 'linear-gradient(135deg, #d97706 0%, #78350f 100%)',
+                  color: '#fef08a',
+                  border: '2px solid #fde047',
+                  borderRadius: '999px',
+                  padding: '7px 15px',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Bấm để mời Thầy Khải một ly cà phê qua VietQR Agribank"
+              >
+                <span className="setup-steam-badge">♨️</span>
+                <span style={{ fontSize: '16px', lineHeight: 1 }}>☕</span>
+                <span>Mời Thầy Khải Ly Cà Phê</span>
+              </button>
+            )}
+
             <button
               type="button"
               className="btn-action-sm"
@@ -2721,6 +2778,29 @@ export const TeacherSetupView: React.FC<Props> = ({
           >
             💬 Nhắn tin Zalo: 0939580982
           </a>
+          {onOpenCoffeeModal && (
+            <button
+              type="button"
+              onClick={onOpenCoffeeModal}
+              style={{
+                background: 'linear-gradient(135deg, #d97706, #78350f)',
+                color: '#fef08a',
+                border: '1.5px solid #fde047',
+                padding: '2px 10px',
+                borderRadius: '999px',
+                fontWeight: 900,
+                fontSize: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(217, 119, 6, 0.45)'
+              }}
+              title="Mời Thầy Khải Ly Cà Phê qua VietQR Agribank"
+            >
+              ☕ Mời Thầy Khải Ly Cà Phê
+            </button>
+          )}
           <span style={{
             color: '#f472b6',
             fontWeight: 900,
