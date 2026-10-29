@@ -854,6 +854,18 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     }
   }
 
+  // Khi Giáo viên tạo phiên mới hoặc xóa danh sách lớp cũ (RESET_ROOM_SESSION hoặc CLEAR_ALL_STUDENTS)
+  if (payload.type === 'CLEAR_ALL_STUDENTS' || payload.type === 'RESET_ROOM_SESSION') {
+    room.players = {};
+    room.events = [];
+    room.matchStatus = 'LOBBY';
+    room.globalQIndex = 0;
+    room.latestHeartbeat = null;
+    room.seqCounter += 1;
+    room.updatedAt = now;
+    return;
+  }
+
   if (
     payload.type === 'MATCH_START' ||
     payload.type === 'FORCE_START_MATCH' ||
@@ -868,6 +880,26 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
     });
   }
 }
+
+// Endpoint xóa sạch danh sách học sinh cũ khi đổi lớp hoặc tạo phiên mới
+app.post('/api/room/:roomId/reset', (req, res) => {
+  try {
+    const cleanId = String(req.params.roomId || '').replace(/[^a-zA-Z0-9]/g, '');
+    const room = roomsHub.get(cleanId);
+    if (room) {
+      room.players = {};
+      room.events = [];
+      room.matchStatus = 'LOBBY';
+      room.globalQIndex = 0;
+      room.latestHeartbeat = null;
+      room.seqCounter += 1;
+      room.updatedAt = Date.now();
+    }
+    return res.json({ ok: true, message: 'Room reset successfully' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Reset error' });
+  }
+});
 
 app.post('/api/room/:roomId/publish', (req, res) => {
   try {

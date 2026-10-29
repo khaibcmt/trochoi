@@ -35,6 +35,8 @@ interface Props {
   onPrintPDFEvidence: () => void;
   onOpenKeyModal?: () => void;
   onOpenNationalDossier?: () => void;
+  onNewSession?: (customRoomId?: string) => void;
+  onResetClass?: () => void;
 }
 
 export const HostArenaView: React.FC<Props> = ({
@@ -49,7 +51,9 @@ export const HostArenaView: React.FC<Props> = ({
   onExportHTMLSlide,
   onPrintPDFEvidence,
   onOpenKeyModal,
-  onOpenNationalDossier
+  onOpenNationalDossier,
+  onNewSession,
+  onResetClass
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -2565,6 +2569,35 @@ export const HostArenaView: React.FC<Props> = ({
             🔲 Toàn MH
           </button>
 
+          {onNewSession && (
+            <button
+              className="b3d-btn"
+              style={{
+                flex: '1 1 0%',
+                height: '100%',
+                background: 'linear-gradient(135deg, #059669, #047857)',
+                border: '1px solid #6ee7b7',
+                color: '#ffffff',
+                padding: '0 8px',
+                fontSize: '11.5px',
+                fontWeight: 800,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                whiteSpace: 'nowrap'
+              }}
+              onClick={() => {
+                if (window.confirm('BẠN CÓ MUỐN BẮT ĐẦU PHIÊN MỚI / ĐỔI LỚP KHÁC?\n• Hệ thống sẽ tạo Mã Phòng mới.\n• Xóa sạch toàn bộ học sinh lớp cũ.\n• Đưa về màn hình Cài Đặt để chiếu mã QR cho lớp mới.')) {
+                  onNewSession();
+                  onReturnToSetup();
+                }
+              }}
+              title="Đổi lớp / Bắt đầu phiên mới với mã phòng mới và dọn sạch học sinh cũ"
+            >
+              🔄 Đổi Lớp
+            </button>
+          )}
+
           <button
             className="b3d-btn"
             style={{
@@ -3182,6 +3215,8 @@ export const HostArenaView: React.FC<Props> = ({
           onPrintPDFEvidence={onPrintPDFEvidence}
           onRestartMatch={handleRestartMatch}
           onReturnToSetup={onReturnToSetup}
+          onNewSession={onNewSession}
+          onResetClass={onResetClass}
         />
       )}
 

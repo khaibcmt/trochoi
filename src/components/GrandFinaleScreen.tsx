@@ -14,6 +14,8 @@ interface Props {
   onPrintPDFEvidence: () => void;
   onRestartMatch: () => void;
   onReturnToSetup: () => void;
+  onNewSession?: () => void;
+  onResetClass?: () => void;
 }
 
 export const GrandFinaleScreen: React.FC<Props> = ({
@@ -24,7 +26,9 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   onDownloadCSV,
   onPrintPDFEvidence,
   onRestartMatch,
-  onReturnToSetup
+  onReturnToSetup,
+  onNewSession,
+  onResetClass
 }) => {
   const [activeTab, setActiveTab] = useState<'DUAL' | 'SCORE' | 'CORRECT'>('DUAL');
   // Mặc định hiển thị Top 10 trên màn hình theo yêu cầu 4, có nút bấm mở rộng để xem toàn bộ cả lớp
@@ -844,6 +848,55 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         >
           🔄 THI ĐẤU TRẬN MỚI
         </button>
+
+        {onNewSession && (
+          <button
+            onClick={() => {
+              if (window.confirm('Bạn có chắc chắn muốn BẮT ĐẦU PHIÊN MỚI / ĐỔI LỚP KHÁC?\n• Hệ thống sẽ tạo Mã Phòng mới.\n• Toàn bộ học sinh lớp cũ sẽ được dọn sạch.\n• Mở màn hình cài đặt để lớp mới quét mã tham gia.')) {
+                onNewSession();
+                onReturnToSetup();
+              }
+            }}
+            style={{
+              padding: '11px 20px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #10b981, #059669)',
+              color: '#ffffff',
+              border: '2px solid #6ee7b7',
+              fontWeight: 900,
+              fontSize: '13.5px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.45)'
+            }}
+            title="Tạo phòng mới và xóa toàn bộ học sinh lớp cũ để dạy lớp tiếp theo"
+          >
+            🏫 BẮT ĐẦU PHIÊN MỚI / LỚP KHÁC
+          </button>
+        )}
+
+        {onResetClass && (
+          <button
+            onClick={() => {
+              if (window.confirm(`Bạn có chắc muốn LÀM MỚI PHÒNG ${activeRoomId}?\n• Giữ nguyên mã phòng.\n• Xóa sạch danh sách học sinh cũ về 0 để lớp tiếp theo vào.`)) {
+                onResetClass();
+                onReturnToSetup();
+              }
+            }}
+            style={{
+              padding: '11px 18px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #ea580c, #c2410c)',
+              color: '#ffffff',
+              border: '1.5px solid #fdba74',
+              fontWeight: 900,
+              fontSize: '13.5px',
+              cursor: 'pointer'
+            }}
+            title="Giữ nguyên mã phòng nhưng xóa toàn bộ danh sách học sinh cũ"
+          >
+            🧹 LÀM MỚI PHÒNG NÀY (XÓA HS CŨ)
+          </button>
+        )}
 
         <button
           onClick={onReturnToSetup}

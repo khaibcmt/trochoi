@@ -47,6 +47,8 @@ interface Props {
   activeRoomId?: string;
   connectedStudentCount?: number;
   connectedPlayers?: Player[];
+  onNewSession?: (customRoomId?: string) => void;
+  onResetClass?: () => void;
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -76,7 +78,9 @@ export const TeacherSetupView: React.FC<Props> = ({
   onOpenNationalDossier,
   activeRoomId,
   connectedStudentCount = 0,
-  connectedPlayers = []
+  connectedPlayers = [],
+  onNewSession,
+  onResetClass
 }) => {
   // 3 Khung Dạng Thức Chia Sẵn Riêng Biệt (Chuẩn THPT 2018)
   const mcEditorRef = useRef<HTMLDivElement>(null);
@@ -1323,6 +1327,24 @@ export const TeacherSetupView: React.FC<Props> = ({
 
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                  borderColor: '#f59e0b',
+                  color: '#92400e',
+                  fontWeight: 900
+                }}
+                onClick={() => {
+                  if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng mới toanh.\n• Xóa sạch 100% danh sách học sinh lớp cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới tham gia.\n\nThầy/Cô có muốn tiếp tục?')) {
+                    onNewSession?.();
+                  }
+                }}
+                title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ khi chuyển sang tiết/lớp khác"
+              >
+                🔄 Đổi Lớp / Phiên Mới
+              </button>
+              <button
                 className="btn-action-sm"
                 style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 900 }}
                 onClick={() => onOpenCloudSync?.('GOOGLE')}
@@ -2292,10 +2314,48 @@ export const TeacherSetupView: React.FC<Props> = ({
           </section>
         )}
 
-        <div className="flex-between" style={{ marginTop: '12px', marginBottom: '8px' }}>
-          <span style={{ fontSize: '12.5px', color: '#059669', fontWeight: 800 }}>
-            🟢 Mã phòng cố định: <b style={{ color: '#0284c7' }}>{activeRoomId}</b> ({connectedStudentCount} HS đang trong phòng) • Đổi trò chơi không cần quét lại QR!
-          </span>
+        <div className="flex-between" style={{ marginTop: '12px', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '13px', color: '#059669', fontWeight: 800 }}>
+              🟢 Mã phòng hiện tại: <b style={{ color: '#0284c7' }}>{activeRoomId}</b> (<b style={{ color: '#16a34a' }}>{connectedStudentCount}</b> HS trong phòng)
+            </span>
+            {connectedStudentCount > 0 && (
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ background: '#fee2e2', borderColor: '#fca5a5', color: '#b91c1c', fontSize: '11.5px', padding: '4px 9px', fontWeight: 900 }}
+                onClick={() => {
+                  if (confirm(`Xác nhận xóa sạch danh sách ${connectedStudentCount} học sinh hiện tại khỏi phòng để đón lớp mới?`)) {
+                    onResetClass?.();
+                  }
+                }}
+                title="Xóa danh sách học sinh cũ khỏi phòng hiện tại để học sinh mới điểm danh lại"
+              >
+                🧹 Xóa sạch HS cũ
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#ffffff',
+                borderColor: '#fbbf24',
+                fontSize: '12px',
+                padding: '5px 12px',
+                fontWeight: 900,
+                boxShadow: '0 2px 6px rgba(245, 158, 11, 0.35)'
+              }}
+              onClick={() => {
+                if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng 5 số mới toanh.\n• Xóa sạch 100% danh sách học sinh cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới.\n\nThầy/Cô có muốn tiếp tục?')) {
+                  onNewSession?.();
+                }
+              }}
+              title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ khi chuyển sang tiết/lớp khác"
+            >
+              🔄 Đổi Lớp / Phiên Mới
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -2384,6 +2444,26 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-action-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#ffffff',
+                borderColor: '#fbbf24',
+                padding: '8px 14px',
+                fontSize: '13px',
+                fontWeight: 900
+              }}
+              onClick={() => {
+                if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng mới toanh.\n• Xóa sạch 100% danh sách học sinh cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới.\n\nThầy/Cô có muốn tiếp tục?')) {
+                  onNewSession?.();
+                }
+              }}
+              title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ khi chuyển sang tiết/lớp khác"
+            >
+              🔄 Đổi Lớp / Phiên Mới
+            </button>
             {onSwitchToStudentMode && (
               <button
                 type="button"

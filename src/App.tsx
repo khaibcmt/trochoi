@@ -59,7 +59,7 @@ export const App: React.FC = () => {
   const [gameType, setGameType] = useState<GamePlayType>(studentGmParam);
   const [joinMode, setJoinMode] = useState<JoinMode>('AUTO_ALL');
   const [maxPerTeam, setMaxPerTeam] = useState<number>(5);
-  const [activeRoomId] = useState<string>(() => {
+  const [activeRoomId, setActiveRoomId] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('kc3d_host_room_id') || sessionStorage.getItem('kc3d_host_room_id');
       if (saved && /^\d{5}$/.test(saved)) {
@@ -340,6 +340,99 @@ export const App: React.FC = () => {
     saveSubjects(nextDB);
     setCurrentSubjectKey('BIO');
     currentSubjectKeyRef.current = 'BIO';
+  };
+
+  // 1. Tạo Phiên Mới / Đổi sang Lớp Khác: Cấp Mã Phòng 5 số mới toanh và xóa sạch 100% học sinh cũ
+  const handleCreateNewSession = (customRoomId?: string) => {
+    const oldRoom = activeRoomId;
+    const newRoom = customRoomId && /^\d{5}$/.test(customRoomId)
+      ? customRoomId
+      : String(Math.floor(10000 + Math.random() * 90000));
+
+    // Gửi tín hiệu CLEAR_ALL_STUDENTS vào phòng cũ để học sinh lớp cũ bị đăng xuất ngay
+    CloudNetwork.sendMessage({
+      type: 'CLEAR_ALL_STUDENTS',
+      roomId: oldRoom
+    });
+    CloudNetwork.resetRoomSession(oldRoom);
+    CloudNetwork.clearRoomCache(oldRoom);
+
+    // Lưu mã phòng mới
+    try {
+      localStorage.setItem('kc3d_host_room_id', newRoom);
+      sessionStorage.setItem('kc3d_host_room_id', newRoom);
+    } catch {}
+
+    answeredQKeysRef.current.clear();
+    firstBloodByQRef.current.clear();
+    lastEnterAckMapRef.current = {};
+
+    setMatchState(prev => ({
+      ...prev,
+      status: 'LOBBY',
+      currentRound: 1,
+      redRoundWins: 0,
+      blueRoundWins: 0,
+      ropeScore: 0,
+      redTotalCorrect: 0,
+      blueTotalCorrect: 0,
+      globalQIndex: 0,
+      redAnsweredIds: [],
+      blueAnsweredIds: [],
+      redPlayers: [],
+      bluePlayers: [],
+      spectators: 0,
+      liveFeed: [],
+      firstBloodPlayerId: null,
+      firstBloodPlayerName: null,
+      bossHP: matchSettings.bossMaxHP || 1000,
+      maxBossHP: matchSettings.bossMaxHP || 1000
+    }));
+
+    setActiveRoomId(newRoom);
+    CloudNetwork.resetRoomSession(newRoom);
+    CloudNetwork.clearRoomCache(newRoom);
+    AudioFX.bonusLifeChime();
+    alert(`🎉 ĐÃ TẠO PHIÊN MỚI THÀNH CÔNG!\n\n• Mã phòng mới: ${newRoom}\n• Đã xóa sạch toàn bộ danh sách học sinh cũ.\n• Mã QR và liên kết phòng mới đã sẵn sàng cho lớp học mới tham gia!`);
+  };
+
+  // 2. Làm Mới Lớp Hiện Tại: Giữ nguyên mã phòng nhưng xóa sạch toàn bộ học sinh cũ
+  const handleResetCurrentClass = () => {
+    CloudNetwork.sendMessage({
+      type: 'CLEAR_ALL_STUDENTS',
+      roomId: activeRoomId
+    });
+    CloudNetwork.resetRoomSession(activeRoomId);
+    CloudNetwork.clearRoomCache(activeRoomId);
+
+    answeredQKeysRef.current.clear();
+    firstBloodByQRef.current.clear();
+    lastEnterAckMapRef.current = {};
+
+    setMatchState(prev => ({
+      ...prev,
+      status: 'LOBBY',
+      currentRound: 1,
+      redRoundWins: 0,
+      blueRoundWins: 0,
+      ropeScore: 0,
+      redTotalCorrect: 0,
+      blueTotalCorrect: 0,
+      globalQIndex: 0,
+      redAnsweredIds: [],
+      blueAnsweredIds: [],
+      redPlayers: [],
+      bluePlayers: [],
+      spectators: 0,
+      liveFeed: [],
+      firstBloodPlayerId: null,
+      firstBloodPlayerName: null,
+      bossHP: matchSettings.bossMaxHP || 1000,
+      maxBossHP: matchSettings.bossMaxHP || 1000
+    }));
+
+    AudioFX.bonusLifeChime();
+    alert(`🧹 ĐÃ LÀM MỚI PHÒNG ${activeRoomId} THÀNH CÔNG!\n\n• Toàn bộ học sinh cũ đã được xóa sạch.\n• Sẵn sàng để học sinh lớp mới điểm danh vào phòng.`);
   };
 
   // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
@@ -1310,6 +1403,8 @@ export const App: React.FC = () => {
           activeRoomId={activeRoomId}
           connectedStudentCount={matchState.redPlayers.length + matchState.bluePlayers.length}
           connectedPlayers={[...matchState.redPlayers, ...matchState.bluePlayers]}
+          onNewSession={handleCreateNewSession}
+          onResetClass={handleResetCurrentClass}
         />
       )}
 
@@ -1327,6 +1422,8 @@ export const App: React.FC = () => {
           onPrintPDFEvidence={handlePrintPDFEvidence}
           onOpenKeyModal={() => setShowKeyModal(true)}
           onOpenNationalDossier={() => setShowNationalDossier(true)}
+          onNewSession={handleCreateNewSession}
+          onResetClass={handleResetCurrentClass}
         />
       )}
 

@@ -1261,6 +1261,30 @@ class NetworkService {
     return null;
   }
 
+  async resetRoomSession(roomId: string): Promise<void> {
+    const cleanId = String(roomId || '').replace(/[^a-zA-Z0-9]/g, '');
+    this.clearRoomCache(cleanId);
+    if (this.isStaticHost || this.apiOrigins.length === 0) return;
+    for (const origin of this.apiOrigins) {
+      try {
+        await fetch(`${origin}/api/room/${encodeURIComponent(cleanId)}/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch {}
+    }
+  }
+
+  clearRoomCache(roomId: string) {
+    try {
+      const cleanId = String(roomId || '').replace(/[^a-zA-Z0-9]/g, '');
+      sessionStorage.removeItem(`kc3d_offline_q_${cleanId}`);
+      sessionStorage.removeItem(`kc3d_quiz_cache_${cleanId}`);
+      localStorage.removeItem(`kc3d_quiz_cache_${cleanId}`);
+      localStorage.removeItem(`kc3d_live_sync_${cleanId}`);
+    } catch {}
+  }
+
   disconnect() {
     this.isIntentionalDisconnect = true;
     if (this.failoverTimer) {

@@ -91,6 +91,49 @@ export const StudentMobileView: React.FC<Props> = ({
 
   const [roomId, setRoomId] = useState(initialRoomId || '12345');
 
+  // Cập nhật roomId khi props initialRoomId từ Giáo viên thay đổi (Ví dụ: Giáo viên tạo phòng mới)
+  useEffect(() => {
+    if (initialRoomId && initialRoomId !== roomId) {
+      setRoomId(initialRoomId);
+    }
+  }, [initialRoomId]);
+
+  // Nếu chuyển sang Mã phòng mới (hoặc sang phiên lớp khác), lập tức xóa sạch tên và phiên học sinh cũ trên tab này!
+  const prevRoomIdRef = useRef<string>(roomId);
+  useEffect(() => {
+    if (prevRoomIdRef.current && prevRoomIdRef.current !== roomId) {
+      prevRoomIdRef.current = roomId;
+      try {
+        sessionStorage.removeItem(`kc3d_joined_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_screen_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_name_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_qidx_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
+      } catch {}
+      hasJoinedArenaRef.current = false;
+      waitingRoomLockedRef.current = false;
+      hasFinishedAllQuestionsRef.current = false;
+      setStudentName('');
+      studentNameRef.current = '';
+      setTempInputName('');
+      setFastScore(0);
+      fastScoreRef.current = 0;
+      setMyCorrectCount(0);
+      myCorrectCountRef.current = 0;
+      setCurrentGlobalQIndex(0);
+      currentGlobalQIndexRef.current = 0;
+      maxReachedQIndexRef.current = 0;
+      setLives(3);
+      setStreak(0);
+      setEliminated(false);
+      eliminatedRef.current = false;
+      setIsFrozen(false);
+      setTop10List([]);
+      setScreen('LOBBY');
+    }
+  }, [roomId, tabSessionId]);
+
   // Nếu mở Tab ở chế độ Ẩn Danh hoặc chưa truyền ?r= trên URL, tự động hỏi Server định kỳ để bắt đúng Mã Phòng đang mở của Giáo viên
   useEffect(() => {
     let mounted = true;
@@ -909,6 +952,41 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     if (typeof d.maxBossHP === 'number') {
       setMaxBossHP(d.maxBossHP);
+    }
+
+    // Khi Giáo viên tạo phiên mới hoặc xóa danh sách học sinh cũ trong phòng
+    if (d.type === 'CLEAR_ALL_STUDENTS' || d.type === 'RESET_ROOM_SESSION') {
+      try {
+        sessionStorage.removeItem(`kc3d_joined_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_screen_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_name_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_qidx_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
+      } catch {}
+      hasJoinedArenaRef.current = false;
+      waitingRoomLockedRef.current = false;
+      hasFinishedAllQuestionsRef.current = false;
+      setStudentName('');
+      studentNameRef.current = '';
+      setTempInputName('');
+      setFastScore(0);
+      fastScoreRef.current = 0;
+      setMyCorrectCount(0);
+      myCorrectCountRef.current = 0;
+      setCurrentGlobalQIndex(0);
+      currentGlobalQIndexRef.current = 0;
+      maxReachedQIndexRef.current = 0;
+      setLives(3);
+      setStreak(0);
+      setEliminated(false);
+      eliminatedRef.current = false;
+      setIsFrozen(false);
+      setTop10List([]);
+      setScreen('LOBBY');
+      AudioFX.bonusLifeChime();
+      triggerBonusToast('📢 Giáo viên đã mở phiên mới / đổi lớp! Vui lòng nhập tên của bạn để tham gia.');
+      return;
     }
 
     if (d.type === 'FORCE_PULL_TO_WAITING') {
