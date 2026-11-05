@@ -9,8 +9,32 @@ import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Global process crash guards
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled Exception in server process:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+function getPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const p = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(p)) return p;
+  }
+  return Number(process.env.PORT) || 3000;
+}
+
+function getHost(): string {
+  const hostArgIndex = process.argv.indexOf('--host');
+  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
+    return process.argv[hostArgIndex + 1];
+  }
+  return '0.0.0.0';
+}
+
 const app = express();
-const port = 3000;
 
 app.use(express.json({ limit: '25mb' }));
 
@@ -23,6 +47,15 @@ app.use((req, res, next) => {
     return res.sendStatus(200);
   }
   next();
+});
+
+// Health check endpoints for platform container pre-warming
+app.get('/health', (_req, res) => {
+  res.status(200).send('OK');
+});
+
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
 // Lazy initialization of GoogleGenAI SDK so server startup never crashes if GEMINI_API_KEY is not set
@@ -1004,6 +1037,9 @@ app.get('/api/room/:roomId/poll', (req, res) => {
 
 // Vite middleware in dev or static files in production
 async function startServer() {
+  const port = getPort();
+  const host = getHost();
+
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -1012,15 +1048,32 @@ async function startServer() {
     });
   } else {
     const vite = await createViteServer({
-      server: { middlewareMode: true, host: '0.0.0.0', port: 3000 },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://0.0.0.0:${port}`);
+  // Fallback error handler for any unhandled errors in express pipeline
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('Express pipeline error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'Internal Server Error' });
+    }
+  });
+
+  const server = app.listen(port, host, () => {
+    console.log(`🚀 Server running on http://${host}:${port}`);
+  });
+
+  server.on('error', (err: any) => {
+    console.error(`Server failed to bind on ${host}:${port}:`, err);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Fatal error during startServer():', err);
+});
