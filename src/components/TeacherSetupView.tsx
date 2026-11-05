@@ -916,7 +916,7 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   return (
     <main id="teacher-view">
-      <div className="setup-box">
+      <div className="setup-box" style={{ marginBottom: '64px' }}>
         {/* Top Header */}
         <div className="flex-between">
           <h2 style={{ margin: 0 }}>🌾 Hệ Thống 12 Môn THPT (GDPT 2018) – Đấu Trường 3D Pro</h2>
@@ -2478,7 +2478,7 @@ export const TeacherSetupView: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* CHÂN TRANG CỐ ĐỊNH 1 HÀNG SIÊU GỌN (Single-Row Ultra-Compact Footer) */}
+      {/* CHÂN TRANG CỐ ĐỊNH 1 HÀNG KÍCH THƯỚC LỚN RÕ RÀNG, VỪA KHUNG & MÀU SẮC NỔI BẬT */}
       <aside
         className="sticky-launch-bar"
         style={{
@@ -2486,28 +2486,29 @@ export const TeacherSetupView: React.FC<Props> = ({
           bottom: 0,
           left: 0,
           right: 0,
-          height: '36px',
-          background: 'linear-gradient(90deg, #090d16 0%, #1e1b4b 50%, #090d16 100%)',
-          borderTop: '1.5px solid #38bdf8',
-          boxShadow: '0 -4px 14px rgba(0,0,0,0.6)',
-          padding: '0 10px',
+          height: '46px',
+          minHeight: '46px',
+          background: 'linear-gradient(90deg, #090d16 0%, #172554 50%, #090d16 100%)',
+          borderTop: '2px solid #38bdf8',
+          boxShadow: '0 -4px 18px rgba(0, 0, 0, 0.75)',
+          padding: '0 12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'nowrap',
           overflowX: 'auto',
-          gap: '8px',
+          gap: '10px',
           zIndex: 500,
           whiteSpace: 'nowrap'
         }}
       >
         {/* Nhóm trái: Thông tin tác giả + Mời Thầy Khải Ly Cà Phê */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 800, flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8' }}>Liên hệ & góp ý:</span>
-          <span style={{ background: '#dc2626', color: '#ffffff', padding: '1px 6px', borderRadius: '4px', fontWeight: 900 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 800, flexShrink: 0 }}>
+          <span style={{ color: '#cbd5e1' }}>Liên hệ & góp ý:</span>
+          <span style={{ background: '#dc2626', color: '#ffffff', padding: '2px 8px', borderRadius: '5px', fontWeight: 900 }}>
             👨‍🏫 Hồ Tấn Khải
           </span>
-          <span style={{ color: '#38bdf8', fontWeight: 800 }}>🏫 THPT Mang Thít</span>
+          <span style={{ color: '#38bdf8', fontWeight: 900 }}>🏫 THPT Mang Thít</span>
           <a
             href="mailto:khaibcmt@gmail.com"
             style={{ color: '#fde047', textDecoration: 'none', fontWeight: 800 }}
@@ -2524,24 +2525,24 @@ export const TeacherSetupView: React.FC<Props> = ({
           >
             💬 Zalo: 0939580982
           </a>
-          <span style={{ color: '#f472b6', fontWeight: 800 }}>• Cảm ơn quý đồng nghiệp!</span>
           {onOpenCoffeeModal && (
             <button
               type="button"
               onClick={onOpenCoffeeModal}
               style={{
-                background: 'linear-gradient(135deg, #d97706 0%, #78350f 100%)',
+                height: '32px',
+                background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
                 color: '#fef08a',
-                border: '1px solid #fde047',
-                borderRadius: '999px',
-                padding: '2px 9px',
-                fontSize: '11.5px',
+                border: '1.5px solid #fde047',
+                borderRadius: '8px',
+                padding: '0 10px',
+                fontSize: '12px',
                 fontWeight: 900,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
+                gap: '5px',
                 cursor: 'pointer',
-                boxShadow: '0 1px 6px rgba(217, 119, 6, 0.5)'
+                boxShadow: '0 2px 8px rgba(217, 119, 6, 0.45)'
               }}
               title="Bấm để mời Thầy Khải một ly cà phê qua VietQR Agribank"
             >
@@ -2549,13 +2550,32 @@ export const TeacherSetupView: React.FC<Props> = ({
               <span>Mời Thầy Khải Ly Cà Phê</span>
             </button>
           )}
+          <span style={{ color: '#f472b6', fontWeight: 800 }}>• Cảm ơn quý đồng nghiệp!</span>
         </div>
 
-        {/* Nhóm phải: Trạng thái phòng & các nút điều khiển nhanh gọn trên cùng 1 hàng */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-          <span style={{ fontSize: '11.5px', color: '#e2e8f0', fontWeight: 800 }}>
-            🟢 Phòng <b style={{ color: '#fef08a' }}>{activeRoomId}</b> (<b style={{ color: '#4ade80' }}>{connectedStudentCount}</b> HS)
-          </span>
+        {/* Nhóm phải: Trạng thái phòng & các nút điều khiển kích cỡ lớn, vừa khít thanh công cụ, màu sắc nổi bật bắt mắt */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <div
+            style={{
+              height: '32px',
+              padding: '0 10px',
+              borderRadius: '8px',
+              background: 'rgba(15, 23, 42, 0.85)',
+              border: '1.5px solid #38bdf8',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12.5px',
+              fontWeight: 800,
+              color: '#f1f5f9',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+            }}
+          >
+            <span style={{ color: '#22c55e', fontSize: '13px' }}>●</span>
+            <span>Phòng <b style={{ color: '#fde047', fontSize: '13.5px' }}>{activeRoomId}</b></span>
+            <span style={{ color: '#94a3b8' }}>•</span>
+            <span style={{ color: '#4ade80', fontWeight: 900 }}>{connectedStudentCount} HS</span>
+          </div>
 
           <button
             type="button"
@@ -2565,18 +2585,25 @@ export const TeacherSetupView: React.FC<Props> = ({
               }
             }}
             style={{
-              background: '#d97706',
+              height: '32px',
+              background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
               color: '#ffffff',
-              border: '1px solid #fbbf24',
-              borderRadius: '6px',
-              padding: '2px 8px',
-              fontSize: '11px',
+              border: '1.5px solid #fdba74',
+              borderRadius: '8px',
+              padding: '0 12px',
+              fontSize: '12.5px',
               fontWeight: 900,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              boxShadow: '0 2px 8px rgba(234, 88, 12, 0.45)',
+              whiteSpace: 'nowrap'
             }}
             title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ"
           >
-            🔄 Đổi Lớp
+            <span>🔄</span>
+            <span>Đổi Lớp</span>
           </button>
 
           {onSwitchToStudentMode && (
@@ -2584,18 +2611,25 @@ export const TeacherSetupView: React.FC<Props> = ({
               type="button"
               onClick={handleSwitchToStudentWithSync}
               style={{
-                background: '#334155',
-                color: '#f8fafc',
-                border: '1px solid #64748b',
-                borderRadius: '6px',
-                padding: '2px 8px',
-                fontSize: '11px',
-                fontWeight: 800,
-                cursor: 'pointer'
+                height: '32px',
+                background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
+                color: '#ffffff',
+                border: '1.5px solid #5eead4',
+                borderRadius: '8px',
+                padding: '0 12px',
+                fontSize: '12.5px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.45)',
+                whiteSpace: 'nowrap'
               }}
               title="Mở giao diện điện thoại học sinh để thi đấu thử"
             >
-              📱 Thử HS
+              <span>📱</span>
+              <span>Thử HS</span>
             </button>
           )}
 
@@ -2603,37 +2637,53 @@ export const TeacherSetupView: React.FC<Props> = ({
             type="button"
             onClick={() => setShowQRModal(!showQRModal)}
             style={{
-              background: showQRModal ? '#0284c7' : '#1e293b',
+              height: '32px',
+              background: showQRModal
+                ? 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)'
+                : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
               color: '#ffffff',
-              border: '1px solid #38bdf8',
-              borderRadius: '6px',
-              padding: '2px 8px',
-              fontSize: '11px',
+              border: showQRModal ? '1.5px solid #fbcfe8' : '1.5px solid #c4b5fd',
+              borderRadius: '8px',
+              padding: '0 12px',
+              fontSize: '12.5px',
               fontWeight: 900,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              boxShadow: '0 2px 8px rgba(124, 58, 237, 0.45)',
+              whiteSpace: 'nowrap'
             }}
             title="Bấm để ẩn hoặc hiện mã QR phòng"
           >
-            {showQRModal ? '🙈 Ẩn QR' : '📱 Mã QR'}
+            <span>{showQRModal ? '🙈' : '📱'}</span>
+            <span>{showQRModal ? 'Ẩn QR' : 'Mã QR'}</span>
           </button>
 
           <button
             type="button"
             onClick={handleStartArena}
             style={{
-              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+              height: '34px',
+              background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
               color: '#ffffff',
-              border: '1px solid #7dd3fc',
-              borderRadius: '6px',
-              padding: '3px 10px',
-              fontSize: '11.5px',
+              border: '2px solid #93c5fd',
+              borderRadius: '8px',
+              padding: '0 16px',
+              fontSize: '13.5px',
               fontWeight: 900,
               cursor: 'pointer',
-              boxShadow: '0 0 10px rgba(56, 189, 248, 0.5)'
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 0 16px rgba(56, 189, 248, 0.7), 0 3px 10px rgba(0,0,0,0.4)',
+              letterSpacing: '0.4px',
+              whiteSpace: 'nowrap'
             }}
-            title="Chuẩn bị vào sàn đấu 3D"
+            title="Chuẩn bị vào sàn đấu 3D (Tập hợp học sinh)"
           >
-            📣 VÀO SÀN ĐẤU
+            <span>📢</span>
+            <span>VÀO SÀN ĐẤU</span>
           </button>
         </div>
       </aside>
