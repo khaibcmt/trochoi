@@ -14,7 +14,6 @@ import {
   SAMPLE_PHAN_2_TF,
   SAMPLE_PHAN_3_SA
 } from '../data/defaultSubjects';
-import { generateQuestionsClientSide, parseDocClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { auditQuizList, QuizAuditSummary } from '../services/quizAuditor';
 import { QuizAuditorModal } from './QuizAuditorModal';
 import { MathRenderer } from '../utils/katexHelper';
@@ -91,27 +90,17 @@ export const TeacherSetupView: React.FC<Props> = ({
   const saEditorRef = useRef<HTMLDivElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const inlineMediaInputRef = useRef<HTMLInputElement>(null);
   const activeEditorBoxRef = useRef<'MC' | 'TF' | 'SA'>('MC');
+
+  // Quick Part Selection Tab: Tất Cả (ALL), Phần I (MC), Phần II (TF), Phần III (SA)
+  const [activePartTab, setActivePartTab] = useState<'ALL' | 'MC' | 'TF' | 'SA'>('ALL');
 
   // QR Modal States (Ẩn / Hiện Mã QR)
   const [showQRModal, setShowQRModal] = useState(false);
   const [roomQRImg, setRoomQRImg] = useState<string | null>(null);
   const [roomQRUrl, setRoomQRUrl] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
-
-  // AI Modal States
-  const [showAIGenModal, setShowAIGenModal] = useState(false);
-  const [aiTopic, setAiTopic] = useState('');
-  const [aiLevel, setAiLevel] = useState('Thông hiểu');
-  const [aiCount, setAiCount] = useState(5);
-  const [aiLoading, setAiLoading] = useState(false);
-
-  // AI OCR / Doc Parse Modal
-  const [showOCRModal, setShowOCRModal] = useState(false);
-  const [ocrText, setOcrText] = useState('');
-  const [ocrLoading, setOcrLoading] = useState(false);
 
   // Live parsed questions preview state
   const [livePreviewItems, setLivePreviewItems] = useState<QuizItem[]>([]);
@@ -526,23 +515,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   };
 
-  const handleClearSingleBox = (boxType: 'MC' | 'TF' | 'SA') => {
-    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
-    const labelName = boxType === 'MC' ? 'Khung Dạng thức I (4 lựa chọn)' : boxType === 'TF' ? 'Khung Dạng thức II (Đúng/Sai)' : 'Khung Dạng thức III (Trả lời ngắn)';
-    if (targetRef.current && confirm(`Bạn có chắc muốn xóa trắng ${labelName}?`)) {
-      targetRef.current.innerHTML = '';
-      syncEditorQuestionsLive();
-    }
-  };
 
-  const handleClearEditor = () => {
-    if (confirm('Bạn có chắc muốn xóa trắng toàn bộ cả 3 khung câu hỏi?')) {
-      if (mcEditorRef.current) mcEditorRef.current.innerHTML = '';
-      if (tfEditorRef.current) tfEditorRef.current.innerHTML = '';
-      if (saEditorRef.current) saEditorRef.current.innerHTML = '';
-      syncEditorQuestionsLive();
-    }
-  };
 
   const handleInsertSample = (sampleHTML: string, boxType: 'MC' | 'TF' | 'SA') => {
     const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
@@ -665,107 +638,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     populate3BoxesFromItems(updated);
   };
 
-  const handleAIAutoMark = () => {
-    // Nếu giáo viên dán chung cả 3 phần vào 1 khung, tự động phân loại về đúng 3 khung Dạng thức I, II, III
-    const mcRaw = mcEditorRef.current?.innerHTML?.trim() || '';
-    const mcText = mcEditorRef.current?.innerText?.trim() || '';
-    const tfRaw = tfEditorRef.current?.innerHTML?.trim() || '';
-    const tfText = tfEditorRef.current?.innerText?.trim() || '';
-    const saRaw = saEditorRef.current?.innerHTML?.trim() || '';
-    const saText = saEditorRef.current?.innerText?.trim() || '';
 
-    const autoItems = [
-      ...((mcRaw || mcText) ? parseHTMLToQuiz(mcRaw || mcText, undefined, mcRaw ? undefined : mcText) : []),
-      ...((tfRaw || tfText) ? parseHTMLToQuiz(tfRaw || tfText, 'TRUE_FALSE', tfRaw ? undefined : tfText) : []),
-      ...((saRaw || saText) ? parseHTMLToQuiz(saRaw || saText, 'SHORT_ANSWER', saRaw ? undefined : saText) : [])
-    ].map((item, idx) => ({ ...item, qid: idx }));
-
-    if (!autoItems.length) {
-      alert('Vui lòng nhập hoặc dán câu hỏi vào ít nhất 1 trong 3 khung Dạng thức trước!');
-      return;
-    }
-    populate3BoxesFromItems(autoItems);
-    alert(`🤖 Hệ thống đã tự động chuẩn hóa, chia đúng 3 khung Dạng thức và nhận diện gạch chân đáp án đúng cho toàn bộ ${autoItems.length} câu hỏi chuẩn GDPT 2018!`);
-  };
-
-  // AI Question Generation (Client-Side Gemini & Intelligent Offline Fallback)
-  const handleAIGenerateQuestions = async () => {
-    if (!aiTopic.trim()) {
-      alert('Vui lòng nhập chủ đề bài học!');
-      return;
-    }
-    setAiLoading(true);
-    try {
-      const newItems = await generateQuestionsClientSide({
-        topic: aiTopic,
-        subject: subjectsDB[currentSubjectKey]?.name || 'Sinh học',
-        level: aiLevel,
-        count: aiCount
-      });
-
-      if (newItems && newItems.length > 0) {
-        const currentItems = getCombinedQuizFrom3Boxes();
-        const merged = [...currentItems, ...newItems].map((it, idx) => ({ ...it, qid: idx }));
-        populate3BoxesFromItems(merged);
-        if (onSyncQuizLive) onSyncQuizLive(merged);
-        setShowAIGenModal(false);
-        const hasKey = !!getStoredGeminiKey();
-        alert(`🎉 ${hasKey ? 'Google Gemini AI' : 'Hệ thống (Ngân hàng chuẩn GDPT 2018)'} đã nạp thành công ${newItems.length} câu hỏi vào 3 khung Dạng thức!`);
-      } else {
-        alert('Không tìm thấy câu hỏi phù hợp. Vui lòng thử lại!');
-      }
-    } catch (err: any) {
-      alert('Lỗi tạo câu hỏi AI: ' + err.message);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  // AI OCR / Document Parsing (Client-Side)
-  const handleAIParsingDocument = async (base64Image?: string) => {
-    if (!base64Image && !ocrText.trim()) {
-      alert('Vui lòng dán văn bản bài học hoặc tải ảnh chụp đề!');
-      return;
-    }
-    setOcrLoading(true);
-    try {
-      const newItems = await parseDocClientSide({
-        textContent: ocrText,
-        imageBase64: base64Image
-      });
-
-      if (newItems && newItems.length > 0) {
-        const currentItems = getCombinedQuizFrom3Boxes();
-        const merged = [...currentItems, ...newItems].map((it, idx) => ({ ...it, qid: idx }));
-        populate3BoxesFromItems(merged);
-        if (onSyncQuizLive) onSyncQuizLive(merged);
-        setShowOCRModal(false);
-        setOcrText('');
-        alert(`🎉 Đã bóc tách thành công ${newItems.length} câu hỏi chuẩn GDPT 2018 và chia vào đúng 3 khung Dạng thức!`);
-      } else {
-        alert('Không tìm thấy câu hỏi trắc nghiệm nào trong tài liệu.');
-      }
-    } catch (err: any) {
-      if (err.message && err.message.includes('API Key') && onOpenKeyModal) {
-        onOpenKeyModal();
-      }
-      alert(err.message || 'Lỗi bóc tách tài liệu.');
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  const handleOCRFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const b64 = ev.target?.result as string;
-      handleAIParsingDocument(b64);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
 
   const handleSaveToSubject = () => {
     const parsed = getCombinedQuizFrom3Boxes();
@@ -1305,149 +1178,256 @@ export const TeacherSetupView: React.FC<Props> = ({
             })}
           </div>
 
-          {/* Action Toolbar */}
-          <div className="flex-between" style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1', margin: '8px 0' }}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontWeight: 900, fontSize: '13px', color: '#0f172a' }}>
-                📚 Tổng số câu đã nhận diện: <b style={{ color: '#0284c7', fontSize: '15px' }}>{formatCounts.mc + formatCounts.tf + formatCounts.sa} câu</b>
-                {' '}({formatCounts.mc} Dạng I • {formatCounts.tf} Dạng II • {formatCounts.sa} Dạng III)
-              </span>
-              <button
-                className="btn-action-sm"
-                style={{ background: 'linear-gradient(135deg, #e0e7ff, #fae8ff)', borderColor: '#818cf8', color: '#3730a3', fontWeight: 900 }}
-                onClick={() => setShowAIGenModal(true)}
-              >
-                🤖 AI Soạn Đề 3 Dạng Thức
-              </button>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e', fontWeight: 900 }}
-                onClick={() => setShowOCRModal(true)}
-              >
-                📸 AI Quét Đề Từ Ảnh / Văn Bản
-              </button>
+          {/* Diagnostic & Action Toolbar (Thiết kế khoa học, hiện đại, không trùng lặp) */}
+          <div
+            style={{
+              padding: '12px 14px',
+              background: '#ffffff',
+              borderRadius: '16px',
+              border: '2px solid #cbd5e1',
+              margin: '10px 0',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}
+          >
+            {/* Hàng 1: Thống kê số câu và BÁC SĨ BẮT LỖI ĐỀ NỔI BẬT */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '10px',
+                paddingBottom: '10px',
+                borderBottom: '1.5px solid #e2e8f0'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    background: '#f1f5f9',
+                    border: '1.5px solid #cbd5e1',
+                    borderRadius: '10px',
+                    padding: '6px 12px',
+                    fontSize: '13.5px',
+                    fontWeight: 900,
+                    color: '#0f172a',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>📚</span>
+                  <span>Tổng số câu đã nhận diện:</span>
+                  <b style={{ color: '#0284c7', fontSize: '15.5px' }}>{formatCounts.mc + formatCounts.tf + formatCounts.sa} câu</b>
+                  <span style={{ color: '#94a3b8' }}>•</span>
+                  <span style={{ color: '#2563eb' }}>{formatCounts.mc} Dạng I</span>
+                  <span style={{ color: '#94a3b8' }}>•</span>
+                  <span style={{ color: '#7c3aed' }}>{formatCounts.tf} Dạng II</span>
+                  <span style={{ color: '#94a3b8' }}>•</span>
+                  <span style={{ color: '#059669' }}>{formatCounts.sa} Dạng III</span>
+                </span>
+              </div>
+
+              {/* BÁC SĨ BẮT LỖI ĐỀ - HIỆN NỔI BẬT NHẤT ĐỂ GIÁO VIÊN DỄ THẤY & THAO TÁC */}
               <button
                 type="button"
                 className="btn-action-sm"
                 style={{
-                  background: auditSummary.criticalCount > 0 ? 'linear-gradient(135deg, #fee2e2, #fecaca)' : 'linear-gradient(135deg, #dcfce7, #bbf7d0)',
-                  borderColor: auditSummary.criticalCount > 0 ? '#ef4444' : '#16a34a',
-                  color: auditSummary.criticalCount > 0 ? '#991b1b' : '#14532d',
+                  height: '38px',
+                  padding: '0 18px',
+                  borderRadius: '12px',
+                  fontSize: '13.5px',
                   fontWeight: 900,
-                  boxShadow: auditSummary.criticalCount > 0 ? '0 0 10px rgba(239, 68, 68, 0.35)' : 'none'
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: auditSummary.criticalCount > 0
+                    ? '2px solid #fecaca'
+                    : auditSummary.warningCount > 0
+                    ? '2px solid #fef08a'
+                    : '2px solid #a7f3d0',
+                  background: auditSummary.criticalCount > 0
+                    ? 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)'
+                    : auditSummary.warningCount > 0
+                    ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: auditSummary.warningCount > 0 && auditSummary.criticalCount === 0 ? '#0f172a' : '#ffffff',
+                  boxShadow: auditSummary.criticalCount > 0
+                    ? '0 0 16px rgba(239, 68, 68, 0.65)'
+                    : auditSummary.warningCount > 0
+                    ? '0 0 14px rgba(245, 158, 11, 0.55)'
+                    : '0 0 12px rgba(16, 185, 129, 0.45)',
+                  transition: 'all 0.15s ease'
                 }}
                 onClick={() => setShowAuditorModal(true)}
-                title="Bác Sĩ Bắt Lỗi Đề: Báo lỗi câu số mấy, bị lỗi gì và hướng dẫn cách sửa chi tiết kèm nút Tự Sửa 1-Click"
+                title="Bác Sĩ Bắt Lỗi Đề: Tự động kiểm tra phát hiện lỗi câu hỏi, đáp án, định dạng chuẩn GDPT 2018 và hỗ trợ Tự Sửa 1-Click"
               >
-                {auditSummary.criticalCount > 0
-                  ? `🩺 Bác Sĩ Bắt Lỗi Đề (⚠️ ${auditSummary.criticalCount} câu lỗi - Xem)`
-                  : auditSummary.warningCount > 0
-                  ? `🩺 Bác Sĩ Bắt Lỗi Đề (🟡 ${auditSummary.warningCount} lưu ý)`
-                  : `🩺 Bác Sĩ Bắt Lỗi Đề (✅ 0 Lỗi)`}
+                <span style={{ fontSize: '18px' }}>🩺</span>
+                <span>
+                  {auditSummary.criticalCount > 0
+                    ? `BÁC SĨ BẮT LỖI ĐỀ (⚠️ ${auditSummary.criticalCount} CÂU LỖI – BẤM SỬA NGAY)`
+                    : auditSummary.warningCount > 0
+                    ? `BÁC SĨ BẮT LỖI ĐỀ (🟡 ${auditSummary.warningCount} LƯU Ý – BẤM XEM)`
+                    : `BÁC SĨ BẮT LỖI ĐỀ: ✅ 100% ĐẠT CHUẨN GDPT 2018 (0 LỖI)`}
+                </span>
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {/* Hàng 2: Các công cụ soạn & lưu đề chuẩn xác, không bị lặp lại */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn-action-sm"
                 style={{
-                  background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-                  borderColor: '#f59e0b',
-                  color: '#92400e',
-                  fontWeight: 900
+                  height: '34px',
+                  background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
+                  borderColor: '#93c5fd',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 14px',
+                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)'
                 }}
-                onClick={() => {
-                  if (confirm('TẠO PHIÊN MỚI / ĐỔI LỚP KHÁC:\n\n• Hệ thống sẽ cấp Mã phòng mới toanh.\n• Xóa sạch 100% danh sách học sinh lớp cũ.\n• Mã QR và liên kết phòng sẽ tự cập nhật cho lớp mới tham gia.\n\nThầy/Cô có muốn tiếp tục?')) {
-                    onNewSession?.();
-                  }
-                }}
-                title="Tạo mã phòng mới hoàn toàn và dọn sạch học sinh lớp cũ khi chuyển sang tiết/lớp khác"
-              >
-                🔄 Đổi Lớp / Phiên Mới
-              </button>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 900 }}
-                onClick={() => onOpenCloudSync?.('GOOGLE')}
-                title="Mở Trung tâm Sao lưu & Đồng bộ Đám mây (Google / Mật khẩu)"
-              >
-                ☁️ Đám Mây Đa Thiết Bị
-              </button>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#dcfce7', borderColor: '#86efac', color: '#166534' }}
-                onClick={onAddSubject}
-              >
-                ➕ Thêm Môn Mới
-              </button>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#dbeafe', borderColor: '#93c5fd', color: '#1e40af' }}
                 onClick={handleSaveToSubject}
+                title="Lưu toàn bộ câu hỏi của 3 phần vào môn học này"
               >
                 💾 Lưu Đề Vào Môn Này
               </button>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#fae8ff', borderColor: '#d8b4fe', color: '#6b21a8' }}
-                onClick={handleAIAutoMark}
-              >
-                🤖 Chuẩn Hóa & Tự Gạch Chân Đáp Án
-              </button>
+
               <button
                 type="button"
                 className="btn-action-sm"
                 style={{
-                  background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)',
-                  borderColor: '#818cf8',
-                  color: '#3730a3',
-                  fontWeight: 900
+                  height: '34px',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)',
+                  borderColor: '#a5b4fc',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 14px',
+                  boxShadow: '0 2px 8px rgba(79, 70, 229, 0.35)'
                 }}
                 onClick={handleShuffleByPartOrder}
                 title="Xáo trộn câu hỏi ngẫu nhiên trong từng phần, giữ đúng thứ tự Phần I (Trắc nghiệm) ➔ Phần II (Đúng/Sai) ➔ Phần III (Trả lời ngắn)"
               >
                 🔀 Xáo Đề Theo Phần (I ➔ II ➔ III)
               </button>
+
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ background: '#e0f2fe', borderColor: '#38bdf8', color: '#0369a1', fontWeight: 900 }}
+                style={{
+                  height: '34px',
+                  background: '#fef08a',
+                  borderColor: '#eab308',
+                  color: '#713f12',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 14px'
+                }}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleUnderline()}
+                title="Đặt con trỏ vào dòng đáp án (hoặc bôi đen) rồi bấm nút này để Gạch chân = Đúng (Ctrl+U)"
+              >
+                <u>U</u> Gạch chân đáp án (Ctrl+U)
+              </button>
+
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  height: '34px',
+                  background: '#e0f2fe',
+                  borderColor: '#38bdf8',
+                  color: '#0369a1',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 12px'
+                }}
                 onClick={() => handleTriggerInsertImage(activeEditorBoxRef.current)}
                 title="Chèn Hình ảnh, Sơ đồ thí nghiệm, Đồ thị Toán/Lý, hoặc Bản đồ Địa lý vào câu hỏi"
               >
                 🖼️ Chèn Ảnh / Sơ Đồ / Bản Đồ
               </button>
+
               <button
                 type="button"
                 className="btn-action-sm"
-                style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#92400e', fontWeight: 900 }}
+                style={{
+                  height: '34px',
+                  background: '#fef3c7',
+                  borderColor: '#f59e0b',
+                  color: '#92400e',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 12px'
+                }}
                 onClick={() => handleInsertDataTable(activeEditorBoxRef.current)}
                 title="Chèn Bảng số liệu (Địa lý, Sinh học, Vật lý, Hóa học, Thống kê Toán) vào câu hỏi"
               >
                 📊 Chèn Bảng Số Liệu
               </button>
+
               <button
                 type="button"
                 className="btn-action-sm"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleUnderline()}
-                title="Đặt con trỏ vào dòng đáp án (hoặc bôi đen) rồi bấm nút này để Gạch chân = Đúng"
+                style={{
+                  height: '34px',
+                  background: '#f0fdf4',
+                  borderColor: '#86efac',
+                  color: '#166534',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 12px'
+                }}
+                onClick={() => onOpenCloudSync?.('GOOGLE')}
+                title="Mở Trung tâm Sao lưu & Đồng bộ Đám mây (Google / Mật khẩu)"
               >
-                <u>U</u> Gạch chân đáp án
+                ☁️ Đám Mây Đa Thiết Bị
               </button>
-              <button className="btn-action-sm" style={{ background: '#fee2e2', borderColor: '#fca5a5', color: '#991b1b' }} onClick={handleClearEditor}>
-                🗑️ Xóa trắng cả 3 khung
+
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  height: '34px',
+                  background: '#dcfce7',
+                  borderColor: '#86efac',
+                  color: '#166534',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 12px'
+                }}
+                onClick={onAddSubject}
+                title="Thêm môn học mới vào hệ thống"
+              >
+                ➕ Thêm Môn Mới
               </button>
+
               {!subjectsDB[currentSubjectKey]?.fixed && (
                 <button
+                  type="button"
                   className="btn-action-sm"
-                  style={{ background: '#fee2e2', borderColor: '#fca5a5', color: '#991b1b' }}
+                  style={{
+                    height: '34px',
+                    background: '#fee2e2',
+                    borderColor: '#fca5a5',
+                    color: '#991b1b',
+                    fontWeight: 900,
+                    fontSize: '13px',
+                    padding: '0 12px'
+                  }}
                   onClick={onDeleteCurrentSubject}
+                  title="Xóa môn học tự thêm này"
                 >
                   🗑️ Xóa Môn Này
                 </button>
               )}
+
               <input
                 type="file"
                 ref={inlineMediaInputRef}
@@ -1459,6 +1439,112 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </section>
 
+        {/* NÚT CHỌN NHANH PHẦN I, II, III (Segmented Switcher / Quick Navigation Tabs) */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            margin: '12px 0 14px 0',
+            padding: '8px 12px',
+            borderRadius: '14px',
+            background: 'linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%)',
+            border: '2px solid #38bdf8',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+            flexWrap: 'wrap'
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px', marginRight: '4px' }}>
+            <span>⚡</span>
+            <span>CHỌN NHANH PHẦN:</span>
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setActivePartTab('ALL')}
+            style={{
+              padding: '7px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              border: activePartTab === 'ALL' ? '2px solid #fde047' : '1px solid #475569',
+              background: activePartTab === 'ALL' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(255,255,255,0.08)',
+              color: activePartTab === 'ALL' ? '#0f172a' : '#cbd5e1',
+              boxShadow: activePartTab === 'ALL' ? '0 0 10px rgba(245, 158, 11, 0.45)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            📋 Tất Cả 3 Phần ({formatCounts.mc + formatCounts.tf + formatCounts.sa} câu)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActivePartTab('MC');
+              activeEditorBoxRef.current = 'MC';
+            }}
+            style={{
+              padding: '7px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              border: activePartTab === 'MC' ? '2px solid #93c5fd' : '1px solid #475569',
+              background: activePartTab === 'MC' ? 'linear-gradient(135deg, #0284c7, #2563eb)' : 'rgba(255,255,255,0.08)',
+              color: '#ffffff',
+              boxShadow: activePartTab === 'MC' ? '0 0 12px rgba(56, 189, 248, 0.55)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🟦 Phần I: Trắc Nghiệm 4 Phương Án ({formatCounts.mc} câu)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActivePartTab('TF');
+              activeEditorBoxRef.current = 'TF';
+            }}
+            style={{
+              padding: '7px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              border: activePartTab === 'TF' ? '2px solid #ddd6fe' : '1px solid #475569',
+              background: activePartTab === 'TF' ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'rgba(255,255,255,0.08)',
+              color: '#ffffff',
+              boxShadow: activePartTab === 'TF' ? '0 0 12px rgba(124, 58, 237, 0.55)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🟪 Phần II: Đúng / Sai 4 Ý ({formatCounts.tf} câu)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActivePartTab('SA');
+              activeEditorBoxRef.current = 'SA';
+            }}
+            style={{
+              padding: '7px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              border: activePartTab === 'SA' ? '2px solid #a7f3d0' : '1px solid #475569',
+              background: activePartTab === 'SA' ? 'linear-gradient(135deg, #059669, #047857)' : 'rgba(255,255,255,0.08)',
+              color: '#ffffff',
+              boxShadow: activePartTab === 'SA' ? '0 0 12px rgba(16, 185, 129, 0.55)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🟩 Phần III: Trả Lời Ngắn ({formatCounts.sa} câu)
+          </button>
+        </div>
+
         {/* BỐ TRÍ 3 KHUNG DẠNG THỨC THEO THỨ TỰ TỪ TRÊN XUỐNG (FULL-WIDTH, KHUNG TO RÕ RÀNG, DỄ THAO TÁC) */}
         <section
           aria-label="Ba khung soạn câu hỏi xếp từ trên xuống theo 3 dạng thức THPT 2018"
@@ -1466,18 +1552,18 @@ export const TeacherSetupView: React.FC<Props> = ({
             display: 'flex',
             flexDirection: 'column',
             gap: '18px',
-            margin: '12px 0'
+            margin: '8px 0 12px 0'
           }}
         >
           {/* KHUNG 1 (TRÊN CÙNG): DẠNG THỨC I - TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D) */}
           <div
             style={{
+              display: activePartTab === 'ALL' || activePartTab === 'MC' ? 'flex' : 'none',
               width: '100%',
               background: '#eff6ff',
               border: '3px solid #3b82f6',
               borderRadius: '16px',
               padding: '14px 16px',
-              display: 'flex',
               flexDirection: 'column',
               gap: '10px',
               boxShadow: '0 6px 18px rgba(59, 130, 246, 0.14)'
@@ -1531,14 +1617,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={() => handleInsertDataTable('MC')}
               >
                 📊 Chèn Bảng Số Liệu
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
-                onClick={() => handleClearSingleBox('MC')}
-              >
-                🗑️ Xóa khung 1
               </button>
             </div>
 
@@ -1644,12 +1722,12 @@ export const TeacherSetupView: React.FC<Props> = ({
           {/* KHUNG 2 (Ở GIỮA): DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
           <div
             style={{
+              display: activePartTab === 'ALL' || activePartTab === 'TF' ? 'flex' : 'none',
               width: '100%',
               background: '#f5f3ff',
               border: '3px solid #8b5cf6',
               borderRadius: '16px',
               padding: '14px 16px',
-              display: 'flex',
               flexDirection: 'column',
               gap: '10px',
               boxShadow: '0 6px 18px rgba(139, 92, 246, 0.14)'
@@ -1703,14 +1781,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={() => handleInsertDataTable('TF')}
               >
                 📊 Chèn Bảng Số Liệu
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
-                onClick={() => handleClearSingleBox('TF')}
-              >
-                🗑️ Xóa khung 2
               </button>
             </div>
 
@@ -1813,12 +1883,12 @@ export const TeacherSetupView: React.FC<Props> = ({
           {/* KHUNG 3 (DƯỚI CÙNG): DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
           <div
             style={{
+              display: activePartTab === 'ALL' || activePartTab === 'SA' ? 'flex' : 'none',
               width: '100%',
               background: '#ecfdf5',
               border: '3px solid #10b981',
               borderRadius: '16px',
               padding: '14px 16px',
-              display: 'flex',
               flexDirection: 'column',
               gap: '10px',
               boxShadow: '0 6px 18px rgba(16, 185, 129, 0.14)'
@@ -1853,6 +1923,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => handleUnderline('SA')}
+                title="Đặt con trỏ vào dòng đáp án rồi bấm nút này (hoặc nhấn Ctrl+U) để Gạch chân = ĐÚNG"
               >
                 <u>U</u> Gạch chân Đáp số (Ctrl+U)
               </button>
@@ -1871,14 +1942,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={() => handleInsertDataTable('SA')}
               >
                 📊 Chèn Bảng Số Liệu
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', color: '#b91c1c', fontWeight: 800 }}
-                onClick={() => handleClearSingleBox('SA')}
-              >
-                🗑️ Xóa khung 3
               </button>
             </div>
 
@@ -2419,63 +2482,6 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Dòng liên hệ & Mời Thầy Khải Ly Cà Phê gọn 1 hàng ở cuối khung cài đặt */}
-        <div
-          style={{
-            marginTop: '8px',
-            padding: '5px 12px',
-            borderRadius: '10px',
-            background: 'linear-gradient(90deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
-            border: '1.5px solid #38bdf8',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexWrap: 'nowrap',
-            overflowX: 'auto',
-            gap: '6px',
-            fontSize: '11.5px',
-            fontWeight: 800,
-            color: '#f8fafc',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <span style={{ color: '#cbd5e1' }}>Liên hệ & góp ý:</span>
-          <span style={{ background: '#dc2626', color: '#fff', padding: '1px 7px', borderRadius: '5px', fontWeight: 900 }}>
-            👨‍🏫 Hồ Tấn Khải
-          </span>
-          <span style={{ color: '#7dd3fc', fontWeight: 900 }}>🏫 THPT Mang Thít</span>
-          <a href="mailto:khaibcmt@gmail.com" style={{ color: '#fde047', textDecoration: 'none' }}>
-            ✉️ khaibcmt@gmail.com
-          </a>
-          <a href="https://zalo.me/0939580982" target="_blank" rel="noreferrer" style={{ color: '#4ade80', textDecoration: 'none' }}>
-            💬 Zalo: 0939580982
-          </a>
-          {onOpenCoffeeModal && (
-            <button
-              type="button"
-              onClick={onOpenCoffeeModal}
-              style={{
-                background: 'linear-gradient(135deg, #d97706, #78350f)',
-                color: '#fef08a',
-                padding: '2px 9px',
-                borderRadius: '999px',
-                border: '1px solid #fde047',
-                fontWeight: 900,
-                fontSize: '11.5px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                cursor: 'pointer'
-              }}
-              title="Mời Thầy Khải một ly cà phê qua VietQR Agribank"
-            >
-              ☕ Mời Thầy Khải Ly Cà Phê
-            </button>
-          )}
-          <span style={{ color: '#f472b6', fontWeight: 900 }}>
-            • Cảm ơn quý đồng nghiệp đã góp ý!
-          </span>
-        </div>
       </div>
 
       {/* CHÂN TRANG CỐ ĐỊNH 1 HÀNG KÍCH THƯỚC LỚN RÕ RÀNG, VỪA KHUNG & MÀU SẮC NỔI BẬT */}
@@ -2760,161 +2766,7 @@ export const TeacherSetupView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* AI Generate Questions Modal */}
-      {showAIGenModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-          <div style={{ background: '#ffffff', borderRadius: '18px', padding: '24px', maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.25)', color: '#0f172a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', color: '#3730a3' }}>
-                🤖 AI Soạn Đề Chuẩn GDPT 2018 (Gemini Flash)
-              </h3>
-              <button
-                type="button"
-                onClick={() => onOpenKeyModal && onOpenKeyModal()}
-                style={{
-                  background: getStoredGeminiKey() ? '#ecfdf5' : '#fef3c7',
-                  border: `1px solid ${getStoredGeminiKey() ? '#10b981' : '#f59e0b'}`,
-                  color: getStoredGeminiKey() ? '#047857' : '#b45309',
-                  padding: '3px 8px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-                title="Cài đặt Google Gemini API Key"
-              >
-                {getStoredGeminiKey() ? '🟢 Đã có API Key' : '⚙️ Cài đặt Key (hoặc dùng Offline)'}
-              </button>
-            </div>
-            <p style={{ fontSize: '12.5px', color: '#475569', margin: '0 0 14px 0' }}>
-              Nhập chủ đề bài dạy, môn học và mức độ nhận thức. AI sẽ tạo bộ câu hỏi đa dạng (Trắc nghiệm, Đúng/Sai 4 ý, Trả lời ngắn). Nếu chưa có Key, hệ thống tự động nạp ngân hàng câu hỏi chuẩn SGK Kết nối tri thức.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 800 }}>
-                Chủ đề / Bài học:
-                <input
-                  type="text"
-                  placeholder="VD: Cấu trúc di truyền quần thể, Định luật II Newton, Tích phân từng phần..."
-                  value={aiTopic}
-                  onChange={e => setAiTopic(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', marginTop: '4px', fontSize: '13.5px' }}
-                />
-              </label>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 800 }}>
-                  Mức độ nhận thức:
-                  <select
-                    value={aiLevel}
-                    onChange={e => setAiLevel(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #cbd5e1', marginTop: '4px', fontSize: '13px' }}
-                  >
-                    <option value="Nhận biết">1. Nhận biết</option>
-                    <option value="Thông hiểu">2. Thông hiểu</option>
-                    <option value="Vận dụng">3. Vận dụng</option>
-                    <option value="Vận dụng cao">4. Vận dụng cao</option>
-                    <option value="Tổng hợp đa cấp độ">Tổng hợp cả 4 cấp độ</option>
-                  </select>
-                </label>
-
-                <label style={{ fontSize: '13px', fontWeight: 800 }}>
-                  Số lượng câu hỏi:
-                  <select
-                    value={aiCount}
-                    onChange={e => setAiCount(parseInt(e.target.value))}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1.5px solid #cbd5e1', marginTop: '4px', fontSize: '13px' }}
-                  >
-                    <option value={3}>3 câu</option>
-                    <option value={5}>5 câu</option>
-                    <option value={8}>8 câu</option>
-                    <option value={10}>10 câu</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
-              <button
-                className="btn-action-sm"
-                onClick={() => setShowAIGenModal(false)}
-                disabled={aiLoading}
-              >
-                Hủy
-              </button>
-              <button
-                className="btn-launch"
-                style={{ padding: '8px 18px', fontSize: '14px' }}
-                onClick={handleAIGenerateQuestions}
-                disabled={aiLoading}
-              >
-                {aiLoading ? '⏳ Đang tạo đề...' : '✨ Tạo Đề Ngay'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI OCR & Document Parsing Modal */}
-      {showOCRModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-          <div style={{ background: '#ffffff', borderRadius: '18px', padding: '24px', maxWidth: '580px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.25)', color: '#0f172a' }}>
-            <h3 style={{ margin: '0 0 10px 0', fontSize: '19px', color: '#92400e' }}>
-              📸 AI Quét Đề Từ Ảnh Chụp Hoặc Đoạn Văn Bản (OCR)
-            </h3>
-            <p style={{ fontSize: '13px', color: '#475569', margin: '0 0 12px 0' }}>
-              Tải ảnh chụp trang đề thi hoặc dán nội dung từ file Word/PDF. AI sẽ tự động nhận diện và bóc tách thành danh sách câu hỏi chuẩn GDPT 2018.
-            </p>
-
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <button
-                className="btn-action-sm"
-                style={{ background: '#dbeafe', borderColor: '#60a5fa', color: '#1e40af', padding: '8px 14px' }}
-                onClick={() => ocrFileInputRef.current?.click()}
-                disabled={ocrLoading}
-              >
-                📷 Tải Ảnh Chụp Đề Thi (JPG/PNG)
-              </button>
-              <input
-                type="file"
-                ref={ocrFileInputRef}
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleOCRFileSelect}
-              />
-            </div>
-
-            <label style={{ fontSize: '13px', fontWeight: 800 }}>
-              Hoặc dán nội dung văn bản đề thi / bài học vào đây:
-              <textarea
-                rows={7}
-                placeholder="Dán câu hỏi hoặc nội dung từ file Word/PDF tại đây..."
-                value={ocrText}
-                onChange={e => setOcrText(e.target.value)}
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1.5px solid #cbd5e1', marginTop: '6px', fontSize: '13px', fontFamily: 'inherit' }}
-              />
-            </label>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-              <button
-                className="btn-action-sm"
-                onClick={() => setShowOCRModal(false)}
-                disabled={ocrLoading}
-              >
-                Hủy
-              </button>
-              <button
-                className="btn-launch"
-                style={{ padding: '8px 18px', fontSize: '14px' }}
-                onClick={() => handleAIParsingDocument()}
-                disabled={ocrLoading}
-              >
-                {ocrLoading ? '⏳ AI đang bóc tách...' : '⚡ Bóc Tách Đề'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Bác Sĩ Bắt Lỗi Đề (Quiz Auditor Modal) */}
 
       {/* AI Doctor & STEM Auditor Modal */}
       <QuizAuditorModal
