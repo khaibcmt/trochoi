@@ -439,11 +439,12 @@ export const App: React.FC = () => {
     alert(`🧹 ĐÃ LÀM MỚI PHÒNG ${activeRoomId} THÀNH CÔNG!\n\n• Toàn bộ học sinh cũ đã được xóa sạch.\n• Sẵn sàng để học sinh lớp mới điểm danh vào phòng.`);
   };
 
-  // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên)
+  // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên: Phần I ➔ Phần II ➔ Phần III)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
     answeredQKeysRef.current.clear();
     firstBloodByQRef.current.clear();
-    const normalizedDeck: QuizItem[] = parsedQuiz.map((item, idx) => ({
+    const orderedAndShuffled = shuffleQuestionOrder(parsedQuiz);
+    const normalizedDeck: QuizItem[] = orderedAndShuffled.map((item, idx) => ({
       ...item,
       qid: idx,
       rightCount: 0,

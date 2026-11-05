@@ -2429,13 +2429,22 @@ export const SAMPLE_PHAN_3_SA = `<div>Câu: Có bao nhiêu bộ ba mã di truy�
 // Part 1 (Multiple Choice) -> Part 2 (True/False) -> Part 3 (Short Answer)
 // The questions WITHIN each part are randomly shuffled on every match!
 export function shuffleQuestionOrder(deck: QuizItem[]): QuizItem[] {
+  if (!deck || deck.length === 0) return [];
   const cloned: QuizItem[] = JSON.parse(JSON.stringify(deck));
 
-  const part1 = cloned.filter(q => !q.format || q.format === 'MULTIPLE_CHOICE');
-  const part2 = cloned.filter(q => q.format === 'TRUE_FALSE');
-  const part3 = cloned.filter(q => q.format === 'SHORT_ANSWER');
+  // Phân loại chính xác 3 dạng thức GDPT 2018:
+  // Phần II: Đúng/Sai (format TRUE_FALSE hoặc có tfItems)
+  // Phần III: Trả lời ngắn (format SHORT_ANSWER hoặc có shortAnswer)
+  // Phần I: Trắc nghiệm 4 lựa chọn (các câu còn lại)
+  const isPart2 = (q: QuizItem) => q.format === 'TRUE_FALSE' || (Array.isArray(q.tfItems) && q.tfItems.length > 0);
+  const isPart3 = (q: QuizItem) => q.format === 'SHORT_ANSWER' || (!isPart2(q) && (q.shortAnswer !== undefined && q.shortAnswer !== ''));
+  const isPart1 = (q: QuizItem) => !isPart2(q) && !isPart3(q);
 
-  const shuffleArray = (arr: QuizItem[]) => {
+  const part1 = cloned.filter(isPart1).map(q => ({ ...q, format: (q.format || 'MULTIPLE_CHOICE') as QuestionFormat }));
+  const part2 = cloned.filter(isPart2).map(q => ({ ...q, format: 'TRUE_FALSE' as QuestionFormat }));
+  const part3 = cloned.filter(isPart3).map(q => ({ ...q, format: 'SHORT_ANSWER' as QuestionFormat }));
+
+  const shuffleArray = <T>(arr: T[]): T[] => {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -2447,6 +2456,7 @@ export function shuffleQuestionOrder(deck: QuizItem[]): QuizItem[] {
   const shuffledPart2 = shuffleArray(part2);
   const shuffledPart3 = shuffleArray(part3);
 
+  // Thứ tự bắt buộc: Tất cả câu Phần I ➔ Tất cả câu Phần II ➔ Tất cả câu Phần III
   const combined = [...shuffledPart1, ...shuffledPart2, ...shuffledPart3];
   return combined.map((item, idx) => ({
     ...item,
@@ -2483,21 +2493,11 @@ const studentShuffledCache: Record<string, QuizItem> = {};
 export function getStableShuffledQuestion(questionItem: QuizItem, qIndexKey: number): QuizItem {
   const cacheKey = `${qIndexKey}_${questionItem.q}`;
   if (studentShuffledCache[cacheKey]) return studentShuffledCache[cacheKey];
-  const optObjs = questionItem.opts.map((txt, idx) => ({ txt, isCorrect: idx === questionItem.correct }));
-  for (let i = optObjs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [optObjs[i], optObjs[j]] = [optObjs[j], optObjs[i]];
-  }
+  // Đồng nhất 100% giữa màn hình Giáo viên và Học sinh, không tự ý xáo trộn phương án
   const result: QuizItem = {
-    qid: questionItem.qid,
+    ...questionItem,
     q: cleanQuestionTitleText(questionItem.q),
-    format: questionItem.format,
-    tfItems: questionItem.tfItems,
-    shortAnswer: questionItem.shortAnswer,
-    opts: optObjs.map(o => o.txt),
-    correct: optObjs.findIndex(o => o.isCorrect),
-    rightCount: questionItem.rightCount,
-    wrongCount: questionItem.wrongCount
+    opts: [...(questionItem.opts || [])]
   };
   studentShuffledCache[cacheKey] = result;
   return result;

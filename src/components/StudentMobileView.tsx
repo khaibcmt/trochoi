@@ -748,7 +748,7 @@ export const StudentMobileView: React.FC<Props> = ({
       format: 'MULTIPLE_CHOICE'
     };
 
-  // Xáo trộn thứ tự đáp án của học sinh ĐÚNG 1 LẦN DUY NHẤT khi câu hỏi xuất hiện rồi ĐỨNG IM hoàn toàn (không bao giờ nhảy lại)
+  // Đồng bộ thứ tự đáp án A, B, C, D 100% khớp hoàn toàn giữa điện thoại học sinh và màn hình giáo viên
   const resolvedQSignature = `${clampedQIndex}::${resolvedCurrentQ?.q || ''}::${(resolvedCurrentQ?.opts || []).join('|')}`;
   useEffect(() => {
     if (!resolvedCurrentQ || !resolvedCurrentQ.opts || resolvedCurrentQ.opts.length === 0) {
@@ -765,35 +765,15 @@ export const StudentMobileView: React.FC<Props> = ({
       cleanText: String(rawText || '').replace(/^[A-D][\.\:\)]\s*/i, '').trim() || String(rawText || '')
     }));
 
-    // Deterministic seed per student + question index so it shuffles once and stays 100% locked
-    const seedStr = `${myPlayerId}_q_${clampedQIndex}_${resolvedCurrentQ.q}`;
-    let hash = 2166136261;
-    for (let i = 0; i < seedStr.length; i++) {
-      hash ^= seedStr.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    let seed = Math.abs(hash) || 1234567;
-    const nextRand = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
-
-    const copy = [...baseItems];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(nextRand() * (i + 1));
-      const temp = copy[i];
-      copy[i] = copy[j];
-      copy[j] = temp;
-    }
-
-    const finalItems: StudentShuffledOption[] = copy.map((item, pos) => ({
+    // Giữ nguyên 100% thứ tự A, B, C, D giống hệt màn hình máy chiếu của giáo viên
+    const finalItems: StudentShuffledOption[] = baseItems.map((item, pos) => ({
       originalIndex: item.originalIndex,
       letter: String.fromCharCode(65 + pos),
       text: item.cleanText
     }));
 
     setShuffledOpts(finalItems);
-  }, [resolvedQSignature, myPlayerId, clampedQIndex]);
+  }, [resolvedQSignature, clampedQIndex]);
 
   const handleTimeoutFail = () => {
     if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;

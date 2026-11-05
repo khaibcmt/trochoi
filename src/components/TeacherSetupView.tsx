@@ -9,6 +9,7 @@ import {
   cleanQuestionTitleText,
   formatQuizToHTML,
   aiAutoDetectCorrectIndex,
+  shuffleQuestionOrder,
   SAMPLE_PHAN_1_MC,
   SAMPLE_PHAN_2_TF,
   SAMPLE_PHAN_3_SA
@@ -788,16 +789,35 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   };
 
+  // Xáo trộn câu hỏi theo chuẩn GDPT 2018:
+  // Xuất hiện lần lượt: Hết Phần I ➔ Hết Phần II ➔ Hết Phần III
+  // Các câu hỏi trong mỗi phần được xáo ngẫu nhiên và đồng bộ 100% giữa GV và HS
+  const handleShuffleByPartOrder = () => {
+    const parsed = getCombinedQuizFrom3Boxes();
+    if (!parsed.length) {
+      alert('Chưa có câu hỏi nào để xáo trộn! Vui lòng nhập hoặc chọn đề thi trước.');
+      return;
+    }
+    const shuffled = shuffleQuestionOrder(parsed);
+    populate3BoxesFromItems(shuffled);
+    const updatedHTML = formatQuizToHTML(shuffled);
+    onSaveCurrentQuizToSubject(shuffled, updatedHTML, true);
+    if (onSyncQuizLive) onSyncQuizLive(shuffled);
+    alert(`🔀 ĐÃ XÁO TRỘN ĐỀ THI THÀNH CÔNG (${shuffled.length} CÂU)!\n\n• Thứ tự xuất hiện: Toàn bộ Phần I (Trắc nghiệm) ➔ Toàn bộ Phần II (Đúng/Sai) ➔ Toàn bộ Phần III (Trả lời ngắn)\n• Các câu hỏi bên trong từng phần được xáo trộn ngẫu nhiên\n• Màn hình Giáo viên và Học sinh 100% khớp nhau từng phương án.`);
+  };
+
   const handleStartArena = () => {
     const parsed = getCombinedQuizFrom3Boxes();
     if (!parsed.length) {
       alert('Vui lòng chọn hoặc nhập ít nhất 1 câu hỏi hợp lệ vào 1 trong 3 khung Dạng thức!');
       return;
     }
-    const updatedHTML = formatQuizToHTML(parsed);
-    populate3BoxesFromItems(parsed);
-    onSaveCurrentQuizToSubject(parsed, updatedHTML, true);
-    onLaunchArena(parsed);
+    // Tự động sắp xếp chuẩn Phần I -> Phần II -> Phần III và xáo trộn ngẫu nhiên trong từng phần
+    const orderedAndShuffled = shuffleQuestionOrder(parsed);
+    const updatedHTML = formatQuizToHTML(orderedAndShuffled);
+    populate3BoxesFromItems(orderedAndShuffled);
+    onSaveCurrentQuizToSubject(orderedAndShuffled, updatedHTML, true);
+    onLaunchArena(orderedAndShuffled);
   };
 
   const handleSwitchToStudentWithSync = () => {
@@ -1374,6 +1394,20 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={handleAIAutoMark}
               >
                 🤖 Chuẩn Hóa & Tự Gạch Chân Đáp Án
+              </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)',
+                  borderColor: '#818cf8',
+                  color: '#3730a3',
+                  fontWeight: 900
+                }}
+                onClick={handleShuffleByPartOrder}
+                title="Xáo trộn câu hỏi ngẫu nhiên trong từng phần, giữ đúng thứ tự Phần I (Trắc nghiệm) ➔ Phần II (Đúng/Sai) ➔ Phần III (Trả lời ngắn)"
+              >
+                🔀 Xáo Đề Theo Phần (I ➔ II ➔ III)
               </button>
               <button
                 type="button"

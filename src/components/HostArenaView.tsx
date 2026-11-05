@@ -1915,7 +1915,13 @@ export const HostArenaView: React.FC<Props> = ({
   const handleStartContest = () => {
     AudioFX.whistle();
     const nowTs = Date.now();
-    const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
+    // Đảm bảo đề thi xuất hiện lần lượt theo thứ tự: hết Phần I ➔ hết Phần II ➔ hết Phần III
+    // Các câu hỏi trong mỗi phần được xáo ngẫu nhiên và đồng bộ 100% giữa Giáo viên và Học sinh
+    const orderedDeck = shuffleQuestionOrder(quizList);
+    if (onUpdateQuizList) {
+      onUpdateQuizList(orderedDeck);
+    }
+    const firstQ = orderedDeck[0] ? { ...orderedDeck[0], qIndex: 0, totalQuestions: orderedDeck.length } : undefined;
 
     // 1. Cập nhật trạng thái PLAYING ngay lập tức trước khi gửi tin để nhịp tim không bao giờ gửi nhầm trạng thái LOBBY cũ
     onUpdateMatchState(prev => ({
@@ -1935,7 +1941,7 @@ export const HostArenaView: React.FC<Props> = ({
       durationSec: durationSec,
       serverStartTime: nowTs,
       question: firstQ,
-      quiz: quizList
+      quiz: orderedDeck
     });
 
     // 3. Phát bổ sung các xung kích hoạt siêu nhẹ (< 1KB, không lặp lại mảng quiz nặng) qua Đa Server sau 180ms và 550ms
@@ -2078,15 +2084,36 @@ export const HostArenaView: React.FC<Props> = ({
     link.click();
   };
 
+  // Xáo trộn đề thi khi đang ở Phòng Chờ (Lobby) và đồng bộ ngay lập tức đến 100% học sinh
+  const handleShuffleInLobby = () => {
+    const reordered = shuffleQuestionOrder(quizList);
+    if (onUpdateQuizList) {
+      onUpdateQuizList(reordered);
+    }
+    const firstQ = reordered[0] ? { ...reordered[0], qIndex: 0, totalQuestions: reordered.length } : undefined;
+    CloudNetwork.sendMessage({
+      type: 'QUIZ_SYNC',
+      quiz: reordered,
+      question: firstQ,
+      qIndex: 0
+    });
+    alert(`🔀 ĐÃ XÁO ĐỀ THI THEO CHUẨN GDPT 2018 (${reordered.length} CÂU)!\n\n• Thứ tự bắt buộc: Hết Phần I (Trắc nghiệm) ➔ Hết Phần II (Đúng/Sai) ➔ Hết Phần III (Trả lời ngắn)\n• Các câu trong từng phần được xáo ngẫu nhiên\n• Toàn bộ máy học sinh đã được đồng bộ 100% giống hệt màn hình giáo viên!`);
+  };
+
   // Restart match for a fresh new game round
   const handleRestartMatch = () => {
-    const firstQ = quizList[0] ? { ...quizList[0], qIndex: 0, totalQuestions: quizList.length } : undefined;
+    // Xáo trộn lại các câu hỏi trong mỗi phần và đảm bảo xuất hiện: Phần I ➔ Phần II ➔ Phần III
+    const freshDeck = shuffleQuestionOrder(quizList);
+    if (onUpdateQuizList) {
+      onUpdateQuizList(freshDeck);
+    }
+    const firstQ = freshDeck[0] ? { ...freshDeck[0], qIndex: 0, totalQuestions: freshDeck.length } : undefined;
     CloudNetwork.sendMessage({
       type: 'MATCH_START',
       status: 'PLAYING',
       qIndex: 0,
       question: firstQ,
-      quiz: quizList
+      quiz: freshDeck
     });
     onUpdateMatchState(prev => ({
       ...prev,
@@ -2294,24 +2321,45 @@ export const HostArenaView: React.FC<Props> = ({
           </button>
 
           {matchState.status === 'LOBBY' ? (
-            <button
-              className="b3d-btn"
-              style={{
-                flex: '1.4 1 0%',
-                height: '100%',
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                border: '1.5px solid #6ee7b7',
-                padding: '0 10px',
-                fontSize: '12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                whiteSpace: 'nowrap'
-              }}
-              onClick={handleStartContest}
-            >
-              ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
-            </button>
+            <>
+              <button
+                className="b3d-btn"
+                style={{
+                  flex: '0.8 1 0%',
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                  border: '1.5px solid #a5b4fc',
+                  padding: '0 8px',
+                  fontSize: '11.5px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  whiteSpace: 'nowrap'
+                }}
+                onClick={handleShuffleInLobby}
+                title="Xáo trộn câu hỏi trong từng phần và đồng bộ chuẩn thứ tự Phần I ➔ Phần II ➔ Phần III"
+              >
+                🔀 Xáo Đề
+              </button>
+              <button
+                className="b3d-btn"
+                style={{
+                  flex: '1.4 1 0%',
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  border: '1.5px solid #6ee7b7',
+                  padding: '0 10px',
+                  fontSize: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  whiteSpace: 'nowrap'
+                }}
+                onClick={handleStartContest}
+              >
+                ▶ BẮT ĐẦU THI ({allPlayers.length} HS)
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -3091,6 +3139,28 @@ export const HostArenaView: React.FC<Props> = ({
                 >
                   <span>🧲</span>
                   <span>KÉO HS VÀO PHÒNG CHỜ</span>
+                </button>
+                <button
+                  onClick={handleShuffleInLobby}
+                  style={{
+                    background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                    color: '#ffffff',
+                    border: '1.5px solid #a5b4fc',
+                    borderRadius: '10px',
+                    padding: '6px 14px',
+                    fontSize: '13px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Xáo trộn câu hỏi trong từng phần và đồng bộ chuẩn thứ tự Phần I ➔ Phần II ➔ Phần III"
+                >
+                  <span>🔀</span>
+                  <span>XÁO ĐỀ (I ➔ II ➔ III)</span>
                 </button>
                 <button
                   onClick={handleStartContest}
