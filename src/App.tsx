@@ -34,13 +34,61 @@ import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from '.
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 export const App: React.FC = () => {
-  // Query parameters check
-  const [urlParams] = useState(() => new URLSearchParams(window.location.search));
-  const isDirectStudent = urlParams.get('role') === 'player' || urlParams.has('r') || urlParams.has('room');
+  // Query & Hash parameters check (Hỗ trợ cả ?r=12345 và #r=12345 khi quét QR hoặc mở qua Zalo/iFrame)
+  const [urlParams] = useState(() => {
+    const combined = new URLSearchParams(window.location.search);
+    const hashStr = window.location.hash || '';
+    if (hashStr.length > 1) {
+      const qIdx = hashStr.indexOf('?');
+      const hashQuery = qIdx !== -1 ? hashStr.substring(qIdx + 1) : hashStr.replace(/^#\/?/, '');
+      const hashSearchParams = new URLSearchParams(hashQuery);
+      hashSearchParams.forEach((val, key) => {
+        if (!combined.has(key)) {
+          combined.set(key, val);
+        }
+      });
+    }
+    return combined;
+  });
 
-  const [view, setView] = useState<'TEACHER_SETUP' | 'HOST_ARENA' | 'STUDENT_MOBILE'>(
-    isDirectStudent ? 'STUDENT_MOBILE' : 'TEACHER_SETUP'
-  );
+  const isDirectStudent =
+    urlParams.get('role') === 'player' ||
+    urlParams.has('r') ||
+    urlParams.has('room') ||
+    /[?#&](?:r|room)=\d+/i.test(window.location.href);
+
+  const [view, setView] = useState<'TEACHER_SETUP' | 'HOST_ARENA' | 'STUDENT_MOBILE'>(() => {
+    if (isDirectStudent) {
+      try {
+        sessionStorage.setItem('kc3d_active_view_mode', 'STUDENT_MOBILE');
+      } catch {}
+      return 'STUDENT_MOBILE';
+    }
+    try {
+      if (sessionStorage.getItem('kc3d_active_view_mode') === 'STUDENT_MOBILE') {
+        return 'STUDENT_MOBILE';
+      }
+    } catch {}
+    return 'TEACHER_SETUP';
+  });
+
+  // Đảm bảo ẩn hoàn toàn modal xác thực Giáo viên nếu đang ở chế độ Học sinh (STUDENT_MOBILE)
+  useEffect(() => {
+    const authOverlay = document.getElementById('dautruong-auth-overlay');
+    if (view === 'STUDENT_MOBILE') {
+      try {
+        sessionStorage.setItem('kc3d_active_view_mode', 'STUDENT_MOBILE');
+      } catch {}
+      if (authOverlay) {
+        authOverlay.classList.remove('active');
+        authOverlay.style.display = 'none';
+      }
+    } else {
+      try {
+        sessionStorage.removeItem('kc3d_active_view_mode');
+      } catch {}
+    }
+  }, [view]);
 
   // Initial student params from URL
   const studentRoomParam = urlParams.get('r') || urlParams.get('room') || '12345';

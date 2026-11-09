@@ -120,14 +120,14 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
     const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
     const bkIdx = CloudNetwork.getActiveBrokerIndex();
-    const url = `${base}?r=${activeRoomId}&t=R${gmFlag}&bk=${bkIdx}`;
+    const url = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
     setRoomQRUrl(url);
     QRCode.toDataURL(url, { width: 220, margin: 1, errorCorrectionLevel: 'H' }).then(setRoomQRImg).catch(() => {});
   }, [activeRoomId, gameType]);
 
   const handleCopyRoomLink = () => {
     if (!roomQRUrl) return;
-    navigator.clipboard.writeText(roomQRUrl);
+    navigator.clipboard.writeText(roomQRUrl).catch(() => {});
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -1256,7 +1256,9 @@ export const TeacherSetupView: React.FC<Props> = ({
                 style={{ background: '#6366f1', color: '#ffffff', borderColor: '#a5b4fc', fontWeight: 900 }}
                 onClick={() => {
                   const baseUrl = window.location.origin + window.location.pathname;
-                  const studentUrl = `${baseUrl}?r=${activeRoomId}&role=player`;
+                  const bkIdx = CloudNetwork.getActiveBrokerIndex();
+                  const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
+                  const studentUrl = `${baseUrl}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
                   navigator.clipboard?.writeText(studentUrl).catch(() => {});
                   setCopiedLink(true);
                   setTimeout(() => setCopiedLink(false), 2500);

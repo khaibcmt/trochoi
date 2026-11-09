@@ -496,8 +496,30 @@
           deviceBadge.textContent = deviceId;
         }
 
-        // Nếu đường dẫn là học sinh quét mã QR (?room=...) thì không chặn màn hình học sinh,
-        // nhưng vẫn kiểm tra localStorage theo đúng yêu cầu cho trang chính
+        // Kiểm tra nếu là thiết bị của HỌC SINH (quét mã QR hoặc mở link có ?r=, ?room=, ?role=player, hoặc #r=...)
+        // thì TUYỆT ĐỐI KHÔNG hiển thị hộp thoại xác thực Giáo viên trên máy học sinh!
+        const searchStr = window.location.search || "";
+        const hashStr = window.location.hash || "";
+        const urlParams = new URLSearchParams(searchStr);
+        const hashQueryIndex = hashStr.indexOf("?");
+        const hashParams = new URLSearchParams(
+          hashQueryIndex !== -1 ? hashStr.substring(hashQueryIndex + 1) : hashStr.replace(/^#\/?/, "")
+        );
+        const isStudentUrl =
+          urlParams.get("role") === "player" ||
+          urlParams.has("r") ||
+          urlParams.has("room") ||
+          hashParams.get("role") === "player" ||
+          hashParams.has("r") ||
+          hashParams.has("room") ||
+          /[?#&](?:r|room)=\d+/i.test(window.location.href);
+
+        if (isStudentUrl) {
+          overlay.classList.remove("active");
+          overlay.style.display = "none";
+          return;
+        }
+
         try {
           const savedUser = localStorage.getItem(USER_STORAGE_KEY);
           if (savedUser) {
@@ -511,7 +533,7 @@
           // Dữ liệu lỗi thì mở lại modal
         }
 
-        // Chưa có thông tin hợp lệ -> Hiển thị modal
+        // Chưa có thông tin hợp lệ (và đang ở máy Giáo viên) -> Hiển thị modal
         overlay.classList.add("active");
 
         form.addEventListener("submit", async function (e) {

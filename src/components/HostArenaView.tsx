@@ -164,8 +164,8 @@ export const HostArenaView: React.FC<Props> = ({
     }
     const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : ''));
     const bkIdx = CloudNetwork.getActiveBrokerIndex();
-    const rUrl = `${base}?r=${activeRoomId}&t=R${gmFlag}&bk=${bkIdx}`;
-    const bUrl = `${base}?r=${activeRoomId}&t=B${gmFlag}&bk=${bkIdx}`;
+    const rUrl = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
+    const bUrl = `${base}?r=${activeRoomId}&role=player&t=B${gmFlag}&bk=${bkIdx}`;
     setQrRedUrl(rUrl);
     setQrBlueUrl(bUrl);
 
