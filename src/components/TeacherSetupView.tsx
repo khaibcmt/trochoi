@@ -36,11 +36,11 @@ interface Props {
   onSyncQuizLive?: (parsedQuiz: QuizItem[]) => void;
   onDeleteCurrentSubject: () => void;
   onLaunchArena: (quizList: QuizItem[]) => void;
-  onSwitchToStudentMode: () => void;
+  onSwitchToStudentMode?: () => void;
   onExportHTMLSlide: () => void;
-  onPrintPDFEvidence: () => void;
-  onExportJSON: () => void;
-  onImportJSON: (items: QuizItem[]) => void;
+  onPrintPDFEvidence?: () => void;
+  onExportJSON?: () => void;
+  onImportJSON?: (items: QuizItem[]) => void;
   onOpenKeyModal?: () => void;
   onOpenCloudSync?: (tab?: 'GOOGLE' | 'PASSWORD') => void;
   onOpenNationalDossier?: () => void;
@@ -1150,188 +1150,21 @@ export const TeacherSetupView: React.FC<Props> = ({
     <main id="teacher-view">
       <div className="setup-box" style={{ marginBottom: '64px' }}>
         {/* Top Header */}
-        <div className="flex-between">
-          <h2 style={{ margin: 0 }}>🌾 Hệ Thống 12 Môn THPT (GDPT 2018) – Đấu Trường 3D Pro</h2>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {onOpenNationalDossier && (
-              <button
-                className="btn-action-sm"
-                style={{
-                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                  border: '2px solid #fef08a',
-                  color: '#0f172a',
-                  fontWeight: 900,
-                  boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)',
-                  fontSize: '13px'
-                }}
-                onClick={onOpenNationalDossier}
-                title="Mở toàn bộ hướng dẫn sử dụng chi tiết của trò chơi (chữ to rõ, màu sắc bắt mắt)"
-              >
-                📖 HƯỚNG DẪN SỬ DỤNG
-              </button>
-            )}
+        <div className="flex-between" style={{ marginBottom: '14px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>
+            🌾 Hệ Thống 12 Môn THPT (GDPT 2018) – Đấu Trường 3D Pro
+          </h2>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
+              type="button"
               className="btn-action-sm"
-              style={{ background: '#dbeafe', borderColor: '#2563eb', color: '#1e40af', fontWeight: 900, boxShadow: '0 1px 3px rgba(37,99,235,0.2)' }}
-              onClick={() => onOpenCloudSync?.('GOOGLE')}
-              title="Sao lưu toàn bộ dữ liệu trên tài khoản Google (ở nhà sang máy trường học tự động đồng bộ)"
-            >
-              ☁️ Đồng Bộ Google
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#fef3c7', borderColor: '#d97706', color: '#b45309', fontWeight: 900, boxShadow: '0 1px 3px rgba(217,119,6,0.2)' }}
-              onClick={() => onOpenCloudSync?.('PASSWORD')}
-              title="Nhập mật khẩu để tự động đồng bộ dữ liệu nếu dùng tab ẩn danh hoặc máy trường học không đăng nhập Google"
-            >
-              🔑 Nhập Mật Khẩu Đồng Bộ (Ẩn Danh)
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#dcfce7', borderColor: '#10b981', color: '#065f46' }}
-              onClick={handleSwitchToStudentWithSync}
-            >
-              📱 Chế Độ HS (Nhập Mã Phòng)
-            </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#92400e' }}
+              style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#92400e', fontWeight: 800 }}
               onClick={onExportHTMLSlide}
+              title="Xuất bài giảng slide học liệu đa phương tiện"
             >
               🎨 Xuất Slide Học Liệu Màu (.html)
             </button>
-            <button
-              className="btn-action-sm"
-              style={{ background: '#e0e7ff', borderColor: '#6366f1', color: '#1e1b4b' }}
-              onClick={onPrintPDFEvidence}
-            >
-              🖨️ In / Lưu PDF Minh Chứng
-            </button>
-            <button className="btn-action-sm" onClick={onExportJSON}>
-              💾 Xuất Đề (.json)
-            </button>
-            <button className="btn-action-sm" onClick={() => fileInputRef.current?.click()}>
-              📂 Nhập Đề (.json / .txt / .html)
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".json,.txt,.html,.htm"
-              style={{ display: 'none' }}
-              onChange={handleFileChange}
-            />
           </div>
-        </div>
-
-        {/* Live Student Roster Banner right on Teacher Setup Screen */}
-        <div
-          style={{
-            marginTop: '10px',
-            padding: '10px 14px',
-            background: 'linear-gradient(90deg, #064e3b, #0f172a)',
-            border: '2px solid #10b981',
-            borderRadius: '14px',
-            color: '#ffffff',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <span style={{ background: '#10b981', color: '#022c22', fontWeight: 900, fontSize: '12.5px', padding: '4px 10px', borderRadius: '999px' }}>
-                🟢 MÃ PHÒNG: {activeRoomId}
-              </span>
-              <span style={{ fontWeight: 900, fontSize: '13.5px', color: '#fef08a' }}>
-                👥 Sĩ số học sinh đã vào phòng: <b style={{ color: '#4ade80', fontSize: '15px' }}>{connectedPlayers.length}</b> / {matchSettings.roomCapacity} HS
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ background: '#6366f1', color: '#ffffff', borderColor: '#a5b4fc', fontWeight: 900 }}
-                onClick={() => {
-                  const baseUrl = window.location.origin + window.location.pathname;
-                  const bkIdx = CloudNetwork.getActiveBrokerIndex();
-                  const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
-                  const studentUrl = `${baseUrl}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
-                  navigator.clipboard?.writeText(studentUrl).catch(() => {});
-                  setCopiedLink(true);
-                  setTimeout(() => setCopiedLink(false), 2500);
-                }}
-                title="Sao chép đường dẫn dành cho Học sinh để dán vào nhiều Tab / Chế độ Ẩn danh test tải Server"
-              >
-                {copiedLink ? '✅ Đã Copy Link HS!' : '📋 Copy Link HS (Mở nhiều Tab Ẩn Danh)'}
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ background: '#0284c7', color: '#ffffff', borderColor: '#38bdf8', fontWeight: 900 }}
-                onClick={() => setShowQRModal(true)}
-              >
-                📱 Hiện Mã QR Cho HS Quét
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', borderColor: '#fde047', fontWeight: 900 }}
-                onClick={() => {
-                  const pullTs = Date.now();
-                  CloudNetwork.sendMessage({
-                    type: 'FORCE_PULL_TO_WAITING',
-                    roomId: activeRoomId,
-                    gameType,
-                    status: 'LOBBY',
-                    globalQIndex: 0,
-                    forcePullTs: pullTs
-                  });
-                  CloudNetwork.reconnectImmediate();
-                  setTimeout(() => CloudNetwork.reconnectImmediate(), 500);
-                }}
-                title="Kéo toàn bộ học sinh đang mở trang web vào thẳng Phòng chờ & hiện nhân vật 3D"
-              >
-                🧲 Kéo HS Vào Phòng
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ background: '#10b981', color: '#022c22', borderColor: '#6ee7b7', fontWeight: 900 }}
-                onClick={handleStartArena}
-              >
-                🚀 Mở Sàn Đấu 3D Ngay
-              </button>
-            </div>
-          </div>
-
-          {connectedPlayers.length > 0 ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '78px', overflowY: 'auto', paddingTop: '2px' }}>
-              {connectedPlayers.map((p, idx) => (
-                <span
-                  key={p.id || idx}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '4px 10px',
-                    borderRadius: '999px',
-                    fontSize: '12px',
-                    fontWeight: 900,
-                    background: p.team === 'RED' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.25)',
-                    border: `1.5px solid ${p.team === 'RED' ? '#f87171' : '#38bdf8'}`,
-                    color: '#ffffff'
-                  }}
-                >
-                  <span>{p.ready ? '✅' : '⏳'}</span>
-                  <span>{p.label}</span>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: '12px', color: '#a7f3d0', fontWeight: 700 }}>
-              💡 Học sinh quét mã QR hoặc nhập mã phòng <b>{activeRoomId}</b> và bấm <b>"BƯỚC VÀO SÀN ĐẤU"</b> sẽ hiện tên ngay lập tức tại đây và trên sân 3D!
-            </div>
-          )}
         </div>
 
         {/* 4 Game Modes Grid - Single Row with 4 distinct 3D Colors */}
@@ -1678,78 +1511,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 🔀 Xáo Đề Theo Phần (I ➔ II ➔ III)
               </button>
 
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{
-                  height: '34px',
-                  background: '#fef08a',
-                  borderColor: '#eab308',
-                  color: '#713f12',
-                  fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 14px'
-                }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleUnderline()}
-                title="Đặt con trỏ vào dòng đáp án (hoặc bôi đen) rồi bấm nút này để Gạch chân = Đúng (Ctrl+U)"
-              >
-                <u>U</u> Gạch chân đáp án (Ctrl+U)
-              </button>
 
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{
-                  height: '34px',
-                  background: '#e0f2fe',
-                  borderColor: '#38bdf8',
-                  color: '#0369a1',
-                  fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 12px'
-                }}
-                onClick={() => handleTriggerInsertImage(activeEditorBoxRef.current)}
-                title="Chèn Hình ảnh, Sơ đồ thí nghiệm, Đồ thị Toán/Lý, hoặc Bản đồ Địa lý vào câu hỏi"
-              >
-                🖼️ Chèn Ảnh / Sơ Đồ / Bản Đồ
-              </button>
-
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{
-                  height: '34px',
-                  background: '#fef3c7',
-                  borderColor: '#f59e0b',
-                  color: '#92400e',
-                  fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 12px'
-                }}
-                onClick={() => handleInsertDataTable(activeEditorBoxRef.current)}
-                title="Chèn Bảng số liệu (Địa lý, Sinh học, Vật lý, Hóa học, Thống kê Toán) vào câu hỏi"
-              >
-                📊 Chèn Bảng Số Liệu
-              </button>
-
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{
-                  height: '34px',
-                  background: '#f0fdf4',
-                  borderColor: '#86efac',
-                  color: '#166534',
-                  fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 12px'
-                }}
-                onClick={() => onOpenCloudSync?.('GOOGLE')}
-                title="Mở Trung tâm Sao lưu & Đồng bộ Đám mây (Google / Mật khẩu)"
-              >
-                ☁️ Đám Mây Đa Thiết Bị
-              </button>
 
               <button
                 type="button"
@@ -1953,32 +1715,6 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 ➕ Thêm mẫu Dạng I
               </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleUnderline('MC')}
-                title="Đặt con trỏ vào dòng đáp án A/B/C/D rồi bấm nút này (hoặc nhấn Ctrl+U) để Gạch chân = ĐÚNG"
-              >
-                <u>U</u> Gạch chân Đáp án Đúng (Ctrl+U)
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
-                onClick={() => handleTriggerInsertImage('MC')}
-              >
-                🖼️ Chèn Ảnh / Bản Đồ
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
-                onClick={() => handleInsertDataTable('MC')}
-              >
-                📊 Chèn Bảng Số Liệu
-              </button>
             </div>
 
             <div
@@ -2010,74 +1746,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.04)'
               }}
             />
-
-            {/* Thanh nhận diện & click chọn nhanh đáp án A, B, C, D ngay dưới Khung 1 */}
-            {livePreviewItems.some(it => !it.format || it.format === 'MULTIPLE_CHOICE') && (
-              <div
-                style={{
-                  background: '#dbeafe',
-                  border: '1.5px solid #93c5fd',
-                  borderRadius: '10px',
-                  padding: '8px 10px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px'
-                }}
-              >
-                <div style={{ fontSize: '12px', fontWeight: 900, color: '#1e3a8a' }}>
-                  ⚡ BẢNG ĐÁP ÁN ĐÃ NHẬN DIỆN Ở KHUNG 1 (Bấm trực tiếp vào A, B, C, D bên dưới để đổi nhanh đáp án đúng & tự động gạch chân):
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '135px', overflowY: 'auto' }}>
-                  {livePreviewItems.map((item, globalIdx) => {
-                    if (item.format && item.format !== 'MULTIPLE_CHOICE') return null;
-                    const mcOrder =
-                      livePreviewItems.slice(0, globalIdx + 1).filter(x => !x.format || x.format === 'MULTIPLE_CHOICE').length;
-                    return (
-                      <div
-                        key={`mc-quick-${globalIdx}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          background: '#ffffff',
-                          border: item.aiSelected ? '1.5px solid #f59e0b' : '1.5px solid #60a5fa',
-                          borderRadius: '8px',
-                          padding: '3px 7px',
-                          fontSize: '12px',
-                          fontWeight: 800
-                        }}
-                      >
-                        <span style={{ color: '#1e293b', marginRight: '2px' }}>Câu {mcOrder}:</span>
-                        {['A', 'B', 'C', 'D'].map((lbl, oIdx) => {
-                          const isCorrect = item.correct === oIdx;
-                          return (
-                            <button
-                              key={lbl}
-                              type="button"
-                              onClick={() => handleQuickChangeCorrectMC(globalIdx, oIdx)}
-                              title={`Đặt ${lbl} làm đáp án ĐÚNG (tự động gạch chân phương án ${lbl})`}
-                              style={{
-                                border: isCorrect ? '1.5px solid #15803d' : '1px solid #cbd5e1',
-                                background: isCorrect ? '#16a34a' : '#f8fafc',
-                                color: isCorrect ? '#ffffff' : '#334155',
-                                fontWeight: 900,
-                                fontSize: '11.5px',
-                                padding: '2px 6px',
-                                borderRadius: '5px',
-                                cursor: 'pointer',
-                                textDecoration: isCorrect ? 'underline' : 'none'
-                              }}
-                            >
-                              {lbl}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* KHUNG 2 (Ở GIỮA): DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
@@ -2117,32 +1785,6 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 ➕ Thêm mẫu Dạng II
               </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleUnderline('TF')}
-                title="Đặt con trỏ vào dòng ý a), b), c), d) rồi bấm nút này (hoặc nhấn Ctrl+U) để bật/tắt Gạch chân = ĐÚNG"
-              >
-                <u>U</u> Gạch chân ý Đúng (Ctrl+U)
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
-                onClick={() => handleTriggerInsertImage('TF')}
-              >
-                🖼️ Chèn Ảnh / Bản Đồ
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
-                onClick={() => handleInsertDataTable('TF')}
-              >
-                📊 Chèn Bảng Số Liệu
-              </button>
             </div>
 
             <div
@@ -2174,71 +1816,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.04)'
               }}
             />
-
-            {/* Thanh nhận diện & click đảo nhanh Đúng/Sai cho a, b, c, d ngay dưới Khung 2 */}
-            {livePreviewItems.some(it => it.format === 'TRUE_FALSE') && (
-              <div
-                style={{
-                  background: '#ede9fe',
-                  border: '1.5px solid #c4b5fd',
-                  borderRadius: '10px',
-                  padding: '8px 10px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px'
-                }}
-              >
-                <div style={{ fontSize: '12px', fontWeight: 900, color: '#4c1d95' }}>
-                  ⚡ BẢNG ĐÁP ÁN ĐÚNG / SAI ĐÃ NHẬN DIỆN Ở KHUNG 2 (Bấm vào từng ý a, b, c, d để chuyển ĐÚNG ⇄ SAI ngay lập tức):
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '135px', overflowY: 'auto' }}>
-                  {livePreviewItems.map((item, globalIdx) => {
-                    if (item.format !== 'TRUE_FALSE') return null;
-                    const tfOrder =
-                      livePreviewItems.slice(0, globalIdx + 1).filter(x => x.format === 'TRUE_FALSE').length;
-                    return (
-                      <div
-                        key={`tf-quick-${globalIdx}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          background: '#ffffff',
-                          border: '1.5px solid #a78bfa',
-                          borderRadius: '8px',
-                          padding: '3px 8px',
-                          fontSize: '12px',
-                          fontWeight: 800
-                        }}
-                      >
-                        <span style={{ color: '#1e293b', marginRight: '2px' }}>Câu {tfOrder}:</span>
-                        {(item.tfItems || []).slice(0, 4).map((tf, sIdx) => (
-                          <button
-                            key={tf.label}
-                            type="button"
-                            onClick={() => handleQuickToggleTFItem(globalIdx, sIdx)}
-                            title={`Nhấn để đổi ý ${tf.label}) thành ${tf.isCorrect ? 'SAI (Bỏ gạch chân)' : 'ĐÚNG (Gạch chân)'}`}
-                            style={{
-                              border: tf.isCorrect ? '1.5px solid #15803d' : '1.5px solid #dc2626',
-                              background: tf.isCorrect ? '#16a34a' : '#fee2e2',
-                              color: tf.isCorrect ? '#ffffff' : '#991b1b',
-                              fontWeight: 900,
-                              fontSize: '11.5px',
-                              padding: '2px 6px',
-                              borderRadius: '5px',
-                              cursor: 'pointer',
-                              textDecoration: tf.isCorrect ? 'underline' : 'none'
-                            }}
-                          >
-                            {tf.label}:{tf.isCorrect ? 'Đ' : 'S'}
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* KHUNG 3 (DƯỚI CÙNG): DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
@@ -2277,32 +1854,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={() => handleInsertSample(SAMPLE_PHAN_3_SA, 'SA')}
               >
                 ➕ Thêm mẫu Dạng III
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef08a', borderColor: '#eab308', color: '#713f12', fontWeight: 900 }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleUnderline('SA')}
-                title="Đặt con trỏ vào dòng đáp án rồi bấm nút này (hoặc nhấn Ctrl+U) để Gạch chân = ĐÚNG"
-              >
-                <u>U</u> Gạch chân Đáp số (Ctrl+U)
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 800 }}
-                onClick={() => handleTriggerInsertImage('SA')}
-              >
-                🖼️ Chèn Ảnh / Bản Đồ
-              </button>
-              <button
-                type="button"
-                className="btn-action-sm"
-                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#fef3c7', color: '#92400e', fontWeight: 800 }}
-                onClick={() => handleInsertDataTable('SA')}
-              >
-                📊 Chèn Bảng Số Liệu
               </button>
             </div>
 
@@ -2973,32 +2524,7 @@ export const TeacherSetupView: React.FC<Props> = ({
             <span>Đổi Lớp</span>
           </button>
 
-          {onSwitchToStudentMode && (
-            <button
-              type="button"
-              onClick={handleSwitchToStudentWithSync}
-              style={{
-                height: '32px',
-                background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
-                color: '#ffffff',
-                border: '1.5px solid #5eead4',
-                borderRadius: '8px',
-                padding: '0 12px',
-                fontSize: '12.5px',
-                fontWeight: 900,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.45)',
-                whiteSpace: 'nowrap'
-              }}
-              title="Mở giao diện điện thoại học sinh để thi đấu thử"
-            >
-              <span>📱</span>
-              <span>Thử HS</span>
-            </button>
-          )}
+
 
           <button
             type="button"

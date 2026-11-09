@@ -2530,31 +2530,7 @@ export const HostArenaView: React.FC<Props> = ({
             {demoBotsActive ? '🤖 Đang Demo GK' : '🤖 Demo GK'}
           </button>
 
-          {onOpenNationalDossier && (
-            <button
-              className="b3d-btn"
-              style={{
-                flex: '1.3 1 0%',
-                height: '100%',
-                background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
-                color: '#0f172a',
-                border: '1.5px solid #fef08a',
-                padding: '0 10px',
-                fontSize: '11.5px',
-                fontWeight: 900,
-                boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                whiteSpace: 'nowrap'
-              }}
-              onClick={onOpenNationalDossier}
-              title="Mở toàn bộ hướng dẫn sử dụng chi tiết"
-            >
-              📖 HƯỚNG DẪN SỬ DỤNG
-            </button>
-          )}
+
 
           <button
             className="b3d-btn"
