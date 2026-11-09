@@ -93,8 +93,8 @@ export const TeacherSetupView: React.FC<Props> = ({
   const inlineMediaInputRef = useRef<HTMLInputElement>(null);
   const activeEditorBoxRef = useRef<'MC' | 'TF' | 'SA'>('MC');
 
-  // Quick Part Selection Tab: Tất Cả (ALL), Phần I (MC), Phần II (TF), Phần III (SA)
-  const [activePartTab, setActivePartTab] = useState<'ALL' | 'MC' | 'TF' | 'SA'>('ALL');
+  // Quick Part Selection Tab: Phần I (MC), Phần II (TF), Phần III (SA)
+  const [activePartTab, setActivePartTab] = useState<'MC' | 'TF' | 'SA'>('MC');
 
   // QR Modal States (Ẩn / Hiện Mã QR)
   const [showQRModal, setShowQRModal] = useState(false);
@@ -1582,24 +1582,6 @@ export const TeacherSetupView: React.FC<Props> = ({
             <span>CHỌN NHANH PHẦN:</span>
           </span>
 
-          <button
-            type="button"
-            onClick={() => setActivePartTab('ALL')}
-            style={{
-              padding: '7px 14px',
-              borderRadius: '10px',
-              fontSize: '13px',
-              fontWeight: 900,
-              cursor: 'pointer',
-              border: activePartTab === 'ALL' ? '2px solid #fde047' : '1px solid #475569',
-              background: activePartTab === 'ALL' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(255,255,255,0.08)',
-              color: activePartTab === 'ALL' ? '#0f172a' : '#cbd5e1',
-              boxShadow: activePartTab === 'ALL' ? '0 0 10px rgba(245, 158, 11, 0.45)' : 'none',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            📋 Tất Cả 3 Phần ({formatCounts.mc + formatCounts.tf + formatCounts.sa} câu)
-          </button>
 
           <button
             type="button"
@@ -1681,7 +1663,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           {/* KHUNG 1 (TRÊN CÙNG): DẠNG THỨC I - TRẮC NGHIỆM 4 LỰA CHỌN (A, B, C, D) */}
           <div
             style={{
-              display: activePartTab === 'ALL' || activePartTab === 'MC' ? 'flex' : 'none',
+              display: activePartTab === 'MC' ? 'flex' : 'none',
               width: '100%',
               background: '#eff6ff',
               border: '3px solid #3b82f6',
@@ -1751,7 +1733,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           {/* KHUNG 2 (Ở GIỮA): DẠNG THỨC II - ĐÚNG / SAI 4 Ý (a, b, c, d) */}
           <div
             style={{
-              display: activePartTab === 'ALL' || activePartTab === 'TF' ? 'flex' : 'none',
+              display: activePartTab === 'TF' ? 'flex' : 'none',
               width: '100%',
               background: '#f5f3ff',
               border: '3px solid #8b5cf6',
@@ -1821,7 +1803,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           {/* KHUNG 3 (DƯỚI CÙNG): DẠNG THỨC III - TRẢ LỜI NGẮN (ĐÁP SỐ / TỪ KHÓA) */}
           <div
             style={{
-              display: activePartTab === 'ALL' || activePartTab === 'SA' ? 'flex' : 'none',
+              display: activePartTab === 'SA' ? 'flex' : 'none',
               width: '100%',
               background: '#ecfdf5',
               border: '3px solid #10b981',
