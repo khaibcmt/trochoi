@@ -57,12 +57,32 @@ export const App: React.FC = () => {
     urlParams.has('room') ||
     /[?#&](?:r|room)=\d+/i.test(window.location.href);
 
+  // Phân biệt chính xác giữa 2 tình huống:
+  // 1. Thoát trình duyệt mở phiên mới: sessionStorage hoàn toàn trống -> Tự động sinh phòng 5 số mới toanh.
+  // 2. Đang chơi lỡ bấm F5 hoặc làm mới nền: sessionStorage vẫn bảo lưu 'kc3d_host_session_active' -> Giữ nguyên phòng & 100% học sinh.
+  const isHostReloadSession = (() => {
+    try {
+      return !isDirectStudent && sessionStorage.getItem('kc3d_host_session_active') === '1';
+    } catch {
+      return false;
+    }
+  })();
+
   const [view, setView] = useState<'TEACHER_SETUP' | 'HOST_ARENA' | 'STUDENT_MOBILE'>(() => {
     if (isDirectStudent) {
       try {
         sessionStorage.setItem('kc3d_active_view_mode', 'STUDENT_MOBILE');
       } catch {}
       return 'STUDENT_MOBILE';
+    }
+    // Nếu là F5 hoặc làm mới trong phiên đang mở, bảo lưu đúng màn hình đang đứng (Setup hoặc 3D Arena)
+    if (isHostReloadSession) {
+      try {
+        const savedView = sessionStorage.getItem('kc3d_host_view');
+        if (savedView === 'HOST_ARENA' || savedView === 'TEACHER_SETUP') {
+          return savedView;
+        }
+      } catch {}
     }
     try {
       sessionStorage.removeItem('kc3d_active_view_mode');
@@ -110,16 +130,22 @@ export const App: React.FC = () => {
   const [maxPerTeam, setMaxPerTeam] = useState<number>(5);
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem('kc3d_host_room_id') || sessionStorage.getItem('kc3d_host_room_id');
-      if (saved && /^\d{5}$/.test(saved)) {
-        localStorage.setItem('kc3d_host_room_id', saved);
-        sessionStorage.setItem('kc3d_host_room_id', saved);
-        return saved;
+      const sessionRoom = sessionStorage.getItem('kc3d_host_room_id');
+
+      // Tình huống 1: F5 / Làm mới nền trong phiên đang hoạt động -> Giữ nguyên mã phòng hiện tại
+      if (isHostReloadSession && sessionRoom && /^\d{5}$/.test(sessionRoom)) {
+        return sessionRoom;
       }
-      const generated = String(Math.floor(10000 + Math.random() * 90000));
-      localStorage.setItem('kc3d_host_room_id', generated);
-      sessionStorage.setItem('kc3d_host_room_id', generated);
-      return generated;
+
+      // Tình huống 2: Thoát trình duyệt mở phiên mới -> Tự động sinh mã phòng 5 số mới toanh
+      const freshRoomId = String(Math.floor(10000 + Math.random() * 90000));
+      sessionStorage.setItem('kc3d_host_session_active', '1');
+      sessionStorage.setItem('kc3d_host_room_id', freshRoomId);
+      localStorage.setItem('kc3d_host_room_id', freshRoomId);
+      // Xóa bỏ triệt để cache của phòng mới này nếu có dấu vết cũ
+      sessionStorage.removeItem('kc3d_host_saved_state_' + freshRoomId);
+      localStorage.removeItem('kc3d_host_saved_state_' + freshRoomId);
+      return freshRoomId;
     } catch {
       return String(Math.floor(10000 + Math.random() * 90000));
     }
@@ -201,29 +227,63 @@ export const App: React.FC = () => {
     }
   };
 
-  const [matchState, setMatchState] = useState<MatchState>({
-    gameType: 'TUG',
-    status: 'LOBBY',
-    currentRound: 1,
-    redRoundWins: 0,
-    blueRoundWins: 0,
-    ropeScore: 0,
-    redTotalCorrect: 0,
-    blueTotalCorrect: 0,
-    globalQIndex: 0,
-    redAnsweredIds: [],
-    blueAnsweredIds: [],
-    redPlayers: [],
-    bluePlayers: [],
-    spectators: 0,
-    bossHP: 1000,
-    maxBossHP: 1000,
-    settings: {
-      roomCapacity: 200,
-      max3DRenderCount: 10,
-      questionDurationSec: 30,
-      bossMaxHP: 1000
+  const [matchState, setMatchState] = useState<MatchState>(() => {
+    const defaultState: MatchState = {
+      gameType: 'TUG',
+      status: 'LOBBY',
+      currentRound: 1,
+      redRoundWins: 0,
+      blueRoundWins: 0,
+      ropeScore: 0,
+      redTotalCorrect: 0,
+      blueTotalCorrect: 0,
+      globalQIndex: 0,
+      redAnsweredIds: [],
+      blueAnsweredIds: [],
+      redPlayers: [],
+      bluePlayers: [],
+      spectators: 0,
+      bossHP: 1000,
+      maxBossHP: 1000,
+      settings: {
+        roomCapacity: 200,
+        max3DRenderCount: 10,
+        questionDurationSec: 30,
+        bossMaxHP: 1000
+      }
+    };
+
+    // Nếu lỡ bấm F5 hoặc làm mới nền trong phiên đang chơi: Khôi phục 100% học sinh và điểm số
+    if (isHostReloadSession) {
+      try {
+        const sessionRoom = sessionStorage.getItem('kc3d_host_room_id');
+        if (sessionRoom) {
+          const savedStr = sessionStorage.getItem('kc3d_host_saved_state_' + sessionRoom) ||
+                           localStorage.getItem('kc3d_host_saved_state_' + sessionRoom);
+          if (savedStr) {
+            const parsed = JSON.parse(savedStr);
+            return {
+              ...defaultState,
+              ...parsed,
+              redPlayers: Array.isArray(parsed.redPlayers) ? parsed.redPlayers : [],
+              bluePlayers: Array.isArray(parsed.bluePlayers) ? parsed.bluePlayers : [],
+              status: parsed.status || 'LOBBY',
+              gameType: parsed.gameType || 'TUG',
+              globalQIndex: typeof parsed.globalQIndex === 'number' ? parsed.globalQIndex : 0,
+              ropeScore: typeof parsed.ropeScore === 'number' ? parsed.ropeScore : 0,
+              redTotalCorrect: typeof parsed.redTotalCorrect === 'number' ? parsed.redTotalCorrect : 0,
+              blueTotalCorrect: typeof parsed.blueTotalCorrect === 'number' ? parsed.blueTotalCorrect : 0,
+              redRoundWins: typeof parsed.redRoundWins === 'number' ? parsed.redRoundWins : 0,
+              blueRoundWins: typeof parsed.blueRoundWins === 'number' ? parsed.blueRoundWins : 0,
+              bossHP: typeof parsed.bossHP === 'number' ? parsed.bossHP : 1000,
+              maxBossHP: typeof parsed.maxBossHP === 'number' ? parsed.maxBossHP : 1000
+            };
+          }
+        }
+      } catch {}
     }
+
+    return defaultState;
   });
 
   const heartbeatRef = useRef<any>(null);
@@ -409,10 +469,15 @@ export const App: React.FC = () => {
     CloudNetwork.resetRoomSession(oldRoom);
     CloudNetwork.clearRoomCache(oldRoom);
 
-    // Lưu mã phòng mới
+    // Lưu mã phòng mới và xóa sạch snapshot cũ của cả 2 phòng
     try {
       localStorage.setItem('kc3d_host_room_id', newRoom);
       sessionStorage.setItem('kc3d_host_room_id', newRoom);
+      sessionStorage.setItem('kc3d_host_session_active', '1');
+      sessionStorage.removeItem('kc3d_host_saved_state_' + oldRoom);
+      sessionStorage.removeItem('kc3d_host_saved_state_' + newRoom);
+      localStorage.removeItem('kc3d_host_saved_state_' + oldRoom);
+      localStorage.removeItem('kc3d_host_saved_state_' + newRoom);
     } catch {}
 
     answeredQKeysRef.current.clear();
@@ -456,6 +521,11 @@ export const App: React.FC = () => {
     });
     CloudNetwork.resetRoomSession(activeRoomId);
     CloudNetwork.clearRoomCache(activeRoomId);
+
+    try {
+      sessionStorage.removeItem('kc3d_host_saved_state_' + activeRoomId);
+      localStorage.removeItem('kc3d_host_saved_state_' + activeRoomId);
+    } catch {}
 
     answeredQKeysRef.current.clear();
     firstBloodByQRef.current.clear();
@@ -577,6 +647,115 @@ export const App: React.FC = () => {
 
   const currentSubjectKeyRef = useRef<string>(currentSubjectKey);
   currentSubjectKeyRef.current = currentSubjectKey;
+
+  const viewRef = useRef<'TEACHER_SETUP' | 'HOST_ARENA' | 'STUDENT_MOBILE'>(view);
+  viewRef.current = view;
+
+  // Tự động lưu snapshot phòng và danh sách học sinh liên tục để bảo toàn 100% khi bấm F5 hoặc làm mới trang
+  useEffect(() => {
+    if (activeRoomId && !isDirectStudent) {
+      try {
+        const payload = JSON.stringify(matchState);
+        sessionStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
+        localStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
+        sessionStorage.setItem('kc3d_host_session_active', '1');
+        sessionStorage.setItem('kc3d_host_room_id', activeRoomId);
+        sessionStorage.setItem('kc3d_host_view', view);
+      } catch {}
+    }
+  }, [matchState, activeRoomId, view, isDirectStudent]);
+
+  // Bắt sự kiện beforeunload / pagehide để lưu snapshot ngay lập tức trước khi trình duyệt reload
+  useEffect(() => {
+    if (isDirectStudent) return;
+    const saveSnapshotSync = () => {
+      try {
+        if (activeRoomId && matchStateRef.current) {
+          const payload = JSON.stringify(matchStateRef.current);
+          sessionStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
+          localStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
+          sessionStorage.setItem('kc3d_host_session_active', '1');
+          sessionStorage.setItem('kc3d_host_room_id', activeRoomId);
+          sessionStorage.setItem('kc3d_host_view', viewRef.current);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('beforeunload', saveSnapshotSync);
+    window.addEventListener('pagehide', saveSnapshotSync);
+    return () => {
+      window.removeEventListener('beforeunload', saveSnapshotSync);
+      window.removeEventListener('pagehide', saveSnapshotSync);
+    };
+  }, [activeRoomId, isDirectStudent]);
+
+  // Nếu là phiên phục hồi sau F5, đối soát danh sách học sinh với server để không bỏ sót bạn nào
+  useEffect(() => {
+    if (!isHostReloadSession || isDirectStudent || !activeRoomId) return;
+    const recoverFromServer = async () => {
+      try {
+        const res = await fetch(`/api/room/${encodeURIComponent(activeRoomId)}/poll?since=0`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.players) && data.players.length > 0) {
+            setMatchState(prev => {
+              const redMap = new Map(prev.redPlayers.map(p => [p.id, p]));
+              const blueMap = new Map(prev.bluePlayers.map(p => [p.id, p]));
+              let hasChanges = false;
+              data.players.forEach((sp: any) => {
+                if (!sp || !sp.id) return;
+                const pItem: Player = {
+                  id: sp.id,
+                  label: sp.name || sp.label || 'Học sinh',
+                  team: sp.team === 'BLUE' ? 'BLUE' : 'RED',
+                  role: sp.role || 'ROPE_PULLER',
+                  ready: true,
+                  correct: typeof sp.savedCorrect === 'number' ? sp.savedCorrect : 0,
+                  freeze: 0,
+                  lives: typeof sp.lives === 'number' ? sp.lives : 3,
+                  wrongTotal: 0,
+                  streak: 0,
+                  eliminated: Boolean(sp.eliminated),
+                  fastScore: typeof sp.savedScore === 'number' ? sp.savedScore : 0,
+                  avatar: sp.avatar,
+                  lastDelta: 0,
+                  lastTimeSec: null
+                };
+                if (pItem.team === 'BLUE') {
+                  const exist = blueMap.get(pItem.id);
+                  if (!exist) {
+                    blueMap.set(pItem.id, pItem);
+                    hasChanges = true;
+                  } else if ((pItem.fastScore || 0) > (exist.fastScore || 0) || (pItem.correct || 0) > (exist.correct || 0)) {
+                    blueMap.set(pItem.id, { ...exist, fastScore: Math.max(exist.fastScore || 0, pItem.fastScore || 0), correct: Math.max(exist.correct || 0, pItem.correct || 0) });
+                    hasChanges = true;
+                  }
+                } else {
+                  const exist = redMap.get(pItem.id);
+                  if (!exist) {
+                    redMap.set(pItem.id, pItem);
+                    hasChanges = true;
+                  } else if ((pItem.fastScore || 0) > (exist.fastScore || 0) || (pItem.correct || 0) > (exist.correct || 0)) {
+                    redMap.set(pItem.id, { ...exist, fastScore: Math.max(exist.fastScore || 0, pItem.fastScore || 0), correct: Math.max(exist.correct || 0, pItem.correct || 0) });
+                    hasChanges = true;
+                  }
+                }
+              });
+              if (!hasChanges) return prev;
+              const nextState = {
+                ...prev,
+                redPlayers: Array.from(redMap.values()),
+                bluePlayers: Array.from(blueMap.values())
+              };
+              matchStateRef.current = nextState;
+              return nextState;
+            });
+          }
+        }
+      } catch {}
+    };
+    recoverFromServer();
+  }, [activeRoomId, isDirectStudent, isHostReloadSession]);
 
   const lastSyncedQuizSigRef = useRef<string>('');
 
