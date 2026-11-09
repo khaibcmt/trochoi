@@ -275,10 +275,249 @@ export const TeacherSetupView: React.FC<Props> = ({
     syncLiveToStorageAndHost(combined);
   };
 
+  // =========================================================================
+  // ENGINE TỰ ĐỘNG CHỮA LỖI DÍNH DÒNG VÀ GIỮ NGUYÊN GẠCH CHÂN CHO 3 KHUNG
+  // (Kết hợp bảo toàn Hình ảnh <img>, Bảng số liệu <table>, Công thức <sub>/<sup>)
+  // =========================================================================
+  const preparePasteCleanContent = (
+    htmlInput: string,
+    textInput: string,
+    keepUnderlineTag: boolean = true
+  ): { cleanedText: string; restoreProtectedTags: (str: string) => string } => {
+    let content = htmlInput && htmlInput.trim() ? htmlInput : textInput;
+
+    // Bảo vệ các thẻ Bảng số liệu <table> và Hình ảnh <img> trước khi lọc thẻ rác của Word
+    const savedMediaTags: string[] = [];
+    content = content.replace(/(<table\b[\s\S]*?<\/table>|<img\b[^>]*>)/gi, match => {
+      const idx = savedMediaTags.length;
+      savedMediaTags.push(match);
+      return `@@MEDIA_TAG_${idx}@@`;
+    });
+
+    // Chuẩn hóa mọi kiểu gạch chân của Word / Google Docs / Web về dạng chuẩn <u>...</u>
+    content = content
+      .replace(/<span\b[^>]*style="[^"]*text-decoration(?:-line)?\s*:\s*underline[^"]*"[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+      .replace(/<span\b[^>]*style='[^']*text-decoration(?:-line)?\s*:\s*underline[^']*'[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+      .replace(/<ins\b[^>]*>([\s\S]*?)<\/ins>/gi, '<u>$1</u>')
+      .replace(/<u\b[^>]*>([\s\S]*?)<\/u>/gi, '<u>$1</u>');
+
+    // Chuẩn hóa ngắt dòng: đổi các thẻ <p>, <br>, <div>, <li>, <tr> thành ký tự xuống dòng
+    content = content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+      .replace(/<[^>]+>/g, tag => {
+        if (/^<\/?(?:sub|sup)>/i.test(tag)) return tag;
+        if (keepUnderlineTag && /^<\/?u>/i.test(tag)) return tag.toLowerCase();
+        return '';
+      })
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+
+    const restoreProtectedTags = (str: string): string => {
+      let out = str;
+      savedMediaTags.forEach((tag, idx) => {
+        out = out.replace(`@@MEDIA_TAG_${idx}@@`, tag);
+      });
+      return out;
+    };
+
+    return { cleanedText: content, restoreProtectedTags };
+  };
+
+  // 1. BỘ LỌC CHO KHUNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
+  const cleanKhung1HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
+    const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
+
+    // Tách từng câu hỏi dựa vào "Câu 1:", "Câu 2:" hoặc số thứ tự đầu dòng
+    const questionBlocks = content
+      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
+      .filter(b => b.trim());
+
+    const finalQuestions: string[] = [];
+
+    questionBlocks.forEach((block, idx) => {
+      // Regex quét thông minh: Bóc tách A., B., C., D. dù bị dính liền trên 1 hàng ngang hoặc bọc trong thẻ <u>A.</u>
+      const optRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]|$))/g;
+      const firstOptIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?A(?:\s*<\/u>)?[\.\:\)]/);
+
+      let title = '';
+      const opts: Record<'A' | 'B' | 'C' | 'D', { text: string; isUnderlined: boolean }> = {
+        A: { text: '', isUnderlined: false },
+        B: { text: '', isUnderlined: false },
+        C: { text: '', isUnderlined: false },
+        D: { text: '', isUnderlined: false }
+      };
+
+      if (firstOptIndex !== -1) {
+        title = block.substring(0, firstOptIndex).trim();
+        const optBlock = block.substring(firstOptIndex);
+
+        let match: RegExpExecArray | null;
+        while ((match = optRegex.exec(optBlock)) !== null) {
+          const rawPrefix = match[1] || '';
+          const rawBody = (match[2] || '').trim().replace(/\n+/g, ' ');
+          const keyMatch = rawPrefix.replace(/<\/?u>/gi, '').match(/[A-D]/i);
+          if (keyMatch) {
+            const key = keyMatch[0].toUpperCase() as 'A' | 'B' | 'C' | 'D';
+            const hasUnderline = /<u>/i.test(rawPrefix) || /<u>/i.test(rawBody);
+            const cleanOptText = rawBody.replace(/<\/?u>/gi, '').trim();
+            opts[key] = {
+              text: cleanOptText,
+              isUnderlined: hasUnderline
+            };
+          }
+        }
+      } else {
+        title = block.trim();
+      }
+
+      // Làm sạch tiêu đề câu
+      title = title
+        .replace(/^(?:<\/?u>\s*)*(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*/i, '')
+        .replace(/\n+/g, ' ')
+        .trim();
+
+      const qNum = startNumber + idx;
+      let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(title)}</div>`;
+      (['A', 'B', 'C', 'D'] as const).forEach(letter => {
+        const optData = opts[letter];
+        const restoredOpt = restoreProtectedTags(optData.text);
+        if (optData.isUnderlined) {
+          qHTML += `<div><u>${letter}. ${restoredOpt}</u></div>`;
+        } else {
+          qHTML += `<div>${letter}. ${restoredOpt}</div>`;
+        }
+      });
+      qHTML += `<br>`;
+
+      finalQuestions.push(qHTML);
+    });
+
+    return finalQuestions.join('');
+  };
+
+  // 2. BỘ LỌC CHO KHUNG 2: ĐÚNG / SAI 4 Ý (a, b, c, d)
+  const cleanKhung2HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
+    const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
+
+    const questionBlocks = content
+      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
+      .filter(b => b.trim());
+
+    const finalQuestions: string[] = [];
+
+    questionBlocks.forEach((block, idx) => {
+      const subRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]|$))/g;
+      const firstSubIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?a(?:\s*<\/u>)?[\)\.\:]/);
+
+      let title = '';
+      const items: Record<'a' | 'b' | 'c' | 'd', { text: string; isUnderlined: boolean }> = {
+        a: { text: '', isUnderlined: false },
+        b: { text: '', isUnderlined: false },
+        c: { text: '', isUnderlined: false },
+        d: { text: '', isUnderlined: false }
+      };
+
+      if (firstSubIndex !== -1) {
+        title = block.substring(0, firstSubIndex).trim();
+        const subBlock = block.substring(firstSubIndex);
+
+        let match: RegExpExecArray | null;
+        while ((match = subRegex.exec(subBlock)) !== null) {
+          const rawPrefix = match[1] || '';
+          const rawBody = (match[2] || '').trim().replace(/\n+/g, ' ');
+          const keyMatch = rawPrefix.replace(/<\/?u>/gi, '').match(/[a-d]/i);
+          if (keyMatch) {
+            const key = keyMatch[0].toLowerCase() as 'a' | 'b' | 'c' | 'd';
+            const hasExplicitFalse = /\(\s*(?:Sai|S|False)\s*\)\s*$/i.test(rawBody);
+            const hasExplicitTrue = /\(\s*(?:Đúng|Đ|True)\s*\)\s*$/i.test(rawBody);
+            const hasUnderline = !hasExplicitFalse && (/<u>/i.test(rawPrefix) || /<u>/i.test(rawBody) || hasExplicitTrue);
+            const cleanItemText = rawBody.replace(/<\/?u>/gi, '').trim();
+            items[key] = {
+              text: cleanItemText,
+              isUnderlined: hasUnderline
+            };
+          }
+        }
+      } else {
+        title = block.trim();
+      }
+
+      title = title
+        .replace(/^(?:<\/?u>\s*)*(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
+        .replace(/\n+/g, ' ')
+        .trim();
+
+      const qNum = startNumber + idx;
+      let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(title)}</div>`;
+      (['a', 'b', 'c', 'd'] as const).forEach(letter => {
+        const itemData = items[letter];
+        const restoredTxt = restoreProtectedTags(itemData.text);
+        if (itemData.isUnderlined) {
+          qHTML += `<div><u>${letter}) ${restoredTxt}</u></div>`;
+        } else {
+          qHTML += `<div>${letter}) ${restoredTxt}</div>`;
+        }
+      });
+      qHTML += `<br>`;
+
+      finalQuestions.push(qHTML);
+    });
+
+    return finalQuestions.join('');
+  };
+
+  // 3. BỘ LỌC CHO KHUNG 3: TRẢ LỜI NGẮN
+  const cleanKhung3HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
+    const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
+
+    const questionBlocks = content
+      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
+      .filter(b => b.trim());
+
+    const finalQuestions: string[] = [];
+
+    questionBlocks.forEach((block, idx) => {
+      let cleanBlock = block.trim();
+      let dapAn = '';
+
+      const match = cleanBlock.match(/(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả|ĐA)\s*[\:\=]\s*([^\n]+)/i);
+      if (match) {
+        dapAn = match[1].replace(/<\/?u>/gi, '').trim();
+        cleanBlock = cleanBlock.replace(match[0], '').trim();
+      } else {
+        const underlinedMatch = cleanBlock.match(/<u>([\s\S]*?)<\/u>/i);
+        if (underlinedMatch) {
+          dapAn = underlinedMatch[1].trim();
+        }
+      }
+
+      cleanBlock = cleanBlock
+        .replace(/<\/?u>/gi, '')
+        .replace(/^(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
+        .replace(/\n+/g, ' ')
+        .trim();
+
+      const qNum = startNumber + idx;
+      let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(cleanBlock)}</div>`;
+      qHTML += `<div><b>Đáp án:</b> <u>${restoreProtectedTags(dapAn)}</u></div><br>`;
+
+      finalQuestions.push(qHTML);
+    });
+
+    return finalQuestions.join('');
+  };
+
   // Xử lý dán (Paste) từ Word / Excel / PDF / Zalo / Snipping Tool vào 3 khung:
   // 1. Hỗ trợ dán trực tiếp hình ảnh chụp màn hình / sơ đồ / bản đồ từ Clipboard (Ctrl+V)
-  // 2. Giữ nguyên 100% Bảng số liệu <table>, Hình ảnh <img>, Công thức Toán/Lý/Hóa/Sinh, và Gạch chân <u> (Gạch chân = Đúng, Không gạch chân = Sai)
-  const handleCleanPasteInBox = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+  // 2. Tự động nhận diện Khung 1 (A, B, C, D), Khung 2 (a, b, c, d), Khung 3 (Trả lời ngắn)
+  // 3. Chữa triệt để lỗi dính dòng, giữ nguyên gạch chân <u>, đánh lại số Câu 1, Câu 2... liên tục và cập nhật bảng xem trước
+  const handleCleanPasteInBox = async (
+    e: React.ClipboardEvent<HTMLDivElement>,
+    explicitBoxType?: 'MC' | 'TF' | 'SA'
+  ) => {
     const targetEl = e.currentTarget;
     const clipboardItems = Array.from(e.clipboardData?.items || []);
     const imageItem = clipboardItems.find(it => it.type.startsWith('image/'));
@@ -308,35 +547,85 @@ export const TeacherSetupView: React.FC<Props> = ({
       return;
     }
 
-    e.preventDefault();
-    const rawSource = htmlData && htmlData.trim() ? htmlData : textData;
-    let cleanToInsert = '';
+    e.preventDefault(); // Chặn dán thô mặc định bị dính dòng của trình duyệt
 
-    if ((rawSource && rawSource.trim()) || (textData && textData.trim())) {
+    if ((!htmlData || !htmlData.trim()) && (!textData || !textData.trim())) {
+      return;
+    }
+
+    // Xác định khung đang dán (Khung 1: MC, Khung 2: TF, Khung 3: SA)
+    const boxType: 'MC' | 'TF' | 'SA' =
+      explicitBoxType ||
+      (targetEl === mcEditorRef.current
+        ? 'MC'
+        : targetEl === tfEditorRef.current
+        ? 'TF'
+        : targetEl === saEditorRef.current
+        ? 'SA'
+        : /[a-d]\)/i.test(textData)
+        ? 'TF'
+        : /[A-D][\.\:\)]/.test(textData)
+        ? 'MC'
+        : 'SA');
+
+    // Kiểm tra xem nội dung dán có chứa cấu trúc câu hỏi / phương án hay chỉ là một cụm từ ngắn dán bổ sung vào dòng
+    const hasQuestionOrOptionStructure =
+      /(?:Câu|Bài|Question)\s*\d+/i.test(textData) ||
+      /(?:^|[\s\t\n])[A-D][\.\:\)]\s+/m.test(textData) ||
+      /(?:^|[\s\t\n])[a-d]\)\s+/m.test(textData) ||
+      /(?:Đáp\s*án|Đáp\s*số)\s*[\:\=]/i.test(textData) ||
+      textData.trim().includes('\n');
+
+    let processedHTML = '';
+
+    if (hasQuestionOrOptionStructure) {
+      if (boxType === 'MC') {
+        processedHTML = cleanKhung1HTML(htmlData, textData, 1);
+      } else if (boxType === 'TF') {
+        processedHTML = cleanKhung2HTML(htmlData, textData, 1);
+      } else {
+        processedHTML = cleanKhung3HTML(htmlData, textData, 1);
+      }
+    } else {
+      const rawSource = htmlData && htmlData.trim() ? htmlData : textData;
       const normalizedLines = extractNormalizedLines(rawSource || textData, htmlData ? undefined : textData);
       if (normalizedLines.length > 0) {
-        cleanToInsert = normalizedLines
+        processedHTML = normalizedLines
           .map(p => formatSafeEditorLineHTML(p.raw, p.isU, p.isBold))
           .join('');
       }
     }
 
-    if (cleanToInsert && targetEl) {
+    if (processedHTML && targetEl) {
       targetEl.focus();
       const beforeHTML = targetEl.innerHTML;
       let inserted = false;
       try {
-        inserted = document.execCommand('insertHTML', false, cleanToInsert);
+        inserted = document.execCommand('insertHTML', false, processedHTML);
       } catch {
         inserted = false;
       }
       if (!inserted || targetEl.innerHTML === beforeHTML) {
-        targetEl.innerHTML = (beforeHTML && beforeHTML.trim() && beforeHTML !== '<br>' ? beforeHTML + '<br>' : '') + cleanToInsert;
+        targetEl.innerHTML =
+          (beforeHTML && beforeHTML.trim() && beforeHTML !== '<br>' ? beforeHTML + '<br>' : '') + processedHTML;
       }
+
+      // Tự động đánh lại số thứ tự Câu 1, Câu 2... liên tục trong khung vừa dán và cập nhật ngay Bảng xem trước
+      setTimeout(() => {
+        const allCombined = getCombinedQuizFrom3Boxes();
+        if (allCombined.length > 0) {
+          const { mcHTML, tfHTML, saHTML } = splitQuizTo3FormatHTML(allCombined);
+          if (boxType === 'MC' && mcEditorRef.current && mcHTML) {
+            mcEditorRef.current.innerHTML = mcHTML;
+          } else if (boxType === 'TF' && tfEditorRef.current && tfHTML) {
+            tfEditorRef.current.innerHTML = tfHTML;
+          } else if (boxType === 'SA' && saEditorRef.current && saHTML) {
+            saEditorRef.current.innerHTML = saHTML;
+          }
+        }
+        syncLiveToStorageAndHost(allCombined);
+      }, 25);
     }
-    setTimeout(() => {
-      syncEditorQuestionsLive();
-    }, 20);
   };
 
   // Sync 3 format boxes when subject changes
@@ -1629,7 +1918,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 activeEditorBoxRef.current = 'MC';
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'MC')}
-              onPaste={handleCleanPasteInBox}
+              onPaste={e => handleCleanPasteInBox(e, 'MC')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1793,7 +2082,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 activeEditorBoxRef.current = 'TF';
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'TF')}
-              onPaste={handleCleanPasteInBox}
+              onPaste={e => handleCleanPasteInBox(e, 'TF')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1954,7 +2243,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 activeEditorBoxRef.current = 'SA';
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'SA')}
-              onPaste={handleCleanPasteInBox}
+              onPaste={e => handleCleanPasteInBox(e, 'SA')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{

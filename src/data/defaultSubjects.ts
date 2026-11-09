@@ -2353,7 +2353,7 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
 
   let mcHTML = '';
   mcItems.forEach((item, i) => {
-    mcHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
+    mcHTML += `<div><b>Câu ${i + 1}:</b> ${cleanQuestionTitleText(item.q)}</div>`;
     item.opts.slice(0, 4).forEach((o, oi) => {
       const ch = String.fromCharCode(65 + oi);
       mcHTML += oi === item.correct ? `<div><u>${ch}. ${o}</u></div>` : `<div>${ch}. ${o}</div>`;
@@ -2363,7 +2363,7 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
 
   let tfHTML = '';
   tfItems.forEach((item, i) => {
-    tfHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
+    tfHTML += `<div><b>Câu ${i + 1}:</b> ${cleanQuestionTitleText(item.q)}</div>`;
     (item.tfItems || []).slice(0, 4).forEach((tf, tfi) => {
       const lbl = String.fromCharCode(97 + tfi);
       const cleanTxt = cleanTFStatementText(tf.text);
@@ -2379,8 +2379,8 @@ export function splitQuizTo3FormatHTML(rawItems: QuizItem[]): {
   let saHTML = '';
   saItems.forEach((item, i) => {
     const cleanAns = cleanShortAnswerValue(item.shortAnswer || item.opts[0] || '');
-    saHTML += `<div>Câu ${i + 1}: ${cleanQuestionTitleText(item.q)}</div>`;
-    saHTML += `<div><u>Đáp án: ${cleanAns}</u></div>`;
+    saHTML += `<div><b>Câu ${i + 1}:</b> ${cleanQuestionTitleText(item.q)}</div>`;
+    saHTML += `<div><b>Đáp án:</b> <u>${cleanAns}</u></div>`;
     saHTML += `<br>`;
   });
 
