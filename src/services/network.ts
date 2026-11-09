@@ -18,12 +18,29 @@ export interface NetworkTelemetry {
 const PRIMARY_BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
   'wss://broker.hivemq.com:8884/mqtt',
-  'wss://mqtt.eclipseprojects.io:443/mqtt',
-  'wss://test.mosquitto.org:8081/mqtt'
+  'wss://test.mosquitto.org:8081/mqtt',
+  'wss://mqtt.eclipseprojects.io:443/mqtt'
 ];
 
 // Ưu tiên Retry kết nối lại vào Broker chính ít nhất 2 lần (mỗi lần 3.5s) trước khi chuyển Broker dự phòng
 const MAX_RETRIES_PER_BROKER = 2;
+
+/**
+ * Chuẩn hóa đường dẫn chia sẻ cho Học sinh (QR Code & Copy Link):
+ * Tự động chuyển ais-dev-* sang ais-pre-* (Shared App URL công khai) để điện thoại học sinh
+ * hoặc Tab Ẩn Danh truy cập vào thẳng phòng thi mà không bị chặn xác thực Google.
+ */
+export function getStudentShareBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  let base = window.location.href.split('?')[0].split('#')[0];
+  if (base.startsWith('file:')) {
+    return 'https://khaibcmt.github.io/edu/';
+  }
+  if (base.includes('://ais-dev-')) {
+    base = base.replace('://ais-dev-', '://ais-pre-');
+  }
+  return base;
+}
 
 /**
  * Hàm băm xác định broker duy nhất dựa trên Mã Phòng.
@@ -166,9 +183,11 @@ const WORKER_SCRIPT = `
 `;
 
 class NetworkService {
-  // Kết nối DUY NHẤT một Broker theo Mã Phòng kèm Sequential Failover
+  // Kết nối Broker chính theo Mã Phòng + Broker song song dự phòng (emqx + hivemq) để chống lệch Broker 100%
   private client: MqttClient | null = null;
+  private secondaryClient: MqttClient | null = null;
   private activeBrokerUrl = '';
+  private secondaryBrokerUrl = '';
   private failoverAttempt = 0;
   private currentBrokerRetries = 0;
   private pinnedBrokerIndex: number | null = null;
@@ -187,6 +206,7 @@ class NetworkService {
   private workerSupported = false;
 
   private onMessageCallback: ((data: CloudMessage) => void) | null = null;
+  private hostMessageListener: ((data: CloudMessage) => void) | null = null;
   private onConnectedCallback: (() => void) | null = null;
   private onStatusChangeCallback: ((status: NetworkConnStatus) => void) | null = null;
   private telemetryListeners = new Set<(t: NetworkTelemetry) => void>();
@@ -226,7 +246,11 @@ class NetworkService {
         this.apiOrigins = [];
         this.httpHealthy = false;
       } else if (window.location.origin && window.location.origin !== 'null') {
-        this.apiOrigins = [window.location.origin];
+        const origins = [window.location.origin];
+        if (window.location.origin.includes('://ais-dev-')) {
+          origins.push(window.location.origin.replace('://ais-dev-', '://ais-pre-'));
+        }
+        this.apiOrigins = origins;
       }
 
       try {
@@ -275,6 +299,10 @@ class NetworkService {
     }
   }
 
+  public setHostMessageListener(cb: ((data: CloudMessage) => void) | null) {
+    this.hostMessageListener = cb;
+  }
+
   private initBackgroundWorker() {
     try {
       if (typeof window !== 'undefined' && typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
@@ -307,7 +335,7 @@ class NetworkService {
     }
   }
 
-  public getActiveBrokerIndex(): number {
+  public getActiveBrokerIndex(roomId?: string): number {
     if (this.activeBrokerUrl) {
       const idx = PRIMARY_BROKERS.indexOf(this.activeBrokerUrl);
       if (idx !== -1) return idx;
@@ -315,8 +343,9 @@ class NetworkService {
     if (this.pinnedBrokerIndex !== null && this.pinnedBrokerIndex >= 0) {
       return this.pinnedBrokerIndex;
     }
-    if (this.currentRoomId) {
-      return hashRoomId(this.currentRoomId) % PRIMARY_BROKERS.length;
+    const targetRoom = roomId || this.currentRoomId;
+    if (targetRoom) {
+      return hashRoomId(targetRoom) % 2;
     }
     return 0;
   }
@@ -533,6 +562,11 @@ class NetworkService {
         this.onMessageCallback(data);
       } catch {}
     }
+    if (this.hostMessageListener && this.hostMessageListener !== this.onMessageCallback) {
+      try {
+        this.hostMessageListener(data);
+      } catch {}
+    }
   }
 
   private setStatus(newStatus: NetworkConnStatus) {
@@ -623,8 +657,9 @@ class NetworkService {
       }
     }
 
-    // 2. Kết nối DUY NHẤT một Broker dựa trên Mã Phòng với Sequential Failover
+    // 2. Kết nối Broker chính + Broker song song dự phòng (emqx + hivemq) để Giáo viên & Học sinh luôn thông suốt 100%
     this.connectSingleBrokerByRoom(cleanRoom, roomChanged);
+    this.connectSecondaryMeshBroker(cleanRoom, roomChanged);
 
     // 3. Đọc dữ liệu đồng bộ tức thời từ localStorage / cache nếu cùng thiết bị
     try {
@@ -668,19 +703,81 @@ class NetworkService {
     ];
   }
 
-  /**
-   * YÊU CẦU 1 & 2:
-   * 1. Thống nhất DUY NHẤT một Broker dựa trên Mã Phòng (hoặc ghim theo brokerIndex của Giáo viên):
-   *    const primaryBroker = BROKER_LIST[baseIndex];
-   * 2. Cơ chế Dự phòng tuần tự (Sequential Failover):
-   *    Chỉ kết nối 1 Broker tại 1 thời điểm. Ưu tiên Retry trên cùng Broker ít nhất 2 lần trước khi chuyển sang Broker dự phòng.
-   */
+  private connectSecondaryMeshBroker(roomId: string, forceReconnect: boolean = false) {
+    if (this.isIntentionalDisconnect || !roomId) return;
+    const primaryIdx = (this.pinnedBrokerIndex !== null && this.pinnedBrokerIndex >= 0)
+      ? this.pinnedBrokerIndex
+      : (hashRoomId(roomId) % 2);
+    const secondaryIdx = primaryIdx === 0 ? 1 : 0;
+    const targetUrl = PRIMARY_BROKERS[secondaryIdx];
+
+    if (
+      !forceReconnect &&
+      this.secondaryClient &&
+      this.secondaryClient.connected &&
+      this.secondaryBrokerUrl === targetUrl
+    ) {
+      return;
+    }
+
+    this.secondaryBrokerUrl = targetUrl;
+    this.safeCloseSecondaryClient();
+
+    try {
+      const secClient = mqtt.connect(targetUrl, {
+        clientId: 'kc3d_sec_' + Math.random().toString(16).substring(2, 10),
+        clean: true,
+        connectTimeout: 4500,
+        reconnectPeriod: 4000,
+        keepalive: 30
+      });
+      this.secondaryClient = secClient;
+
+      secClient.on('connect', () => {
+        if (this.isIntentionalDisconnect || this.secondaryClient !== secClient) return;
+        const topics = this.getSubscriptionTopics();
+        if (topics.length === 0) return;
+        secClient.subscribe(topics, { qos: 0 }, (err) => {
+          if (!err) {
+            this.mqttHealthy = true;
+            this.setStatus('CONNECTED');
+            this.flushOfflineQueue();
+            this.notifyTelemetry();
+          }
+        });
+      });
+
+      secClient.on('message', (_topic, message) => {
+        try {
+          const rawStr = message.toString();
+          if (!rawStr) return;
+          const data = JSON.parse(rawStr) as CloudMessage;
+          this.deliverIncomingMessage(data);
+        } catch {}
+      });
+
+      secClient.on('error', () => {});
+    } catch {}
+  }
+
+  private safeCloseSecondaryClient() {
+    if (this.secondaryClient) {
+      const old = this.secondaryClient;
+      this.secondaryClient = null;
+      try {
+        old.removeAllListeners();
+        old.on('error', () => {});
+        old.end(true);
+      } catch {}
+    }
+  }
+
   private connectSingleBrokerByRoom(roomId: string, forceReconnect: boolean = false) {
     if (this.isIntentionalDisconnect || !roomId) return;
 
     const baseIndex = (this.pinnedBrokerIndex !== null && this.pinnedBrokerIndex >= 0)
       ? this.pinnedBrokerIndex
-      : (hashRoomId(roomId) % PRIMARY_BROKERS.length);
+      : (hashRoomId(roomId) % 2);
     const targetIndex = (baseIndex + this.failoverAttempt) % PRIMARY_BROKERS.length;
     const targetBrokerUrl = PRIMARY_BROKERS[targetIndex];
 
@@ -783,7 +880,7 @@ class NetworkService {
   private triggerSequentialFailover(_reason: string) {
     if (this.isIntentionalDisconnect || !this.currentRoomId) return;
 
-    this.mqttHealthy = false;
+    this.mqttHealthy = Boolean(this.secondaryClient && this.secondaryClient.connected);
     this.isConnectingMqtt = false;
     if (this.failoverTimer) {
       clearTimeout(this.failoverTimer);
@@ -1013,6 +1110,13 @@ class NetworkService {
             this.worker.postMessage({ cmd: 'SET_QUIZ_HASH', quizHash: respData.quizHash });
           }
         }
+        if (respData && respData.matchStatus === 'PLAYING') {
+          this.deliverIncomingMessage({
+            _mid: `pub_ack_playing_${this.currentRoomId}_${Date.now()}`,
+            type: 'WELCOME_ACK',
+            status: 'PLAYING'
+          });
+        }
         this.httpHealthy = true;
         this.consecutiveHttpFailures = 0;
         this.setStatus('CONNECTED');
@@ -1069,11 +1173,16 @@ class NetworkService {
     if (!this.client || !this.client.connected) {
       this.connectSingleBrokerByRoom(this.currentRoomId, false);
     }
+    if (!this.secondaryClient || !this.secondaryClient.connected) {
+      this.connectSecondaryMeshBroker(this.currentRoomId, false);
+    }
   }
 
   private async flushOfflineQueue() {
     if (this.offlineQueue.length === 0 || !this.currentRoomId) return;
-    const isMqttConnected = Boolean(this.client && this.client.connected);
+    const isMqttConnected = Boolean(
+      (this.client && this.client.connected) || (this.secondaryClient && this.secondaryClient.connected)
+    );
     if (!isMqttConnected && (this.isStaticHost || !this.httpHealthy)) return;
 
     const queued = [...this.offlineQueue];
@@ -1105,7 +1214,10 @@ class NetworkService {
   }
 
   private broadcastQuizChunksOverMqtt(quiz: QuizItem[], quizHash: string) {
-    if (!Array.isArray(quiz) || quiz.length === 0 || !this.currentRoomTopic || !this.client || !this.client.connected) return;
+    const activeClients = [this.client, this.secondaryClient].filter(
+      (c): c is MqttClient => Boolean(c && c.connected)
+    );
+    if (!Array.isArray(quiz) || quiz.length === 0 || !this.currentRoomTopic || activeClients.length === 0) return;
     if (this.lastBroadcastedMqttQuizHash === quizHash) return;
     this.lastBroadcastedMqttQuizHash = quizHash;
 
@@ -1122,17 +1234,22 @@ class NetworkService {
         quizChunk: chunkItems
       };
       const rawChunk = JSON.stringify(chunkMsg);
-      try {
-        this.client.publish(`${this.currentRoomTopic}/qchunk/${i}`, rawChunk, { qos: 0, retain: true });
-      } catch {}
+      activeClients.forEach(c => {
+        try {
+          c.publish(`${this.currentRoomTopic}/qchunk/${i}`, rawChunk, { qos: 0, retain: true });
+        } catch {}
+      });
     }
   }
 
   /**
-   * Gửi gói tin qua DUY NHẤT một Broker đã kết nối, không phát 4 lần gây bão gói tin
+   * Gửi gói tin đồng thời qua các Broker đã kết nối để Giáo viên & Học sinh luôn thông suốt
    */
   private publishToSingleMqttBroker(payload: CloudMessage) {
-    if (!this.currentRoomTopic || !this.client || !this.client.connected) {
+    const activeClients = [this.client, this.secondaryClient].filter(
+      (c): c is MqttClient => Boolean(c && c.connected)
+    );
+    if (!this.currentRoomTopic || activeClients.length === 0) {
       if (this.isStaticHost) {
         this.queueCriticalIfOffline(payload);
       }
@@ -1179,15 +1296,17 @@ class NetworkService {
         })
       : null;
 
-    try {
-      this.client.publish(this.currentRoomTopic, mqttLivePayload, { qos: 0 });
-      if (retainedHostStatePayload) {
-        this.client.publish(`${this.currentRoomTopic}/state`, retainedHostStatePayload, { qos: 0, retain: true });
-      }
-      if (retainedPlayerPayload && payload.playerId) {
-        this.client.publish(`${this.currentRoomTopic}/players/${payload.playerId}`, retainedPlayerPayload, { qos: 0, retain: true });
-      }
-    } catch {}
+    activeClients.forEach(c => {
+      try {
+        c.publish(this.currentRoomTopic!, mqttLivePayload, { qos: 0 });
+        if (retainedHostStatePayload) {
+          c.publish(`${this.currentRoomTopic}/state`, retainedHostStatePayload, { qos: 0, retain: true });
+        }
+        if (retainedPlayerPayload && payload.playerId) {
+          c.publish(`${this.currentRoomTopic}/players/${payload.playerId}`, retainedPlayerPayload, { qos: 0, retain: true });
+        }
+      } catch {}
+    });
   }
 
   /**
@@ -1238,7 +1357,7 @@ class NetworkService {
       this.publishHttpMessage(httpPayload);
     }
 
-    // 3. Gửi qua DUY NHẤT một Broker đã kết nối theo Mã Phòng
+    // 3. Gửi qua các Broker đã kết nối theo Mã Phòng
     this.publishToSingleMqttBroker(payload);
   }
 
@@ -1282,6 +1401,11 @@ class NetworkService {
       sessionStorage.removeItem(`kc3d_quiz_cache_${cleanId}`);
       localStorage.removeItem(`kc3d_quiz_cache_${cleanId}`);
       localStorage.removeItem(`kc3d_live_sync_${cleanId}`);
+      for (const k of Array.from(this.seenMsgIds)) {
+        if (k.startsWith('srv_p_') || k.startsWith(`hb_q_synced_${cleanId}`)) {
+          this.seenMsgIds.delete(k);
+        }
+      }
     } catch {}
   }
 
@@ -1299,6 +1423,7 @@ class NetworkService {
       this.worker.postMessage({ cmd: 'STOP' });
     }
     this.safeCloseClient();
+    this.safeCloseSecondaryClient();
     this.mqttHealthy = false;
     this.currentRoomTopic = '';
     this.currentRoomId = '';

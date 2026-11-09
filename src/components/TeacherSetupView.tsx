@@ -17,7 +17,7 @@ import {
 import { auditQuizList, QuizAuditSummary } from '../services/quizAuditor';
 import { QuizAuditorModal } from './QuizAuditorModal';
 import { MathRenderer } from '../utils/katexHelper';
-import { CloudNetwork } from '../services/network';
+import { CloudNetwork, getStudentShareBaseUrl } from '../services/network';
 
 interface Props {
   subjectsDB: Record<string, SubjectData>;
@@ -114,12 +114,9 @@ export const TeacherSetupView: React.FC<Props> = ({
   // Generate Room QR Code
   useEffect(() => {
     if (!activeRoomId) return;
-    let base = window.location.href.split('?')[0].split('#')[0];
-    if (base.startsWith('file:')) {
-      base = 'https://khaibcmt.github.io/edu/';
-    }
+    const base = getStudentShareBaseUrl();
     const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
-    const bkIdx = CloudNetwork.getActiveBrokerIndex();
+    const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
     const url = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
     setRoomQRUrl(url);
     QRCode.toDataURL(url, { width: 220, margin: 1, errorCorrectionLevel: 'H' }).then(setRoomQRImg).catch(() => {});

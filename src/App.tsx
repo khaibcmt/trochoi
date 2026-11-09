@@ -65,9 +65,7 @@ export const App: React.FC = () => {
       return 'STUDENT_MOBILE';
     }
     try {
-      if (sessionStorage.getItem('kc3d_active_view_mode') === 'STUDENT_MOBILE') {
-        return 'STUDENT_MOBILE';
-      }
+      sessionStorage.removeItem('kc3d_active_view_mode');
     } catch {}
     return 'TEACHER_SETUP';
   });
@@ -76,9 +74,11 @@ export const App: React.FC = () => {
   useEffect(() => {
     const authOverlay = document.getElementById('dautruong-auth-overlay');
     if (view === 'STUDENT_MOBILE') {
-      try {
-        sessionStorage.setItem('kc3d_active_view_mode', 'STUDENT_MOBILE');
-      } catch {}
+      if (isDirectStudent) {
+        try {
+          sessionStorage.setItem('kc3d_active_view_mode', 'STUDENT_MOBILE');
+        } catch {}
+      }
       if (authOverlay) {
         authOverlay.classList.remove('active');
         authOverlay.style.display = 'none';
@@ -88,7 +88,7 @@ export const App: React.FC = () => {
         sessionStorage.removeItem('kc3d_active_view_mode');
       } catch {}
     }
-  }, [view]);
+  }, [view, isDirectStudent]);
 
   // Initial student params from URL
   const studentRoomParam = urlParams.get('r') || urlParams.get('room') || '12345';
@@ -709,21 +709,12 @@ export const App: React.FC = () => {
         const incomingName = (d.playerName || '').trim();
         const isIncomingGeneric =
           !incomingName ||
-          incomingName.length < 2 ||
-          incomingName === 'Học sinh' ||
-          incomingName === 'Chưa lưu tên' ||
-          /^HS\s+\d+$/i.test(incomingName) ||
-          /^Thí sinh\s*#?\d*$/i.test(incomingName) ||
-          /^SBD\s*#?[a-zA-Z0-9]+$/i.test(incomingName);
+          incomingName === 'Chưa lưu tên';
 
         if (existing) {
           const hasRealExistingName =
             Boolean(existing.label) &&
-            existing.label !== 'Học sinh' &&
-            existing.label !== 'Chưa lưu tên' &&
-            !/^HS\s+\d+$/i.test(existing.label) &&
-            !/^Thí sinh\s*#?\d*$/i.test(existing.label) &&
-            !/^SBD\s*#?[a-zA-Z0-9]+$/i.test(existing.label);
+            existing.label !== 'Chưa lưu tên';
 
           const nextLabel = (!isIncomingGeneric && incomingName)
             ? incomingName
@@ -948,7 +939,7 @@ export const App: React.FC = () => {
         if (prev.status === 'ENDED') return prev;
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
         let pObj = allP.find(x => x.id === d.playerId);
-        if (!pObj && d.playerId && d.playerName && d.playerName.trim().length >= 2) {
+        if (!pObj && d.playerId && d.playerName && d.playerName.trim().length >= 1) {
           const assignedTeam: 'RED' | 'BLUE' = d.team || (prev.redPlayers.length <= prev.bluePlayers.length ? 'RED' : 'BLUE');
           pObj = {
             id: d.playerId,
@@ -1336,9 +1327,10 @@ export const App: React.FC = () => {
   const handleHostIncomingMessageRef = useRef(handleHostIncomingMessage);
   handleHostIncomingMessageRef.current = handleHostIncomingMessage;
 
-  // Connect cloud continuously when Teacher is in Setup or Host Arena so students never disconnect across game switches
+  // Connect cloud continuously when Teacher is in Setup, Host Arena, or testing Student mode (Thử HS) so students never disconnect
   useEffect(() => {
-    if (view === 'STUDENT_MOBILE') {
+    if (isDirectStudent) {
+      CloudNetwork.setHostMessageListener(null);
       if (heartbeatRef.current) {
         clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
@@ -1346,14 +1338,21 @@ export const App: React.FC = () => {
       return;
     }
 
-    CloudNetwork.connect(
-      activeRoomId,
-      (msg) => handleHostIncomingMessageRef.current(msg),
-      () => {
-        broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
-      }
-    );
+    CloudNetwork.setHostMessageListener((msg) => handleHostIncomingMessageRef.current(msg));
 
+    if (view !== 'STUDENT_MOBILE') {
+      CloudNetwork.connect(
+        activeRoomId,
+        (msg) => handleHostIncomingMessageRef.current(msg),
+        () => {
+          broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
+        }
+      );
+    }
+
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+    }
     heartbeatRef.current = setInterval(() => {
       broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
     }, 1200);
@@ -1364,7 +1363,7 @@ export const App: React.FC = () => {
         heartbeatRef.current = null;
       }
     };
-  }, [view === 'STUDENT_MOBILE', activeRoomId]);
+  }, [view, activeRoomId, isDirectStudent]);
 
   // Toggle fullscreen helper
   const handleToggleFullScreen = () => {

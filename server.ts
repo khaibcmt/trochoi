@@ -582,11 +582,11 @@ app.get('/api/room/active', (_req, res) => {
     // Ưu tiên số 1: Mã phòng Giáo viên đang mở và phát nhịp tim trực tiếp trong 5 phút gần nhất
     if (primaryActiveRoomId) {
       const primaryRoom = roomsHub.get(primaryActiveRoomId);
-      if (primaryRoom && now - primaryRoom.updatedAt < 5 * 60 * 1000) {
+      if (primaryRoom && now - primaryRoom.updatedAt < 10 * 60 * 1000) {
         return res.json({ ok: true, roomId: primaryActiveRoomId });
       }
     }
-    let bestRoomId = primaryActiveRoomId || '12345';
+    let bestRoomId: string | null = primaryActiveRoomId || null;
     let bestScore = -1;
     for (const [rId, rm] of roomsHub.entries()) {
       if (now - rm.updatedAt > 30 * 60 * 1000) continue;
@@ -602,7 +602,7 @@ app.get('/api/room/active', (_req, res) => {
     }
     return res.json({ ok: true, roomId: bestRoomId });
   } catch (err: any) {
-    return res.json({ ok: true, roomId: primaryActiveRoomId || '12345' });
+    return res.json({ ok: true, roomId: primaryActiveRoomId || null });
   }
 });
 
@@ -681,15 +681,10 @@ function processRoomIncomingPayload(room: RoomHubState, payload: any) {
 
   if (payload.type === 'HOST_HEARTBEAT') {
     primaryActiveRoomId = room.roomId;
-    // CHỐNG LỖI RACE CONDITION KHI GIÁO VIÊN BẤM BẮT ĐẦU:
-    // Nếu Giáo viên vừa bấm BẮT ĐẦU (FORCE_START_MATCH / QUESTION_START) trong vòng 10 giây,
-    // tuyệt đối không để gói HOST_HEARTBEAT trễ mang status='LOBBY' ghi đè làm khóa màn hình học sinh!
+    // CHỐNG LỖI RACE CONDITION KHI GIÁO VIÊN BẮT ĐẦU HOẶC MỞ NHIỀU TAB:
+    // Nếu phòng đã ở trạng thái PLAYING, tuyệt đối không để gói HOST_HEARTBEAT mang status='LOBBY' ghi đè làm khóa màn hình học sinh!
     let effectiveStatus = payload.status || room.matchStatus || 'LOBBY';
-    if (
-      room.matchStatus === 'PLAYING' &&
-      effectiveStatus === 'LOBBY' &&
-      now - room.statusChangedAt < 10000
-    ) {
+    if (room.matchStatus === 'PLAYING' && effectiveStatus === 'LOBBY') {
       effectiveStatus = 'PLAYING';
     } else if (payload.status) {
       room.matchStatus = payload.status;

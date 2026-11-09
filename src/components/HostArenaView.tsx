@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
 import { MatchState, QuizItem, Player, GamePlayType, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
-import { CloudNetwork, NetworkTelemetry, AntiCongestionMode } from '../services/network';
+import { CloudNetwork, NetworkTelemetry, AntiCongestionMode, getStudentShareBaseUrl } from '../services/network';
 import {
   cleanQuestionTitleText,
   cleanTFStatementText,
@@ -158,12 +158,9 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Generate QR URLs
   useEffect(() => {
-    let base = window.location.href.split('?')[0].split('#')[0];
-    if (base.startsWith('file:')) {
-      base = 'https://khaibcmt.github.io/edu/';
-    }
+    const base = getStudentShareBaseUrl();
     const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : ''));
-    const bkIdx = CloudNetwork.getActiveBrokerIndex();
+    const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
     const rUrl = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
     const bUrl = `${base}?r=${activeRoomId}&role=player&t=B${gmFlag}&bk=${bkIdx}`;
     setQrRedUrl(rUrl);

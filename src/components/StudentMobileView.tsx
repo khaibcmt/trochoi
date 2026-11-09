@@ -25,12 +25,8 @@ interface Props {
 
 export const isPlaceholderOrEmptyName = (name: string): boolean => {
   const trimmed = (name || '').trim();
-  if (trimmed.length < 2) return true;
-  if (/^(thí sinh|học sinh|hs|player|chưa lưu tên)(\s*#?\d*)?$/i.test(trimmed)) return true;
-  if (/^thí sinh/i.test(trimmed)) return true;
-  if (/^học sinh/i.test(trimmed)) return true;
-  if (/^chưa lưu tên/i.test(trimmed)) return true;
-  if (/^vô danh/i.test(trimmed)) return true;
+  if (trimmed.length < 1) return true;
+  if (/^chưa lưu tên$/i.test(trimmed)) return true;
   return false;
 };
 
@@ -134,27 +130,36 @@ export const StudentMobileView: React.FC<Props> = ({
     }
   }, [roomId, tabSessionId]);
 
-  // Nếu mở Tab ở chế độ Ẩn Danh hoặc chưa truyền ?r= trên URL, tự động hỏi Server định kỳ để bắt đúng Mã Phòng đang mở của Giáo viên
+  // Nếu mở Tab ở chế độ Ẩn Danh hoặc chưa truyền ?r= trên URL, tự động hỏi Server để bắt đúng Mã Phòng đang mở của Giáo viên (Chỉ khi chưa vào phòng)
   useEffect(() => {
     let mounted = true;
     const syncActiveRoom = async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        if (!params.has('r') && !params.has('room')) {
-          const activeId = await CloudNetwork.fetchActiveRoomId();
-          if (mounted && activeId && String(activeId) !== roomId) {
-            setRoomId(String(activeId));
-          }
+        const hasRoomInUrl = /[?#&](?:r|room)=\d+/i.test(window.location.href);
+        if (
+          hasRoomInUrl ||
+          hasJoinedArenaRef.current ||
+          screenRef.current !== 'LOBBY' ||
+          (studentNameRef.current && studentNameRef.current.trim().length > 0)
+        ) {
+          return;
+        }
+        if (initialRoomId && /^\d{5}$/.test(initialRoomId) && initialRoomId !== '12345') {
+          return;
+        }
+        const activeId = await CloudNetwork.fetchActiveRoomId();
+        if (mounted && activeId && /^\d{5}$/.test(String(activeId)) && String(activeId) !== roomId) {
+          setRoomId(String(activeId));
         }
       } catch {}
     };
     syncActiveRoom();
-    const roomSyncTimer = setInterval(syncActiveRoom, 3000);
+    const roomSyncTimer = setInterval(syncActiveRoom, 4000);
     return () => {
       mounted = false;
       clearInterval(roomSyncTimer);
     };
-  }, [roomId]);
+  }, [roomId, initialRoomId]);
 
   const [studentName, setStudentName] = useState(() => {
     try {
@@ -997,8 +1002,8 @@ export const StudentMobileView: React.FC<Props> = ({
         AudioFX.pullHeave();
         triggerBonusToast('🚀 Thầy/Cô đã kéo bạn quay lại phòng thi đang diễn ra!');
       } else if (screenRef.current === 'LOBBY' || screenRef.current === 'WAITING') {
-        waitingRoomLockedRef.current = true;
-        setScreen('WAITING');
+        waitingRoomLockedRef.current = false;
+        setScreen('QUIZ');
         AudioFX.bonusLifeChime();
         triggerBonusToast(`🧲 Thầy/Cô đã kéo bạn (${validName}) vào phòng thi!`);
       }
@@ -1272,16 +1277,14 @@ export const StudentMobileView: React.FC<Props> = ({
       setLastLockedResult(null);
 
       if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(studentNameRef.current)) {
+        waitingRoomLockedRef.current = false;
+        activeStudentTimerQIndexRef.current = -1;
+        startMsRef.current = Date.now();
+        setRemSec(30);
+        setScreen('QUIZ');
         if (nextStatus === 'PLAYING') {
-          waitingRoomLockedRef.current = false;
-          activeStudentTimerQIndexRef.current = -1;
-          startMsRef.current = Date.now();
-          setRemSec(30);
-          setScreen('QUIZ');
           triggerBonusToast('🎮 Đã đồng bộ bộ câu hỏi mới — Bắt đầu thi đấu ngay!');
         } else {
-          waitingRoomLockedRef.current = true;
-          setScreen('WAITING');
           triggerBonusToast('📣 Đã đồng bộ trò chơi mới trong Phòng thi (Đợi Giáo viên bấm Bắt đầu)!');
         }
       }
@@ -1431,9 +1434,9 @@ export const StudentMobileView: React.FC<Props> = ({
           if (effectiveHeartbeatStatus === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current) {
             waitingRoomLockedRef.current = false;
             setScreen('QUIZ');
-          } else if (screenRef.current === 'LOBBY') {
-            waitingRoomLockedRef.current = true;
-            setScreen('WAITING');
+          } else if (screenRef.current === 'LOBBY' || screenRef.current === 'WAITING') {
+            waitingRoomLockedRef.current = false;
+            setScreen('QUIZ');
             AudioFX.bonusLifeChime();
             triggerBonusToast(`🧲 Thầy/Cô đã kéo bạn (${validName}) vào phòng thi!`);
           }
@@ -2111,9 +2114,9 @@ export const StudentMobileView: React.FC<Props> = ({
     triggerBonusToast(`✅ Đã lưu Họ và Tên: "${finalName}"!`);
   };
 
-  // Vào Phòng chờ (WAITING) - Bắt buộc học sinh phải điền tên và Lưu lại mới được chơi!
+  // Vào Phòng Thi (QUIZ) ngay khi học sinh nhập tên và bấm VÀO PHÒNG THI
   const handleReadyInRope = (
-    targetScreen: 'QUIZ' | 'WAITING' = 'WAITING',
+    targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ',
     overrideName?: string,
     overrideAvatar?: AvatarConfig,
     overrideTeam?: PlayerTeam
@@ -2126,9 +2129,11 @@ export const StudentMobileView: React.FC<Props> = ({
     const finalAv = overrideAvatar || avatar;
     const finalTm = overrideTeam || team;
 
+    setShowNameAlert(false);
     setStudentName(cleanName);
     studentNameRef.current = cleanName;
     setTempInputName(cleanName);
+    tempInputNameRef.current = cleanName;
     setAvatar(finalAv);
     avatarRef.current = finalAv;
     setTeam(finalTm);
@@ -2145,8 +2150,8 @@ export const StudentMobileView: React.FC<Props> = ({
     hasFinishedAllQuestionsRef.current = false;
     hasConfirmedEnterRef.current = false;
     setHasConfirmedEnter(false);
-    const effectiveScreen = hostMatchStatusRef.current === 'PLAYING' ? 'QUIZ' : 'WAITING';
-    waitingRoomLockedRef.current = effectiveScreen === 'WAITING';
+    const effectiveScreen: 'QUIZ' | 'WAITING' = targetScreen === 'WAITING' && hostMatchStatusRef.current !== 'PLAYING' ? 'QUIZ' : targetScreen;
+    waitingRoomLockedRef.current = false;
     AudioFX.stepInRope();
 
     const joinPayload: CloudMessage = {
@@ -2762,8 +2767,29 @@ export const StudentMobileView: React.FC<Props> = ({
           boxShadow: '0 4px 14px rgba(0,0,0,0.55)'
         }}
       >
-        <div style={{ fontSize: '15px', fontWeight: 900, color: '#fef08a', letterSpacing: '0.3px' }}>
-          {gameTitleDisplay}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {onExitToSetup && !/[?#&](?:r|room)=\d+/i.test(window.location.href) && (
+            <button
+              type="button"
+              onClick={onExitToSetup}
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#0f172a',
+                border: '1.5px solid #fef08a',
+                borderRadius: '10px',
+                padding: '5px 10px',
+                fontSize: '12px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)'
+              }}
+            >
+              👨‍🏫 Về Trang Giáo Viên
+            </button>
+          )}
+          <div style={{ fontSize: '15px', fontWeight: 900, color: '#fef08a', letterSpacing: '0.3px' }}>
+            {gameTitleDisplay}
+          </div>
         </div>
         <div
           style={{
@@ -2781,7 +2807,7 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       </header>
 
-      {/* Screen 1: LOBBY — Tối ưu hóa: Chỉ hiện Tên trò chơi, ô nhập tên trống hoàn toàn, nút VÀO PHÒNG THI và Bảng Top 10 */}
+      {/* Screen 1: LOBBY — Nhập tên & Mã phòng để vào thẳng Phòng Thi */}
       {screen === 'LOBBY' && (
         <div style={{ maxWidth: '480px', margin: '0 auto', padding: '16px 14px 24px 14px' }}>
           <div
@@ -2795,25 +2821,68 @@ export const StudentMobileView: React.FC<Props> = ({
               boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
             }}
           >
-            <h1 style={{ fontSize: '21px', fontWeight: 900, color: '#fef08a', margin: '0 0 4px 0' }}>
+            <h1 style={{ fontSize: '21px', fontWeight: 900, color: '#fef08a', margin: '0 0 6px 0' }}>
               {gameTitleDisplay}
             </h1>
-            <div style={{ fontSize: '13px', fontWeight: 800, color: '#7dd3fc' }}>
-              Mã phòng thi: <b style={{ color: '#4ade80' }}>{roomId}</b>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 800, color: '#7dd3fc' }}>
+              <span>Mã phòng thi:</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={roomId}
+                onChange={e => {
+                  const cleanVal = e.target.value.replace(/[^0-9]/g, '');
+                  if (cleanVal) {
+                    prevRoomIdRef.current = cleanVal;
+                    setRoomId(cleanVal);
+                  }
+                }}
+                style={{
+                  width: '86px',
+                  padding: '4px 8px',
+                  borderRadius: '8px',
+                  border: '1.5px solid #4ade80',
+                  background: '#0f172a',
+                  color: '#4ade80',
+                  fontWeight: 900,
+                  fontSize: '15px',
+                  textAlign: 'center',
+                  outline: 'none'
+                }}
+              />
             </div>
           </div>
 
           <div style={{ background: '#0f172a', border: '1.5px solid #334155', borderRadius: '18px', padding: '16px', marginBottom: '16px' }}>
-            <label
-              htmlFor="student-name-input"
-              style={{ display: 'block', fontSize: '13.5px', fontWeight: 900, marginBottom: '8px', color: showNameAlert ? '#fca5a5' : '#e2e8f0' }}
-            >
-              Tên học sinh: {showNameAlert && <span style={{ color: '#ef4444' }}>* (Bắt buộc nhập tên)</span>}
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', gap: '8px' }}>
+              <label
+                htmlFor="student-name-input"
+                style={{ fontSize: '13.5px', fontWeight: 900, color: showNameAlert ? '#fca5a5' : '#e2e8f0' }}
+              >
+                Họ và tên học sinh: {showNameAlert && <span style={{ color: '#ef4444' }}>* (Vui lòng nhập tên)</span>}
+              </label>
+              <button
+                type="button"
+                onClick={() => handleQuickRandomCharacter(false)}
+                style={{
+                  background: '#1e293b',
+                  color: '#38bdf8',
+                  border: '1px solid #38bdf8',
+                  borderRadius: '8px',
+                  padding: '4px 8px',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+              >
+                🎲 Tên ngẫu nhiên
+              </button>
+            </div>
             <input
               id="student-name-input"
               type="text"
-              placeholder=""
+              placeholder="Nhập Họ và Tên của em (VD: Nguyễn Văn An)..."
               autoComplete="off"
               value={studentName}
               onChange={e => {
@@ -2825,7 +2894,7 @@ export const StudentMobileView: React.FC<Props> = ({
               }}
               onKeyDown={e => {
                 if (e.key === 'Enter') {
-                  handleReadyInRope('WAITING');
+                  handleReadyInRope('QUIZ');
                 }
               }}
               style={{
@@ -2882,7 +2951,7 @@ export const StudentMobileView: React.FC<Props> = ({
 
             <button
               type="button"
-              onClick={() => handleReadyInRope('WAITING')}
+              onClick={() => handleReadyInRope('QUIZ')}
               style={{
                 width: '100%',
                 padding: '15px 14px',
@@ -2900,7 +2969,7 @@ export const StudentMobileView: React.FC<Props> = ({
                 gap: '8px'
               }}
             >
-              <span>🚪 VÀO PHÒNG THI</span>
+              <span>🚪 VÀO PHÒNG THI NGAY</span>
             </button>
           </div>
 
@@ -2988,9 +3057,29 @@ export const StudentMobileView: React.FC<Props> = ({
             <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#4ade80', marginBottom: '4px' }}>
               ✅ Thí sinh: {studentName}
             </div>
-            <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#fde047' }}>
+            <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#fde047', marginBottom: '12px' }}>
               ⏳ Đã vào phòng thi • Đang chờ Giáo viên bấm Bắt đầu
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                waitingRoomLockedRef.current = false;
+                setScreen('QUIZ');
+              }}
+              style={{
+                padding: '12px 18px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: '14px',
+                border: '2px solid #6ee7b7',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
+              }}
+            >
+              📖 VÀO XEM CÂU HỎI TRONG PHÒNG THI
+            </button>
           </div>
 
           {renderTop10Board()}
@@ -3324,6 +3413,47 @@ export const StudentMobileView: React.FC<Props> = ({
                 <span>⏳</span>
                 <span>Ngay khi Thầy/Cô bấm Bắt đầu, toàn bộ đáp án sẽ tự động mở đồng loạt!</span>
               </div>
+              {onExitToSetup && !/[?#&](?:r|room)=\d+/i.test(window.location.href) && (
+                <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHostMatchStatus('PLAYING');
+                      hostMatchStatusRef.current = 'PLAYING';
+                      startMsRef.current = Date.now();
+                      setRemSec(30);
+                    }}
+                    style={{
+                      padding: '10px 16px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: '13px',
+                      border: '1.5px solid #6ee7b7',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ▶️ Mở khóa làm thử ngay (Chế độ Thử HS)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onExitToSetup}
+                    style={{
+                      padding: '10px 16px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: '13px',
+                      border: '1.5px solid #93c5fd',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    👨‍🏫 Quay về Màn hình Giáo viên
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <>
