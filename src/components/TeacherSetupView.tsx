@@ -277,7 +277,8 @@ export const TeacherSetupView: React.FC<Props> = ({
 
   // =========================================================================
   // ENGINE TỰ ĐỘNG CHỮA LỖI DÍNH DÒNG VÀ GIỮ NGUYÊN GẠCH CHÂN CHO 3 KHUNG
-  // (Kết hợp bảo toàn Hình ảnh <img>, Bảng số liệu <table>, Công thức <sub>/<sup>)
+  // (Kết hợp bảo toàn Hình ảnh <img>, Bảng số liệu <table>, Công thức <sub>/<sup>,
+  //  Dọn sạch 100% rác Word XML/MSO Style Definitions và phục hồi mũi tên Wingdings)
   // =========================================================================
   const preparePasteCleanContent = (
     htmlInput: string,
@@ -286,34 +287,68 @@ export const TeacherSetupView: React.FC<Props> = ({
   ): { cleanedText: string; restoreProtectedTags: (str: string) => string } => {
     let content = htmlInput && htmlInput.trim() ? htmlInput : textInput;
 
-    // Bảo vệ các thẻ Bảng số liệu <table> và Hình ảnh <img> trước khi lọc thẻ rác của Word
+    // 1. Dọn sạch toàn bộ khối <style>, <xml>, <script>, <head>, <meta> và comment điều kiện rác của Microsoft Word
+    // (Giữ lại nội dung bên trong <!--[if !supportLists]--> để không bị mất chữ A., B., C., D.)
+    content = content
+      .replace(/<!--\[if\s+!supportLists\]-->/gi, '')
+      .replace(/<!--\[endif\]-->/gi, '')
+      .replace(/<!\[if\s+!supportLists\]>/gi, '')
+      .replace(/<!\[endif\]>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<(style|script|xml|head|title|meta|link)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<\/?(?:meta|link|o:p|w:[a-z0-9]+|v:[a-z0-9]+|m:[a-z0-9]+)[^>]*\/?>/gi, ' ');
+
+    // 2. Bảo vệ các thẻ Bảng số liệu <table> và Hình ảnh <img> hợp lệ trước khi lọc thẻ rác của Word
     const savedMediaTags: string[] = [];
     content = content.replace(/(<table\b[\s\S]*?<\/table>|<img\b[^>]*>)/gi, match => {
+      // Không bảo vệ bảng nếu đó là bảng bọc câu hỏi trắc nghiệm A. B. C. D. của Word
+      if (/^<table/i.test(match) && /(?:^|>|\s)[A-Da-d][\.\)\:]\s+\S/.test(match.replace(/<[^>]+>/g, ' '))) {
+        return match;
+      }
       const idx = savedMediaTags.length;
       savedMediaTags.push(match);
       return `@@MEDIA_TAG_${idx}@@`;
     });
 
-    // Chuẩn hóa mọi kiểu gạch chân của Word / Google Docs / Web về dạng chuẩn <u>...</u>
+    // 3. Phục hồi mũi tên Wingdings / Symbol của Word (font-family: Wingdings/Symbol với ký tự " hoặc à/è/®) thành mũi tên chuẩn ➔
+    content = content.replace(
+      /<span\b[^>]*font-family\s*:\s*["']?(?:Wingdings|Symbol)[^"'>]*["']?[^>]*>([\s\S]*?)<\/span>/gi,
+      ' ➔ '
+    );
+
+    // 4. Chuẩn hóa mọi kiểu gạch chân của Word / Google Docs / Web về dạng chuẩn <u>...</u>
     content = content
-      .replace(/<span\b[^>]*style="[^"]*text-decoration(?:-line)?\s*:\s*underline[^"]*"[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
-      .replace(/<span\b[^>]*style='[^']*text-decoration(?:-line)?\s*:\s*underline[^']*'[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+      .replace(
+        /<span\b[^>]*style="[^"]*(?:text-decoration(?:-line)?\s*:\s*[^"]*underline|(?:mso-)?text-underline\s*:\s*(?!none)[a-z0-9\-]+)[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+        '<u>$1</u>'
+      )
+      .replace(
+        /<span\b[^>]*style='[^']*(?:text-decoration(?:-line)?\s*:\s*[^']*underline|(?:mso-)?text-underline\s*:\s*(?!none)[a-z0-9\-]+)[^']*'[^>]*>([\s\S]*?)<\/span>/gi,
+        '<u>$1</u>'
+      )
       .replace(/<ins\b[^>]*>([\s\S]*?)<\/ins>/gi, '<u>$1</u>')
       .replace(/<u\b[^>]*>([\s\S]*?)<\/u>/gi, '<u>$1</u>');
 
-    // Chuẩn hóa ngắt dòng: đổi các thẻ <p>, <br>, <div>, <li>, <tr> thành ký tự xuống dòng
+    // 5. Chuẩn hóa ngắt dòng: đổi các thẻ <p>, <br>, <div>, <li>, <tr>, <td> thành ký tự xuống dòng
     content = content
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|td|th|h[1-6])>/gi, '\n')
       .replace(/<[^>]+>/g, tag => {
-        if (/^<\/?(?:sub|sup)>/i.test(tag)) return tag;
+        if (/^<\/?(?:sub|sup)>/i.test(tag)) return tag.toLowerCase();
         if (keepUnderlineTag && /^<\/?u>/i.test(tag)) return tag.toLowerCase();
         return '';
       })
       .replace(/&nbsp;/gi, ' ')
+      .replace(/&quot;/gi, '"')
       .replace(/&amp;/gi, '&')
       .replace(/&lt;/gi, '<')
       .replace(/&gt;/gi, '>');
+
+    // 6. Quét sạch hoàn toàn rác văn bản Word MSO ("Normal 0 false false false...", "/* Style Definitions */ table.MsoNormalTable {...}")
+    // và đổi dấu ngoặc kép lẻ ( " ) ngăn cách giữa các giai đoạn (do lỗi font Wingdings khi copy) thành mũi tên ➔
+    content = stripWordStyleGarbage(content)
+      .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
+      .replace(/[\uF0E0\uF0E8\uF0AE\u2192\u2794\u279C\u27A1]/g, '➔');
 
     const restoreProtectedTags = (str: string): string => {
       let out = str;
@@ -326,18 +361,34 @@ export const TeacherSetupView: React.FC<Props> = ({
     return { cleanedText: content, restoreProtectedTags };
   };
 
+  // Tách danh sách khối câu hỏi thông minh:
+  // Nếu văn bản có từ khóa "Câu 1", "Câu 2", "Bài 1", "Question 1" thì CHỈ tách theo từ khóa đó (để giữ nguyên các ý 1., 2., 3., 4. trong thân câu hỏi dài)
+  const splitIntoQuestionBlocks = (content: string): string[] => {
+    const hasExplicitCauKeyword = /(?:^|\n)\s*(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]/i.test(content);
+    const rawBlocks = hasExplicitCauKeyword
+      ? content.split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s])/i)
+      : content.split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d{1,3}[\.\:\)]\s+)/i);
+
+    return rawBlocks
+      .map(b => b.trim())
+      .filter(b => {
+        if (!b) return false;
+        const plain = stripWordStyleGarbage(b.replace(/<[^>]+>/g, '')).trim();
+        if (!plain) return false;
+        // Bỏ qua khối rác chỉ chứa tiêu đề PHẦN I/II/III hoặc rác MSO
+        if (/^(?:PHẦN|DẠNG\s*THỨC)\s*(?:I|II|III|1|2|3)\b[^\n]*$/i.test(plain)) return false;
+        if (/^(?:Normal\s+0|false\s+false|table\.MsoNormalTable|Style\s+Definitions)/i.test(plain)) return false;
+        return true;
+      });
+  };
+
   // 1. BỘ LỌC CHO KHUNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
   const cleanKhung1HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
     const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
-
-    // Tách từng câu hỏi dựa vào "Câu 1:", "Câu 2:" hoặc số thứ tự đầu dòng
-    const questionBlocks = content
-      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
-      .filter(b => b.trim());
-
+    const questionBlocks = splitIntoQuestionBlocks(content);
     const finalQuestions: string[] = [];
 
-    questionBlocks.forEach((block, idx) => {
+    questionBlocks.forEach(block => {
       // Regex quét thông minh: Bóc tách A., B., C., D. dù bị dính liền trên 1 hàng ngang hoặc bọc trong thẻ <u>A.</u>
       const optRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]|$))/g;
       const firstOptIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?A(?:\s*<\/u>)?[\.\:\)]/);
@@ -362,7 +413,9 @@ export const TeacherSetupView: React.FC<Props> = ({
           if (keyMatch) {
             const key = keyMatch[0].toUpperCase() as 'A' | 'B' | 'C' | 'D';
             const hasUnderline = /<u>/i.test(rawPrefix) || /<u>/i.test(rawBody);
-            const cleanOptText = rawBody.replace(/<\/?u>/gi, '').trim();
+            const cleanOptText = stripWordStyleGarbage(rawBody.replace(/<\/?u>/gi, ''))
+              .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
+              .trim();
             opts[key] = {
               text: cleanOptText,
               isUnderlined: hasUnderline
@@ -374,12 +427,25 @@ export const TeacherSetupView: React.FC<Props> = ({
       }
 
       // Làm sạch tiêu đề câu
-      title = title
-        .replace(/^(?:<\/?u>\s*)*(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*/i, '')
-        .replace(/\n+/g, ' ')
+      title = stripWordStyleGarbage(
+        title
+          .replace(/^(?:<\/?u>\s*)*(?:PHẦN|DẠNG\s*THỨC)\s*(?:I|1)[^\n]*\n+/i, '')
+          .replace(/^(?:<\/?u>\s*)*(?:Câu\s*(?:hỏi)?|Bài\s*(?:tập)?|Question)?\s*\d*[\.\:\)\s]*/i, '')
+          .replace(/\n+/g, ' ')
+      )
+        .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
         .trim();
 
-      const qNum = startNumber + idx;
+      // Bỏ qua khối rỗng hoặc khối rác MSO không có nội dung câu hỏi thật
+      const validOptCount = (['A', 'B', 'C', 'D'] as const).filter(
+        k => opts[k].text.length > 0 && !/^[A-D]\.?$/i.test(opts[k].text)
+      ).length;
+      if (!title && validOptCount === 0) return;
+      if (/^(?:Normal\s+0|false\s+false|table\.MsoNormalTable|Style\s+Definitions)/i.test(title) && validOptCount === 0) {
+        return;
+      }
+
+      const qNum = startNumber + finalQuestions.length;
       let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(title)}</div>`;
       (['A', 'B', 'C', 'D'] as const).forEach(letter => {
         const optData = opts[letter];
@@ -401,14 +467,10 @@ export const TeacherSetupView: React.FC<Props> = ({
   // 2. BỘ LỌC CHO KHUNG 2: ĐÚNG / SAI 4 Ý (a, b, c, d)
   const cleanKhung2HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
     const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
-
-    const questionBlocks = content
-      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
-      .filter(b => b.trim());
-
+    const questionBlocks = splitIntoQuestionBlocks(content);
     const finalQuestions: string[] = [];
 
-    questionBlocks.forEach((block, idx) => {
+    questionBlocks.forEach(block => {
       const subRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]|$))/g;
       const firstSubIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?a(?:\s*<\/u>)?[\)\.\:]/);
 
@@ -434,7 +496,9 @@ export const TeacherSetupView: React.FC<Props> = ({
             const hasExplicitFalse = /\(\s*(?:Sai|S|False)\s*\)\s*$/i.test(rawBody);
             const hasExplicitTrue = /\(\s*(?:Đúng|Đ|True)\s*\)\s*$/i.test(rawBody);
             const hasUnderline = !hasExplicitFalse && (/<u>/i.test(rawPrefix) || /<u>/i.test(rawBody) || hasExplicitTrue);
-            const cleanItemText = rawBody.replace(/<\/?u>/gi, '').trim();
+            const cleanItemText = stripWordStyleGarbage(rawBody.replace(/<\/?u>/gi, ''))
+              .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
+              .trim();
             items[key] = {
               text: cleanItemText,
               isUnderlined: hasUnderline
@@ -445,12 +509,19 @@ export const TeacherSetupView: React.FC<Props> = ({
         title = block.trim();
       }
 
-      title = title
-        .replace(/^(?:<\/?u>\s*)*(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
-        .replace(/\n+/g, ' ')
+      title = stripWordStyleGarbage(
+        title
+          .replace(/^(?:<\/?u>\s*)*(?:PHẦN|DẠNG\s*THỨC)\s*(?:II|2)[^\n]*\n+/i, '')
+          .replace(/^(?:<\/?u>\s*)*(?:Câu\s*(?:hỏi)?|Bài\s*(?:tập)?|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
+          .replace(/\n+/g, ' ')
+      )
+        .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
         .trim();
 
-      const qNum = startNumber + idx;
+      const validItemCount = (['a', 'b', 'c', 'd'] as const).filter(k => items[k].text.length > 0).length;
+      if (!title && validItemCount === 0) return;
+
+      const qNum = startNumber + finalQuestions.length;
       let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(title)}</div>`;
       (['a', 'b', 'c', 'd'] as const).forEach(letter => {
         const itemData = items[letter];
@@ -472,35 +543,37 @@ export const TeacherSetupView: React.FC<Props> = ({
   // 3. BỘ LỌC CHO KHUNG 3: TRẢ LỜI NGẮN
   const cleanKhung3HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
     const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
-
-    const questionBlocks = content
-      .split(/(?:^|\n)\s*(?=(?:<(?:u|b)>\s*)*(?:Câu|Bài|Question)\s*\d+[\.\:\)\s]|(?:<(?:u|b)>\s*)*\d+[\.\:\)]\s+)/i)
-      .filter(b => b.trim());
-
+    const questionBlocks = splitIntoQuestionBlocks(content);
     const finalQuestions: string[] = [];
 
-    questionBlocks.forEach((block, idx) => {
+    questionBlocks.forEach(block => {
       let cleanBlock = block.trim();
       let dapAn = '';
 
       const match = cleanBlock.match(/(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả|ĐA)\s*[\:\=]\s*([^\n]+)/i);
       if (match) {
-        dapAn = match[1].replace(/<\/?u>/gi, '').trim();
+        dapAn = stripWordStyleGarbage(match[1].replace(/<\/?u>/gi, '')).trim();
         cleanBlock = cleanBlock.replace(match[0], '').trim();
       } else {
         const underlinedMatch = cleanBlock.match(/<u>([\s\S]*?)<\/u>/i);
         if (underlinedMatch) {
-          dapAn = underlinedMatch[1].trim();
+          dapAn = stripWordStyleGarbage(underlinedMatch[1]).trim();
         }
       }
 
-      cleanBlock = cleanBlock
-        .replace(/<\/?u>/gi, '')
-        .replace(/^(?:Câu|Bài|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
-        .replace(/\n+/g, ' ')
+      cleanBlock = stripWordStyleGarbage(
+        cleanBlock
+          .replace(/<\/?u>/gi, '')
+          .replace(/^(?:PHẦN|DẠNG\s*THỨC)\s*(?:III|3)[^\n]*\n+/i, '')
+          .replace(/^(?:Câu\s*(?:hỏi)?|Bài\s*(?:tập)?|Question)?\s*\d*[\.\:\)\s]*(?:\[[^\]]*\])?\s*[:.-]?\s*/i, '')
+          .replace(/\n+/g, ' ')
+      )
+        .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
         .trim();
 
-      const qNum = startNumber + idx;
+      if (!cleanBlock && !dapAn) return;
+
+      const qNum = startNumber + finalQuestions.length;
       let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(cleanBlock)}</div>`;
       qHTML += `<div><b>Đáp án:</b> <u>${restoreProtectedTags(dapAn)}</u></div><br>`;
 

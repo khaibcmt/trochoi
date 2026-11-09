@@ -415,12 +415,39 @@ export function stripWordStyleGarbage(raw: string): string {
   };
 
   let working = normalizeWordMathUnicode(raw)
+    // 0. Loại bỏ trước các thẻ <style>, <script>, <xml> và comment điều kiện của Microsoft Word (trừ ![if !supportLists])
+    .replace(/<!--\[if\s+!supportLists\]-->/gi, '')
+    .replace(/<!--\[endif\]-->/gi, '')
+    .replace(/<!\[if\s+!supportLists\]>/gi, '')
+    .replace(/<!\[endif\]>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(style|script|xml|head|title|meta|link)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, shield)
     .replace(/<img\b[^>]*\/?>/gi, shield)
     .replace(/<\/?(?:sub|sup|u|ins|b|strong)\b[^>]*>/gi, shield);
 
   working = working
     .replace(/&quot;/gi, '"')
+    // 0A. Xóa khối Word XML / Normal 0 false false false EN-US... & /* Style Definitions */ table.MsoNormalTable {...}
+    .replace(
+      /(?:Normal\s+0\s+(?:false\s+){1,4}(?:EN-[A-Z]+|[A-Z]{2}-[A-Z]{2}|X-NONE)\s*)+/gi,
+      ' '
+    )
+    .replace(
+      /\/\*\s*Style\s+Definitions\s*\*\/[\s\S]*?(?:table\.MsoNormalTable\s*\{[^}]*\}|\})/gi,
+      ' '
+    )
+    .replace(
+      /(?:table\.MsoNormalTable|p\.MsoNormal|li\.MsoNormal|div\.MsoNormal|span\.Mso[A-Za-z0-9]+|@font-face|@page\s+\w+|div\.WordSection\d+)\s*\{[^}]*\}/gi,
+      ' '
+    )
+    .replace(
+      /\b(?:DontGrowAutofit|DontVertAlignCellWithSp|DontBreakConstrainedForcedTables|DontVertAlignInTxbx|CachedColBalance|SplitPgBreakAndParaMark|EnableOpenTypeKerning|DontFlipMirrorIndents|OverrideTableStyleHps|UseAsianBreakRules|ValidateAgainstSchemas|SaveIfXMLInvalid|IgnoreMixedContent|AlwaysShowPlaceholderText|DoNotPromoteQF|LidThemeOther|LidThemeAsian|LidThemeComplexScript|Compatibility|BrowserLevel|mathPr|mso-[a-z0-9\-]+\s*:\s*[^;}\n]+;?)\b/gi,
+      ' '
+    )
+    // 0B. Phục hồi ký hiệu mũi tên Wingdings/Symbol của Word bị biến thành dấu ngoặc kép ( " ) khi nằm giữa 2 cụm từ
+    .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
+    .replace(/[\uF0E0\uF0E8\uF0AE\u2192\u2794\u279C\u27A1]/g, '➔')
     // 1. Mảnh vỡ bắt đầu bằng tên thuộc tính CSS/MSO kết thúc bằng >
     .replace(
       /(?:[a-z0-9\-]*?(?:font-family|family|font-size|line-height|mso-[a-z0-9\-]+|text-align|font-weight|font-style|mso-ansi-language|mso-fareast-language|mso-bidi-language))\s*:\s*[^<>]{0,220}?(?:>|&gt;)/gi,
@@ -428,7 +455,7 @@ export function stripWordStyleGarbage(raw: string): string {
     )
     // 2. Mảnh vỡ bắt đầu bằng tên phông chữ trong dấu nháy kết thúc bằng >
     .replace(
-      /["'“”‘’]+(?:Times\s+New\s+Roman|Arial|Calibri|Cambria|Tahoma|Verdana|Helvetica|Courier\s+New|Segoe\s+UI|Roboto)["'“”‘’]*[^<>]{0,220}?(?:>|&gt;)/gi,
+      /["'“”‘’]+(?:Times\s+New\s+Roman|Arial|Calibri|Cambria|Tahoma|Verdana|Helvetica|Courier\s+New|Segoe\s+UI|Roboto|Wingdings|Symbol)["'“”‘’]*[^<>]{0,220}?(?:>|&gt;)/gi,
       ' '
     )
     // 3. Mảnh vỡ bắt đầu bằng ,serif"> , ;mso-...> , ;font-...>
@@ -438,7 +465,7 @@ export function stripWordStyleGarbage(raw: string): string {
     )
     // 4. Mảnh vỡ thuộc tính font-family còn sót dù mất dấu >
     .replace(
-      /(?:[a-z0-9\-]*?font-family|family)\s*:\s*["'“”]+(?:Times\s+New\s+Roman|Arial|Calibri|Cambria)["'“”]+(?:\s*,\s*(?:serif|sans-serif))?(?:\s*;)?/gi,
+      /(?:[a-z0-9\-]*?font-family|family)\s*:\s*["'“”]+(?:Times\s+New\s+Roman|Arial|Calibri|Cambria|Wingdings|Symbol)["'“”]+(?:\s*,\s*(?:serif|sans-serif))?(?:\s*;)?/gi,
       ' '
     )
     // 5. Thẻ mở HTML bị cụt ở cuối dòng
@@ -2175,15 +2202,42 @@ export function parseHTMLToQuiz(
     });
   }
 
+  const isBogusWordGarbageQuestion = (item: QuizItem): boolean => {
+    const qClean = (item.q || '').trim();
+    const isDefaultOrEmptyQ =
+      !qClean ||
+      /^Câu\s*hỏi\s*\d*[:.]?$/i.test(qClean) ||
+      /^(?:Normal\s+0|false\s+false|table\.MsoNormalTable|Style\s+Definitions)/i.test(qClean);
+
+    if (!item.format || item.format === 'MULTIPLE_CHOICE') {
+      const meaningfulOpts = (item.opts || []).filter(o => {
+        const t = (o || '').trim();
+        return (
+          t.length > 0 &&
+          !/^(?:Phương\s+án\s+[A-D]|[A-D]\.?|[A-D]\.\s*[A-D]\.?)$/i.test(t)
+        );
+      });
+      if (isDefaultOrEmptyQ && meaningfulOpts.length === 0) {
+        return true;
+      }
+      if (meaningfulOpts.length === 0 && (item.opts || []).some(o => /^[A-D]\.?$/i.test((o || '').trim()))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   return res
     .map((item, idx) => {
       item.qid = idx;
-      if (!item.q || !item.q.trim()) {
-        item.q = `Câu hỏi ${idx + 1}`;
-      }
+      item.q = cleanQuestionTitleText(item.q || '');
       return repairQuizItemIfCorrupted(item);
     })
-    .filter(item => item.q.length > 0 && item.opts.length >= 1);
+    .filter(item => !isBogusWordGarbageQuestion(item) && item.q.length > 0 && item.opts.length >= 1)
+    .map((item, idx) => ({
+      ...item,
+      qid: idx
+    }));
 }
 
 /**
@@ -2577,7 +2631,11 @@ export function getInitialSubjects(): Record<string, SubjectData> {
       db = JSON.parse(saved);
       Object.keys(db).forEach(k => {
         if (db[k] && typeof db[k].html === 'string') {
-          if (/font-family|mso-|Times New Roman|Chưa nhập nội dung mệnh đề|\[Đúng\/Sai\]/i.test(db[k].html)) {
+          if (
+            /font-family|mso-|Times New Roman|Normal\s+0\s+false|Style\s+Definitions|MsoNormalTable|Chưa nhập nội dung mệnh đề|\[Đúng\/Sai\]|\s+"\s+[a-zA-ZÀ-ỹ]/i.test(
+              db[k].html
+            )
+          ) {
             const cleanedItems = parseHTMLToQuiz(db[k].html);
             if (cleanedItems.length > 0) {
               db[k].html = formatQuizToHTML(cleanedItems);
@@ -2597,7 +2655,22 @@ export function getInitialSubjects(): Record<string, SubjectData> {
     if (activeSaved) {
       const parsedActive = JSON.parse(activeSaved);
       if (Array.isArray(parsedActive) && parsedActive.length > 0) {
-        const repairedActive = parsedActive.map((q: QuizItem) => repairQuizItemIfCorrupted(q));
+        const repairedActive = parsedActive
+          .map((q: QuizItem) => repairQuizItemIfCorrupted(q))
+          .filter((q: QuizItem) => {
+            const qTxt = (q.q || '').trim();
+            if (!qTxt || /^(?:Normal\s+0|false\s+false|table\.MsoNormalTable|Style\s+Definitions)/i.test(qTxt)) {
+              return false;
+            }
+            if (!q.format || q.format === 'MULTIPLE_CHOICE') {
+              const validOpts = (q.opts || []).filter(
+                o => !/^(?:Phương\s+án\s+[A-D]|[A-D]\.?)$/i.test(String(o || '').trim())
+              );
+              if (validOpts.length === 0) return false;
+            }
+            return true;
+          })
+          .map((q: QuizItem, idx: number) => ({ ...q, qid: idx }));
         localStorage.setItem('custom_Active_Quiz_V31', JSON.stringify(repairedActive));
       }
     }
