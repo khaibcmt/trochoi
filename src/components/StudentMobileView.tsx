@@ -1659,7 +1659,22 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
-    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
+    if (
+      screen !== 'QUIZ' ||
+      isSyncingState ||
+      isFrozen ||
+      eliminated ||
+      hasAnsweredCurrentQRef.current ||
+      hasAnsweredCurrentQ ||
+      isAnswerLocked ||
+      isAutoRevealedAt2Sec
+    ) {
+      if (isAutoRevealedAt2Sec) {
+        triggerBonusToast('🔒 Đã hiện đáp án đúng (còn 2s): Bảng đáp án đã bị khóa, không thể chọn thêm!');
+      }
+      return;
+    }
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -1695,7 +1710,22 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
-    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
+    if (
+      screen !== 'QUIZ' ||
+      isSyncingState ||
+      isFrozen ||
+      eliminated ||
+      hasAnsweredCurrentQRef.current ||
+      hasAnsweredCurrentQ ||
+      isAnswerLocked ||
+      isAutoRevealedAt2Sec
+    ) {
+      if (isAutoRevealedAt2Sec) {
+        triggerBonusToast('🔒 Đã hiện đáp án đúng (còn 2s): Bảng đáp án đã bị khóa, không thể chọn thêm!');
+      }
+      return;
+    }
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -1717,7 +1747,23 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
-    if (screen !== 'QUIZ' || isSyncingState || isFrozen || eliminated || hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked || !shortAnswerInput.trim()) return;
+    const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
+    if (
+      screen !== 'QUIZ' ||
+      isSyncingState ||
+      isFrozen ||
+      eliminated ||
+      hasAnsweredCurrentQRef.current ||
+      hasAnsweredCurrentQ ||
+      isAnswerLocked ||
+      !shortAnswerInput.trim() ||
+      isAutoRevealedAt2Sec
+    ) {
+      if (isAutoRevealedAt2Sec) {
+        triggerBonusToast('🔒 Đã hiện đáp án đúng (còn 2s): Bảng đáp án đã bị khóa, không thể gửi thêm!');
+      }
+      return;
+    }
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -3220,9 +3266,24 @@ export const StudentMobileView: React.FC<Props> = ({
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: '13px', fontWeight: 900, color: remSec <= 5 ? '#f87171' : '#fde047' }}>
-                ⏱️ {Math.ceil(remSec)}s
-              </span>
+              {remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING' ? (
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  color: '#ffffff',
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)',
+                  animation: 'pulse 1s infinite'
+                }}>
+                  ⚡ CÒN 2S: ĐÁP ÁN ĐÚNG!
+                </span>
+              ) : (
+                <span style={{ fontSize: '13px', fontWeight: 900, color: remSec <= 5 ? '#f87171' : '#fde047' }}>
+                  ⏱️ {Math.ceil(remSec)}s
+                </span>
+              )}
             </div>
             <div style={{ fontSize: '17.5px', fontWeight: 900, lineHeight: 1.42, color: '#ffffff' }}>
               <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
@@ -3572,13 +3633,26 @@ export const StudentMobileView: React.FC<Props> = ({
                     const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
                     if (isEliminated) return null;
 
+                    const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
+                    const isCorrect = optItem.originalIndex === currentQItem.correct;
+
                     const colors = [
                       'linear-gradient(135deg, #dc2626, #991b1b)',
                       'linear-gradient(135deg, #0284c7, #0369a1)',
                       'linear-gradient(135deg, #d97706, #b45309)',
                       'linear-gradient(135deg, #059669, #047857)'
                     ];
-                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen);
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || isAutoRevealedAt2Sec;
+
+                    const backgroundStyle = isAutoRevealedAt2Sec
+                      ? (isCorrect ? 'linear-gradient(135deg, #059669, #10b981)' : 'rgba(15, 23, 42, 0.6)')
+                      : colors[pos % 4];
+
+                    const borderStyle = isAutoRevealedAt2Sec
+                      ? (isCorrect ? '3px solid #fef08a' : '1px solid #334155')
+                      : (gameType === 'TUG' && isFrozen)
+                      ? '2px dashed #38bdf8'
+                      : '2px solid rgba(255,255,255,0.22)';
 
                     return (
                       <button
@@ -3591,25 +3665,27 @@ export const StudentMobileView: React.FC<Props> = ({
                           gap: '14px',
                           padding: '16px 18px',
                           borderRadius: '16px',
-                          background: colors[pos % 4],
+                          background: backgroundStyle,
                           color: '#ffffff',
-                          border: (gameType === 'TUG' && isFrozen) ? '2px dashed #38bdf8' : '2px solid rgba(255,255,255,0.22)',
+                          border: borderStyle,
                           cursor: isDisabled ? 'not-allowed' : 'pointer',
                           textAlign: 'left',
                           fontSize: '16.5px',
                           fontWeight: 900,
-                          boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
-                          opacity: isDisabled ? 0.55 : 1,
-                          transition: 'transform 0.12s ease'
+                          boxShadow: isAutoRevealedAt2Sec && isCorrect
+                            ? '0 0 24px rgba(16, 185, 129, 0.85), 0 6px 16px rgba(0,0,0,0.45)'
+                            : '0 6px 16px rgba(0,0,0,0.35)',
+                          opacity: isAutoRevealedAt2Sec ? (isCorrect ? 1 : 0.35) : (isDisabled ? 0.55 : 1),
+                          transition: 'all 0.15s ease'
                         }}
                       >
                         <span style={{
                           width: '34px',
                           height: '34px',
                           borderRadius: '10px',
-                          background: 'rgba(15, 23, 42, 0.45)',
+                          background: isAutoRevealedAt2Sec && isCorrect ? '#fef08a' : 'rgba(15, 23, 42, 0.45)',
                           border: '1.5px solid #fef08a',
-                          color: '#fef08a',
+                          color: isAutoRevealedAt2Sec && isCorrect ? '#0f172a' : '#fef08a',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -3622,6 +3698,20 @@ export const StudentMobileView: React.FC<Props> = ({
                         <span style={{ flex: 1, lineHeight: 1.35 }}>
                           <MathRenderer text={optItem.text} />
                         </span>
+                        {isAutoRevealedAt2Sec && isCorrect && (
+                          <span style={{
+                            background: '#0f172a',
+                            color: '#4ade80',
+                            border: '1.5px solid #4ade80',
+                            padding: '3px 8px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: 900,
+                            flexShrink: 0
+                          }}>
+                            ✓ ĐÚNG (ĐÃ KHÓA)
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -3633,13 +3723,20 @@ export const StudentMobileView: React.FC<Props> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {(currentQItem.tfItems || []).map(item => {
                     const currentVal = tfAnswers[item.label] ?? false;
-                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen);
+                    const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
+                    const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || isAutoRevealedAt2Sec;
+                    const trueIsCorrect = Boolean(item.isCorrect);
+
                     return (
                       <div
                         key={item.label}
                         style={{
-                          background: '#0f172a',
-                          border: '1.5px solid #334155',
+                          background: isAutoRevealedAt2Sec
+                            ? (trueIsCorrect ? 'linear-gradient(135deg, #064e3b, #0f172a)' : 'linear-gradient(135deg, #450a0a, #0f172a)')
+                            : '#0f172a',
+                          border: isAutoRevealedAt2Sec
+                            ? (trueIsCorrect ? '2px solid #4ade80' : '2px solid #f87171')
+                            : '1.5px solid #334155',
                           borderRadius: '14px',
                           padding: '12px 14px',
                           display: 'flex',
@@ -3651,61 +3748,83 @@ export const StudentMobileView: React.FC<Props> = ({
                         <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#f8fafc', flex: 1, lineHeight: 1.35 }}>
                           <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={cleanTFStatementText(item.text)} />
                         </div>
-                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                          <button
-                            disabled={isDisabled}
-                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
-                            style={{
-                              padding: '8px 14px',
-                              borderRadius: '10px',
-                              fontSize: '13px',
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
+                          {isAutoRevealedAt2Sec ? (
+                            <span style={{
+                              padding: '5px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12.5px',
                               fontWeight: 900,
-                              background: currentVal === true ? '#10b981' : '#1e293b',
-                              color: currentVal === true ? '#ffffff' : '#94a3b8',
-                              border: currentVal === true ? '2px solid #6ee7b7' : '1px solid #334155',
-                              cursor: isDisabled ? 'not-allowed' : 'pointer'
-                            }}
-                          >
-                            Đúng
-                          </button>
-                          <button
-                            disabled={isDisabled}
-                            onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
-                            style={{
-                              padding: '8px 14px',
-                              borderRadius: '10px',
-                              fontSize: '13px',
-                              fontWeight: 900,
-                              background: currentVal === false ? '#ef4444' : '#1e293b',
-                              color: currentVal === false ? '#ffffff' : '#94a3b8',
-                              border: currentVal === false ? '2px solid #fca5a5' : '1px solid #334155',
-                              cursor: isDisabled ? 'not-allowed' : 'pointer'
-                            }}
-                          >
-                            Sai
-                          </button>
+                              background: trueIsCorrect ? '#059669' : '#dc2626',
+                              color: '#ffffff',
+                              border: trueIsCorrect ? '1.5px solid #4ade80' : '1.5px solid #fca5a5'
+                            }}>
+                              {trueIsCorrect ? '✓ ĐÚNG' : '✗ SAI'}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                disabled={isDisabled}
+                                onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: true }))}
+                                style={{
+                                  padding: '8px 14px',
+                                  borderRadius: '10px',
+                                  fontSize: '13px',
+                                  fontWeight: 900,
+                                  background: currentVal === true ? '#10b981' : '#1e293b',
+                                  color: currentVal === true ? '#ffffff' : '#94a3b8',
+                                  border: currentVal === true ? '2px solid #6ee7b7' : '1px solid #334155',
+                                  cursor: isDisabled ? 'not-allowed' : 'pointer'
+                                }}
+                              >
+                                Đúng
+                              </button>
+                              <button
+                                disabled={isDisabled}
+                                onClick={() => setTfAnswers(prev => ({ ...prev, [item.label]: false }))}
+                                style={{
+                                  padding: '8px 14px',
+                                  borderRadius: '10px',
+                                  fontSize: '13px',
+                                  fontWeight: 900,
+                                  background: currentVal === false ? '#ef4444' : '#1e293b',
+                                  color: currentVal === false ? '#ffffff' : '#94a3b8',
+                                  border: currentVal === false ? '2px solid #fca5a5' : '1px solid #334155',
+                                  cursor: isDisabled ? 'not-allowed' : 'pointer'
+                                }}
+                              >
+                                Sai
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
                   })}
 
                   <button
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen)}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')}
                     onClick={handleSubmitTrueFalse}
                     style={{
                       marginTop: '6px',
                       padding: '15px',
                       borderRadius: '14px',
-                      background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                      color: '#ffffff',
+                      background: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                        ? '#334155'
+                        : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                      color: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                        ? '#94a3b8'
+                        : '#ffffff',
                       fontWeight: 900,
                       fontSize: '16px',
                       border: 'none',
-                      cursor: 'pointer',
+                      cursor: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING') ? 'not-allowed' : 'pointer',
                       boxShadow: '0 6px 18px rgba(99, 102, 241, 0.4)'
                     }}
                   >
-                    🚀 CHỐT ĐÁP ÁN 4 Ý ĐÚNG/SAI (BẤM 1 LẦN)
+                    {(remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                      ? '🔒 ĐÃ HIỆN ĐÁP ÁN ĐÚNG • ĐÃ KHÓA NỘP BÀI'
+                      : '🚀 CHỐT ĐÁP ÁN 4 Ý ĐÚNG/SAI (BẤM 1 LẦN)'}
                   </button>
                 </div>
               )}
@@ -3716,9 +3835,25 @@ export const StudentMobileView: React.FC<Props> = ({
                   <label style={{ display: 'block', fontSize: '13.5px', color: '#6ee7b7', fontWeight: 900, marginBottom: '8px' }}>
                     ✍️ Nhập kết quả số hoặc từ khóa (Dạng thức III - THPT 2018):
                   </label>
+                  {remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING' && (
+                    <div style={{
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #065f46, #047857)',
+                      border: '2px solid #fef08a',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: '15px',
+                      textAlign: 'center',
+                      marginBottom: '10px',
+                      boxShadow: '0 0 16px rgba(16, 185, 129, 0.6)'
+                    }}>
+                      ⚡ ĐÁP ÁN ĐÚNG: <span style={{ color: '#fef08a', fontSize: '18px' }}>{currentQItem.shortAnswer || currentQItem.opts[0] || ''}</span>
+                    </div>
+                  )}
                   <input
                     type="text"
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen)}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')}
                     placeholder="VD: 3 hoặc 12.5..."
                     value={shortAnswerInput}
                     onChange={e => setShortAnswerInput(e.target.value)}
@@ -3727,32 +3862,39 @@ export const StudentMobileView: React.FC<Props> = ({
                       padding: '14px',
                       borderRadius: '12px',
                       border: '2px solid #475569',
-                      background: '#1e293b',
+                      background: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING') ? '#0f172a' : '#1e293b',
                       color: '#fef08a',
                       fontSize: '18px',
                       fontWeight: 900,
                       textAlign: 'center',
                       boxSizing: 'border-box',
-                      marginBottom: '12px'
+                      marginBottom: '12px',
+                      cursor: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING') ? 'not-allowed' : 'text'
                     }}
                   />
                   <button
-                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || !shortAnswerInput.trim()}
+                    disabled={hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || !shortAnswerInput.trim() || (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')}
                     onClick={handleSubmitShortAnswer}
                     style={{
                       width: '100%',
                       padding: '15px',
                       borderRadius: '14px',
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
+                      background: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                        ? '#334155'
+                        : 'linear-gradient(135deg, #10b981, #059669)',
+                      color: (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                        ? '#94a3b8'
+                        : '#ffffff',
                       fontWeight: 900,
                       fontSize: '16px',
                       border: 'none',
-                      cursor: (!shortAnswerInput.trim()) ? 'not-allowed' : 'pointer',
-                      opacity: (!shortAnswerInput.trim()) ? 0.6 : 1
+                      cursor: (!shortAnswerInput.trim() || (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')) ? 'not-allowed' : 'pointer',
+                      opacity: (!shortAnswerInput.trim() || (remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')) ? 0.6 : 1
                     }}
                   >
-                    🚀 GỬI CÂU TRẢ LỜI NGẮN (BẤM 1 LẦN)
+                    {(remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING')
+                      ? '🔒 ĐÃ HIỆN ĐÁP ÁN ĐÚNG • ĐÃ KHÓA GỬI BÀI'
+                      : '🚀 GỬI CÂU TRẢ LỜI NGẮN (BẤM 1 LẦN)'}
                   </button>
                 </div>
               )}

@@ -3288,365 +3288,387 @@ export const HostArenaView: React.FC<Props> = ({
       )}
 
       {/* Floor 3: Khung Câu Hỏi & Đáp Án Chuẩn THPT 2018 — Chiếm 52% Màn Hình (10vh Header + 38vh Sân 3D + 52vh Câu Hỏi = 100vh) */}
-      <section
-        id="host-question-board"
-        className={isReviewMode ? 'review-active' : ''}
-        style={{
-          flex: '0 0 52vh',
-          height: '52vh',
-          minHeight: '52vh',
-          maxHeight: '52vh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          overflow: 'hidden',
-          padding: '10px 20px 10px 20px',
-          background: 'linear-gradient(180deg, #0b1120 0%, #070b14 100%)',
-          borderTop: '2px solid #38bdf8',
-          boxSizing: 'border-box'
-        }}
-        aria-label="Khung câu hỏi và đáp án chuẩn THPT 2018"
-      >
-        {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
-        <div
-          style={{
-            background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
-            border: '1.5px solid rgba(56, 189, 248, 0.4)',
-            borderRadius: '16px',
-            padding: '10px 18px',
-            marginBottom: '10px',
-            boxShadow: '0 6px 20px rgba(0, 0, 0, 0.45)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-            flexShrink: 0,
-            maxHeight: currentQItem.format === 'TRUE_FALSE' ? '23vh' : '22vh',
-            overflowY: 'auto'
-          }}
-        >
-          {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
-              <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
-                CÂU {currentQIndex + 1}/{quizList.length || 1}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span style={{ color: '#38bdf8' }}>
-                {currentQItem.format === 'TRUE_FALSE'
-                  ? 'Dạng thức II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)'
-                  : currentQItem.format === 'SHORT_ANSWER'
-                  ? 'Dạng thức III: Trắc nghiệm Trả lời ngắn'
-                  : 'Dạng thức I: Trắc nghiệm 4 phương án lựa chọn'}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span style={{ color: '#cbd5e1' }}>
-                Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
-              </span>
-              {matchState.firstBloodPlayerName && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span style={{ color: '#facc15', fontWeight: 900 }}>
-                    ⚡ Tia chớp: {matchState.firstBloodPlayerName}
-                  </span>
-                </>
-              )}
-              {matchState.activeWorldEvent === 'GOLDEN_X2' && (
-                <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', padding: '1px 8px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 900 }}>
-                  🌟 X2 ĐIỂM &amp; SỨC MẠNH
-                </span>
-              )}
-            </div>
+      {(() => {
+        const isAutoRevealed = matchState.status === 'PLAYING' && remainingSec <= 2.0 && remainingSec > 0;
+        const shouldRevealAnswers = isReviewMode || isAutoRevealed;
 
-            {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{
-                fontSize: '13.5px',
-                fontWeight: 900,
-                color: remainingSec > 10 ? '#34d399' : remainingSec > 5 ? '#fbbf24' : '#f87171',
-                marginRight: '4px'
-              }}>
-                ⏱️ {remainingSec.toFixed(1)}s
-              </span>
-              <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(-1)}>
-                ◀ Trước
-              </button>
-              <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
-                Tiếp ▶
-              </button>
-              <button
-                className="hq-nav-btn"
-                style={{
-                  padding: '3px 10px',
-                  fontSize: '12px',
-                  background: isSpeakingTTS ? '#dc2626' : '#0284c7',
-                  borderColor: '#7dd3fc',
-                  color: '#fff',
-                  fontWeight: 800
-                }}
-                onClick={handleReadQuestionAloud}
-                title="Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt"
-              >
-                {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
-              </button>
-              <button
-                className="hq-nav-btn"
-                id="hq-reveal-btn"
-                style={{ padding: '3px 10px', fontSize: '12px', background: isReviewMode ? '#d97706' : '#059669', borderColor: '#6ee7b7', color: '#fff' }}
-                onClick={handleToggleReviewMode}
-              >
-                {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Đáp Án'}
-              </button>
-              <button
-                className="hq-nav-btn"
-                style={{ padding: '3px 10px', fontSize: '12px', background: '#4f46e5', borderColor: '#a5b4fc', color: '#fff', fontWeight: 800 }}
-                onClick={handleRequestAIExplanation}
-              >
-                💡 Giải Thích
-              </button>
-            </div>
-          </div>
-
-          {/* Nội dung câu hỏi chữ lớn rõ nét */}
-          <div
-            id="hq-q-text"
+        return (
+          <section
+            id="host-question-board"
+            className={shouldRevealAnswers ? 'review-active' : ''}
             style={{
-              fontSize: qTextFontSize,
-              lineHeight: 1.32,
-              fontWeight: 900,
-              color: '#ffffff',
-              wordBreak: 'break-word',
-              overflowWrap: 'break-word',
-              whiteSpace: 'normal'
+              flex: '0 0 52vh',
+              height: '52vh',
+              minHeight: '52vh',
+              maxHeight: '52vh',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              overflow: 'hidden',
+              padding: '10px 20px 10px 20px',
+              background: 'linear-gradient(180deg, #0b1120 0%, #070b14 100%)',
+              borderTop: isAutoRevealed ? '2.5px solid #facc15' : '2px solid #38bdf8',
+              boxSizing: 'border-box',
+              position: 'relative'
             }}
+            aria-label="Khung câu hỏi và đáp án chuẩn THPT 2018"
           >
-            <MathRenderer text={cleanStemText} />
-          </div>
-        </div>
-
-        {/* Khung Đáp Án 3 Dạng Thức Chuẩn Chương Trình THPT 2018 */}
-        <div
-          id="hq-q-opts"
-          className="hq-opts"
-          style={{
-            flex: '1 1 auto',
-            minHeight: 0,
-            maxHeight: 'none',
-            overflowY: 'auto',
-            display: 'grid',
-            gridTemplateColumns: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, minmax(0, 1fr))',
-            gap: '10px',
-            marginBottom: '4px'
-          }}
-        >
-          {currentQItem.format === 'TRUE_FALSE' ? (
-            // Dạng thức 2 (Phần II THPT 2018): Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)
-            (currentQItem.tfItems || []).map((tf, idx) => {
-              const reveal = isReviewMode;
-              const cleanStatement = cleanTFStatementText(tf.text || '');
-              const tfFontSize = cleanStatement.length > 160 ? '16.5px' : cleanStatement.length > 110 ? '18px' : '20px';
-              const badgeColors = ['#0284c7', '#d97706', '#059669', '#7c3aed'];
-              return (
-                <div
-                  key={idx}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '10px 16px',
-                    borderRadius: '14px',
-                    background: reveal
-                      ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)')
-                      : 'linear-gradient(135deg, #1e293b, #0f172a)',
-                    border: reveal
-                      ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171')
-                      : '1.5px solid #475569',
-                    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-                    wordBreak: 'break-word',
-                    overflowWrap: 'break-word',
-                    whiteSpace: 'normal',
-                    fontSize: tfFontSize,
-                    fontWeight: 800,
-                    lineHeight: 1.3,
-                    color: '#f8fafc',
-                    overflowY: 'auto',
-                    minHeight: 0
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1, minWidth: 0 }}>
-                    <span style={{
-                      minWidth: '34px',
-                      height: '34px',
-                      borderRadius: '9px',
-                      background: badgeColors[idx % 4],
-                      border: '1.5px solid rgba(255,255,255,0.45)',
-                      color: '#fef08a',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 900,
-                      fontSize: '19px',
-                      flexShrink: 0,
-                      marginTop: '1px'
-                    }}>
-                      {String.fromCharCode(97 + idx)})
-                    </span>
-                    <span style={{ flex: 1, paddingTop: '2px', minWidth: 0 }}>
-                      <MathRenderer text={cleanStatement} />
-                    </span>
-                  </div>
-                  <div style={{ flexShrink: 0 }}>
-                    {reveal ? (
-                      <span style={{
-                        fontWeight: 900,
-                        color: tf.isCorrect ? '#4ade80' : '#fca5a5',
-                        fontSize: '16px',
-                        padding: '5px 11px',
-                        borderRadius: '8px',
-                        background: 'rgba(0,0,0,0.4)',
-                        border: tf.isCorrect ? '1px solid #4ade80' : '1px solid #f87171'
-                      }}>
-                        {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
-                      </span>
-                    ) : (
-                      <span style={{
-                        fontSize: '12.5px',
-                        fontWeight: 900,
-                        color: '#bae6fd',
-                        background: 'rgba(15, 23, 42, 0.75)',
-                        border: '1px solid #334155',
-                        padding: '4px 9px',
-                        borderRadius: '8px',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        Đúng / Sai
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          ) : currentQItem.format === 'SHORT_ANSWER' ? (
-            // Dạng thức 3 (Phần III THPT 2018): Trắc nghiệm Trả lời ngắn
+            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
             <div
               style={{
-                gridColumn: '1 / -1',
-                padding: '20px 28px',
+                background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
+                border: isAutoRevealed ? '1.5px solid #facc15' : '1.5px solid rgba(56, 189, 248, 0.4)',
                 borderRadius: '16px',
-                background: 'linear-gradient(135deg, #172554, #1e1b4b)',
-                border: isReviewMode ? '2.5px solid #4ade80' : '2px solid #38bdf8',
+                padding: '10px 18px',
+                marginBottom: '10px',
+                boxShadow: isAutoRevealed ? '0 0 20px rgba(250, 204, 21, 0.35)' : '0 6px 20px rgba(0, 0, 0, 0.45)',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                textAlign: 'center',
-                color: '#ffffff',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                gap: '6px',
+                flexShrink: 0,
+                maxHeight: currentQItem.format === 'TRUE_FALSE' ? '23vh' : '22vh',
+                overflowY: 'auto'
               }}
             >
-              {isReviewMode ? (
-                <div>
-                  <div style={{ color: '#94a3b8', fontWeight: 800, fontSize: '15px', marginBottom: '6px' }}>
-                    ĐÁP ÁN CHUẨN (DẠNG THỨC III - TRẢ LỜI NGẮN):
-                  </div>
-                  <div style={{ color: '#4ade80', fontWeight: 900, fontSize: '36px', letterSpacing: '1px' }}>
-                    <MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: '#fde047', marginBottom: '6px' }}>
-                    ✍️ CÂU HỎI TRẢ LỜI NGẮN (CHƯƠNG TRÌNH THPT 2018)
-                  </div>
-                  <div style={{ fontSize: '17px', color: '#cbd5e1', fontWeight: 700 }}>
-                    Học sinh nhập kết quả số hoặc từ khóa trực tiếp trên màn hình điện thoại và bấm Gửi 1 lần duy nhất.
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            // Dạng thức 1 (Phần I THPT 2018): Trắc nghiệm 4 phương án A, B, C, D bố trí lưới 2x2 đẹp mắt
-            currentQItem.opts.map((opt, idx) => {
-              const isCorrect = idx === currentQItem.correct;
-              const letter = String.fromCharCode(65 + idx);
-              const revealClass = isReviewMode && isCorrect ? 'correct-reveal' : '';
-              return (
-                <div
-                  key={idx}
-                  className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`}
-                  style={{
-                    padding: '10px 18px',
-                    borderRadius: '14px',
-                    wordBreak: 'break-word',
-                    overflowWrap: 'break-word',
-                    whiteSpace: 'normal',
-                    fontSize: opt.length > 75 ? '21px' : '25px',
-                    fontWeight: 900,
-                    lineHeight: 1.32,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px'
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                    <span style={{
-                      width: '38px',
-                      height: '38px',
-                      borderRadius: '10px',
-                      background: 'rgba(15, 23, 42, 0.45)',
-                      border: '1.5px solid rgba(254, 240, 138, 0.65)',
-                      color: '#fef08a',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '22px',
-                      fontWeight: 900,
-                      flexShrink: 0
-                    }}>
-                      {letter}
-                    </span>
-                    <span style={{ flex: 1 }}><MathRenderer text={opt} /></span>
+              {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
+                  <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
+                    CÂU {currentQIndex + 1}/{quizList.length || 1}
                   </span>
-                  {isReviewMode && isCorrect && (
-                    <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '16px', flexShrink: 0, background: 'rgba(0,0,0,0.45)', padding: '4px 10px', borderRadius: '8px' }}>
-                      ✓ ĐÚNG
+                  <span aria-hidden="true">·</span>
+                  <span style={{ color: '#38bdf8' }}>
+                    {currentQItem.format === 'TRUE_FALSE'
+                      ? 'Dạng thức II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)'
+                      : currentQItem.format === 'SHORT_ANSWER'
+                      ? 'Dạng thức III: Trắc nghiệm Trả lời ngắn'
+                      : 'Dạng thức I: Trắc nghiệm 4 phương án lựa chọn'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span style={{ color: '#cbd5e1' }}>
+                    Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
+                  </span>
+                  {matchState.firstBloodPlayerName && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span style={{ color: '#facc15', fontWeight: 900 }}>
+                        ⚡ Tia chớp: {matchState.firstBloodPlayerName}
+                      </span>
+                    </>
+                  )}
+                  {matchState.activeWorldEvent === 'GOLDEN_X2' && (
+                    <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', padding: '1px 8px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 900 }}>
+                      🌟 X2 ĐIỂM &amp; SỨC MẠNH
+                    </span>
+                  )}
+                  {isAutoRevealed && (
+                    <span style={{
+                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                      color: '#ffffff',
+                      padding: '2px 9px',
+                      borderRadius: '999px',
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)',
+                      animation: 'pulse 1s infinite'
+                    }}>
+                      ⚡ CÒN 2S: TỰ ĐỘNG HIỆN ĐÁP ÁN ĐÚNG!
                     </span>
                   )}
                 </div>
-              );
-            })
-          )}
-        </div>
 
-        {/* Thanh tiến trình thời gian gọn đẹp sát đáy màn hình */}
-        <div
-          id="fast-timer-bar-wrap"
-          style={{
-            height: '8px',
-            background: '#1e293b',
-            borderRadius: '4px',
-            overflow: 'hidden',
-            position: 'relative',
-            flexShrink: 0
-          }}
-        >
-          <div
-            id="fast-timer-fill"
-            style={{
-              height: '100%',
-              width: `${(remainingSec / durationSec) * 100}%`,
-              background: remainingSec > 12
-                ? 'linear-gradient(90deg, #10b981, #34d399)'
-                : remainingSec > 6
-                ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                : 'linear-gradient(90deg, #ef4444, #f87171)',
-              transition: 'width 0.1s linear'
-            }}
-          />
-        </div>
-      </section>
+                {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{
+                    fontSize: '13.5px',
+                    fontWeight: 900,
+                    color: remainingSec > 10 ? '#34d399' : remainingSec > 5 ? '#fbbf24' : '#f87171',
+                    marginRight: '4px'
+                  }}>
+                    ⏱️ {remainingSec.toFixed(1)}s
+                  </span>
+                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(-1)}>
+                    ◀ Trước
+                  </button>
+                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
+                    Tiếp ▶
+                  </button>
+                  <button
+                    className="hq-nav-btn"
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: '12px',
+                      background: isSpeakingTTS ? '#dc2626' : '#0284c7',
+                      borderColor: '#7dd3fc',
+                      color: '#fff',
+                      fontWeight: 800
+                    }}
+                    onClick={handleReadQuestionAloud}
+                    title="Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt"
+                  >
+                    {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
+                  </button>
+                  <button
+                    className="hq-nav-btn"
+                    id="hq-reveal-btn"
+                    style={{ padding: '3px 10px', fontSize: '12px', background: isReviewMode ? '#d97706' : '#059669', borderColor: '#6ee7b7', color: '#fff' }}
+                    onClick={handleToggleReviewMode}
+                  >
+                    {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Đáp Án'}
+                  </button>
+                  <button
+                    className="hq-nav-btn"
+                    style={{ padding: '3px 10px', fontSize: '12px', background: '#4f46e5', borderColor: '#a5b4fc', color: '#fff', fontWeight: 800 }}
+                    onClick={handleRequestAIExplanation}
+                  >
+                    💡 Giải Thích
+                  </button>
+                </div>
+              </div>
+
+              {/* Nội dung câu hỏi chữ lớn rõ nét */}
+              <div
+                id="hq-q-text"
+                style={{
+                  fontSize: qTextFontSize,
+                  lineHeight: 1.32,
+                  fontWeight: 900,
+                  color: '#ffffff',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'break-word',
+                  whiteSpace: 'normal'
+                }}
+              >
+                <MathRenderer text={cleanStemText} />
+              </div>
+            </div>
+
+            {/* Khung Đáp Án 3 Dạng Thức Chuẩn Chương Trình THPT 2018 */}
+            <div
+              id="hq-q-opts"
+              className="hq-opts"
+              style={{
+                flex: '1 1 auto',
+                minHeight: 0,
+                maxHeight: 'none',
+                overflowY: 'auto',
+                display: 'grid',
+                gridTemplateColumns: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, 1fr)',
+                gridTemplateRows: currentQItem.format === 'SHORT_ANSWER' ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                gap: '10px',
+                marginBottom: '4px'
+              }}
+            >
+              {currentQItem.format === 'TRUE_FALSE' ? (
+                // Dạng thức 2 (Phần II THPT 2018): Trắc nghiệm Đúng/Sai gồm 4 mệnh đề a), b), c), d)
+                (currentQItem.tfItems || []).map((tf, idx) => {
+                  const reveal = shouldRevealAnswers;
+                  const cleanStatement = cleanTFStatementText(tf.text || '');
+                  const tfFontSize = cleanStatement.length > 160 ? '16.5px' : cleanStatement.length > 110 ? '18px' : '20px';
+                  const badgeColors = ['#0284c7', '#d97706', '#059669', '#7c3aed'];
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '10px 16px',
+                        borderRadius: '14px',
+                        background: reveal
+                          ? (tf.isCorrect ? 'linear-gradient(135deg, #065f46, #047857)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)')
+                          : 'linear-gradient(135deg, #1e293b, #0f172a)',
+                        border: reveal
+                          ? (tf.isCorrect ? '2px solid #4ade80' : '2px solid #f87171')
+                          : '1.5px solid #475569',
+                        boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
+                        whiteSpace: 'normal',
+                        fontSize: tfFontSize,
+                        fontWeight: 800,
+                        lineHeight: 1.3,
+                        color: '#f8fafc',
+                        overflowY: 'auto',
+                        minHeight: 0
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1, minWidth: 0 }}>
+                        <span style={{
+                          minWidth: '34px',
+                          height: '34px',
+                          borderRadius: '9px',
+                          background: badgeColors[idx % 4],
+                          border: '1.5px solid rgba(255,255,255,0.45)',
+                          color: '#fef08a',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 900,
+                          fontSize: '19px',
+                          flexShrink: 0,
+                          marginTop: '1px'
+                        }}>
+                          {String.fromCharCode(97 + idx)})
+                        </span>
+                        <span style={{ flex: 1, paddingTop: '2px', minWidth: 0 }}>
+                          <MathRenderer text={cleanStatement} />
+                        </span>
+                      </div>
+                      <div style={{ flexShrink: 0 }}>
+                        {reveal ? (
+                          <span style={{
+                            fontWeight: 900,
+                            color: tf.isCorrect ? '#4ade80' : '#fca5a5',
+                            fontSize: '16px',
+                            padding: '5px 11px',
+                            borderRadius: '8px',
+                            background: 'rgba(0,0,0,0.4)',
+                            border: tf.isCorrect ? '1px solid #4ade80' : '1px solid #f87171'
+                          }}>
+                            {tf.isCorrect ? '✓ ĐÚNG' : '✗ SAI'}
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: '12.5px',
+                            fontWeight: 900,
+                            color: '#bae6fd',
+                            background: 'rgba(15, 23, 42, 0.75)',
+                            border: '1px solid #334155',
+                            padding: '4px 9px',
+                            borderRadius: '8px',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            Đúng / Sai
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : currentQItem.format === 'SHORT_ANSWER' ? (
+                // Dạng thức 3 (Phần III THPT 2018): Trắc nghiệm Trả lời ngắn
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    padding: '20px 28px',
+                    borderRadius: '16px',
+                    background: 'linear-gradient(135deg, #172554, #1e1b4b)',
+                    border: shouldRevealAnswers ? '2.5px solid #4ade80' : '2px solid #38bdf8',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    color: '#ffffff',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                  }}
+                >
+                  {shouldRevealAnswers ? (
+                    <div>
+                      <div style={{ color: '#94a3b8', fontWeight: 800, fontSize: '15px', marginBottom: '6px' }}>
+                        ĐÁP ÁN CHUẨN (DẠNG THỨC III - TRẢ LỜI NGẮN):
+                      </div>
+                      <div style={{ color: '#4ade80', fontWeight: 900, fontSize: '36px', letterSpacing: '1px' }}>
+                        <MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: '24px', fontWeight: 900, color: '#fde047', marginBottom: '6px' }}>
+                        ✍️ CÂU HỎI TRẢ LỜI NGẮN (CHƯƠNG TRÌNH THPT 2018)
+                      </div>
+                      <div style={{ fontSize: '17px', color: '#cbd5e1', fontWeight: 700 }}>
+                        Học sinh nhập kết quả số hoặc từ khóa trực tiếp trên màn hình điện thoại và bấm Gửi 1 lần duy nhất.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Dạng thức 1 (Phần I THPT 2018): Trắc nghiệm 4 phương án A, B, C, D bố trí lưới 2x2 đẹp mắt
+                currentQItem.opts.map((opt, idx) => {
+                  const isCorrect = idx === currentQItem.correct;
+                  const letter = String.fromCharCode(65 + idx);
+                  const revealClass = shouldRevealAnswers && isCorrect ? 'correct-reveal' : '';
+                  return (
+                    <div
+                      key={idx}
+                      className={`hq-opt-item opt-color-${idx % 4} ${revealClass}`}
+                      style={{
+                        padding: '10px 18px',
+                        borderRadius: '14px',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
+                        whiteSpace: 'normal',
+                        fontSize: opt.length > 75 ? '21px' : '25px',
+                        fontWeight: 900,
+                        lineHeight: 1.32,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px'
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                        <span style={{
+                          width: '38px',
+                          height: '38px',
+                          borderRadius: '10px',
+                          background: 'rgba(15, 23, 42, 0.45)',
+                          border: '1.5px solid rgba(254, 240, 138, 0.65)',
+                          color: '#fef08a',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '22px',
+                          fontWeight: 900,
+                          flexShrink: 0
+                        }}>
+                          {letter}
+                        </span>
+                        <span style={{ flex: 1 }}><MathRenderer text={opt} /></span>
+                      </span>
+                      {shouldRevealAnswers && isCorrect && (
+                        <span style={{ color: '#4ade80', fontWeight: 900, fontSize: '16px', flexShrink: 0, background: 'rgba(0,0,0,0.45)', padding: '4px 10px', borderRadius: '8px' }}>
+                          ✓ ĐÚNG
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Thanh tiến trình thời gian gọn đẹp sát đáy màn hình */}
+            <div
+              id="fast-timer-bar-wrap"
+              style={{
+                height: '8px',
+                background: '#1e293b',
+                borderRadius: '4px',
+                overflow: 'hidden',
+                position: 'relative',
+                flexShrink: 0
+              }}
+            >
+              <div
+                id="fast-timer-fill"
+                style={{
+                  height: '100%',
+                  width: `${(remainingSec / durationSec) * 100}%`,
+                  background: remainingSec > 12
+                    ? 'linear-gradient(90deg, #10b981, #34d399)'
+                    : remainingSec > 6
+                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                    : 'linear-gradient(90deg, #ef4444, #f87171)',
+                  transition: 'width 0.1s linear'
+                }}
+              />
+            </div>
+          </section>
+        );
+      })()}
 
       {/* AI Tutor Explanation Modal */}
       {showAIExplainModal && (
