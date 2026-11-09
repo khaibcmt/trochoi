@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat, WagerLevel, WorldEventType } from '../types';
+import { GamePlayType, PlayerRole, PlayerTeam, QuizItem, TrueFalseItem, CloudMessage, AvatarConfig, PowerUpType, QuestionFormat, WagerLevel, WorldEventType } from '../types';
 import { AudioFX } from '../services/audio';
 import { CloudNetwork, NetworkConnStatus, NetworkTelemetry, AntiCongestionMode } from '../services/network';
 import {
@@ -245,9 +245,9 @@ export const StudentMobileView: React.FC<Props> = ({
   // True/False answers state for current question: { a: boolean, b: boolean, c: boolean, d: boolean }
   const [tfAnswers, setTfAnswers] = useState<Record<string, boolean>>({
     a: true,
-    b: false,
+    b: true,
     c: true,
-    d: false
+    d: true
   });
 
   // Short answer text state
@@ -408,6 +408,15 @@ export const StudentMobileView: React.FC<Props> = ({
   };
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
   const lastShuffledKeyRef = useRef<string>('');
+  const shuffledCacheRef = useRef<{
+    signature: string;
+    mcOpts: StudentShuffledOption[];
+    tfItems: TrueFalseItem[];
+  }>({
+    signature: '',
+    mcOpts: [],
+    tfItems: []
+  });
 
   // Persistent score & correct count in sessionStorage scoped to this tab
   const [fastScore, setFastScore] = useState<number>(() => {
@@ -709,7 +718,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setLastLockedResult(null);
       setEliminatedOptions([]);
       setShortAnswerInput('');
-      setTfAnswers({ a: true, b: false, c: true, d: false });
+      setTfAnswers({ a: true, b: true, c: true, d: true });
       setWagerLevel(1);
       setMysteryChestsAvailable(false);
       setClaimedChestResult(null);
@@ -753,32 +762,82 @@ export const StudentMobileView: React.FC<Props> = ({
       format: 'MULTIPLE_CHOICE'
     };
 
-  // Đồng bộ thứ tự đáp án A, B, C, D 100% khớp hoàn toàn giữa điện thoại học sinh và màn hình giáo viên
-  const resolvedQSignature = `${clampedQIndex}::${resolvedCurrentQ?.q || ''}::${(resolvedCurrentQ?.opts || []).join('|')}`;
-  useEffect(() => {
-    if (!resolvedCurrentQ || !resolvedCurrentQ.opts || resolvedCurrentQ.opts.length === 0) {
-      setShuffledOpts([]);
-      return;
-    }
-    if (lastShuffledKeyRef.current === resolvedQSignature && shuffledOpts.length > 0) {
-      return;
-    }
-    lastShuffledKeyRef.current = resolvedQSignature;
+  const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
 
-    const baseItems = resolvedCurrentQ.opts.map((rawText, idx) => ({
+  // Đảo thứ tự các phương án trả lời độc lập trên từng máy Học sinh (Chống nhìn trộm giữa các Học sinh & khác vị trí với màn hình Giáo viên)
+  const resolvedQSignature = `${clampedQIndex}::${currentQItem?.q || ''}::${(currentQItem?.opts || []).join('|')}::${(currentQItem?.tfItems || []).map(t => `${t.label}:${t.text}`).join('|')}`;
+
+  if (shuffledCacheRef.current.signature !== resolvedQSignature) {
+    const buildAntiCheatPermutation = (len: number, salt: string): number[] => {
+      if (len <= 1) return len === 1 ? [0] : [];
+      if (len === 4) {
+        // 9 hoán vị không điểm bất động (Derangements): Đảm bảo cả 4 đáp án A, B, C, D đều đổi chỗ so với màn hình Giáo viên [0, 1, 2, 3]
+        const derangements4: number[][] = [
+          [1, 0, 3, 2],
+          [1, 2, 3, 0],
+          [1, 3, 0, 2],
+          [2, 0, 3, 1],
+          [2, 3, 0, 1],
+          [2, 3, 1, 0],
+          [3, 0, 1, 2],
+          [3, 2, 0, 1],
+          [3, 2, 1, 0]
+        ];
+        let hash = 2166136261;
+        const seedStr = `${salt}::${myPlayerId}::${tabSessionId}::${Math.random()}`;
+        for (let i = 0; i < seedStr.length; i++) {
+          hash ^= seedStr.charCodeAt(i);
+          hash = Math.imul(hash, 16777619);
+        }
+        return [...derangements4[Math.abs(hash) % derangements4.length]];
+      }
+      const indices = Array.from({ length: len }, (_, i) => i);
+      for (let i = len - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      if (indices.every((v, i) => v === i)) {
+        [indices[0], indices[len - 1]] = [indices[len - 1], indices[0]];
+      }
+      return indices;
+    };
+
+    const baseMc = (currentQItem.opts || []).map((rawText, idx) => ({
       originalIndex: idx,
       cleanText: String(rawText || '').replace(/^[A-D][\.\:\)]\s*/i, '').trim() || String(rawText || '')
     }));
-
-    // Giữ nguyên 100% thứ tự A, B, C, D giống hệt màn hình máy chiếu của giáo viên
-    const finalItems: StudentShuffledOption[] = baseItems.map((item, pos) => ({
-      originalIndex: item.originalIndex,
+    const hasPositionalRef = baseMc.some(item =>
+      /(?:cả\s+[a-d]|tất\s+cả.*đều|không\s+có\s+đáp\s+án|[a-d]\s+và\s+[a-d])/i.test(item.cleanText)
+    );
+    const mcPerm = hasPositionalRef
+      ? baseMc.map((_, i) => i)
+      : buildAntiCheatPermutation(baseMc.length, `MC_${resolvedQSignature}`);
+    const computedMcOpts: StudentShuffledOption[] = mcPerm.map((origIdx, pos) => ({
+      originalIndex: baseMc[origIdx].originalIndex,
       letter: String.fromCharCode(65 + pos),
-      text: item.cleanText
+      text: baseMc[origIdx].cleanText
     }));
 
-    setShuffledOpts(finalItems);
-  }, [resolvedQSignature, clampedQIndex]);
+    const baseTf = currentQItem.tfItems || [];
+    const tfPerm = buildAntiCheatPermutation(baseTf.length, `TF_${resolvedQSignature}`);
+    const computedTfItems: TrueFalseItem[] = tfPerm.map(origIdx => baseTf[origIdx]).filter(Boolean);
+
+    shuffledCacheRef.current = {
+      signature: resolvedQSignature,
+      mcOpts: computedMcOpts,
+      tfItems: computedTfItems
+    };
+  }
+
+  const activeShuffledOpts = shuffledCacheRef.current.mcOpts;
+  const activeShuffledTfItems = shuffledCacheRef.current.tfItems;
+
+  useEffect(() => {
+    if (lastShuffledKeyRef.current !== resolvedQSignature) {
+      lastShuffledKeyRef.current = resolvedQSignature;
+      setShuffledOpts(shuffledCacheRef.current.mcOpts);
+    }
+  }, [resolvedQSignature]);
 
   const handleTimeoutFail = () => {
     if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
@@ -1261,6 +1320,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setCurrentGlobalQIndex(nextQIdx);
       setLastCompletedQIndex(-1);
       lastShuffledKeyRef.current = '';
+      shuffledCacheRef.current.signature = '';
       clearFreeze();
       setEliminated(false);
       eliminatedRef.current = false;
@@ -1618,9 +1678,8 @@ export const StudentMobileView: React.FC<Props> = ({
       triggerBonusToast('❄️ Đã phóng băng giá đóng băng đối thủ 3 giây!');
     } else if (item === 'FIFTY_FIFTY') {
       // 50/50: remove 2 wrong options
-      const curQ = quizDeck[currentGlobalQIndex % (quizDeck.length || 1)];
-      if (curQ && curQ.opts.length > 2) {
-        const wrongIndices = curQ.opts.map((_, i) => i).filter(i => i !== curQ.correct);
+      if (currentQItem && currentQItem.opts.length > 2) {
+        const wrongIndices = currentQItem.opts.map((_, i) => i).filter(i => i !== currentQItem.correct);
         const shuffled = [...wrongIndices].sort(() => 0.5 - Math.random());
         setEliminatedOptions(shuffled.slice(0, 2));
         triggerBonusToast('💡 Thẻ 50/50: Đã loại bỏ 2 phương án sai!');
@@ -1683,21 +1742,21 @@ export const StudentMobileView: React.FC<Props> = ({
     // HOTFIX 2.3: So khớp linh hoạt chuẩn hóa cùng kiểu dữ liệu (Number chỉ số 0-3 HOẶC String cleanText())
     const normalizedSelectedIdx = Number(origIdx);
     const normalizedCorrectIdx =
-      typeof resolvedCurrentQ.correct === 'number' && !isNaN(resolvedCurrentQ.correct)
-        ? Number(resolvedCurrentQ.correct)
-        : typeof resolvedCurrentQ.correct === 'string' && /^[A-Da-d]$/.test(String(resolvedCurrentQ.correct).trim())
-        ? String(resolvedCurrentQ.correct).trim().toUpperCase().charCodeAt(0) - 65
-        : Number(resolvedCurrentQ.correct);
+      typeof currentQItem.correct === 'number' && !isNaN(currentQItem.correct)
+        ? Number(currentQItem.correct)
+        : typeof currentQItem.correct === 'string' && /^[A-Da-d]$/.test(String(currentQItem.correct).trim())
+        ? String(currentQItem.correct).trim().toUpperCase().charCodeAt(0) - 65
+        : Number(currentQItem.correct);
 
     const isIndexMatch =
       normalizedSelectedIdx >= 0 &&
       normalizedSelectedIdx <= 3 &&
       normalizedSelectedIdx === normalizedCorrectIdx;
 
-    const selectedTextClean = cleanText(resolvedCurrentQ.opts?.[normalizedSelectedIdx] ?? '');
+    const selectedTextClean = cleanText(currentQItem.opts?.[normalizedSelectedIdx] ?? '');
     const correctTextClean = cleanText(
-      resolvedCurrentQ.opts?.[normalizedCorrectIdx] ??
-      (typeof resolvedCurrentQ.correct === 'string' ? resolvedCurrentQ.correct : '')
+      currentQItem.opts?.[normalizedCorrectIdx] ??
+      (typeof currentQItem.correct === 'string' ? currentQItem.correct : '')
     );
     const isCleanTextMatch =
       selectedTextClean.length > 0 &&
@@ -1730,8 +1789,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
 
-    const repairedQ = repairQuizItemIfCorrupted(resolvedCurrentQ);
-    const items = repairedQ.tfItems || [];
+    const items = currentQItem.tfItems || [];
 
     let correctCount = 0;
     items.forEach(item => {
@@ -1769,7 +1827,7 @@ export const StudentMobileView: React.FC<Props> = ({
     setIsAnswerLocked(true);
 
     // HOTFIX 2.3: So khớp linh hoạt bằng hàm chuẩn hóa cleanText() và ép kiểu Number
-    const correctVal = cleanText(resolvedCurrentQ.shortAnswer || resolvedCurrentQ.opts[0] || '');
+    const correctVal = cleanText(currentQItem.shortAnswer || currentQItem.opts[0] || '');
     const userVal = cleanText(shortAnswerInput);
 
     // Check numerical or string equivalence (support comma/dot decimal)
@@ -2342,8 +2400,6 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     triggerBonusToast(`🚀 Đã tạo thêm +${count} Nhân vật Học sinh vào Phòng ${roomId} để test tải Server!`);
   };
-
-  const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
 
   // Render Nhân Vật Chibi Dễ Thương (Full-body Kawaii Chibi Nam / Nữ) cho màn hình điện thoại học sinh
   const renderCuteChibiCharacter = (
@@ -3626,10 +3682,10 @@ export const StudentMobileView: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Dạng thức I: Trắc nghiệm 4 phương án A, B, C, D */}
+              {/* Dạng thức I: Trắc nghiệm 4 phương án A, B, C, D (Đã đảo vị trí chống nhìn trộm trên từng máy HS) */}
               {(!currentQItem.format || currentQItem.format === 'MULTIPLE_CHOICE') && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
-                  {(shuffledOpts.length > 0 ? shuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
+                  {(activeShuffledOpts.length > 0 ? activeShuffledOpts : (currentQItem.opts || []).map((o, idx) => ({ originalIndex: idx, letter: String.fromCharCode(65 + idx), text: o }))).map((optItem, pos) => {
                     const isEliminated = eliminatedOptions.includes(optItem.originalIndex);
                     if (isEliminated) return null;
 
@@ -3718,14 +3774,15 @@ export const StudentMobileView: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* Dạng thức II: Trắc nghiệm Đúng/Sai (4 ý a, b, c, d) */}
+              {/* Dạng thức II: Trắc nghiệm Đúng/Sai (4 ý a, b, c, d đã đảo vị trí chống nhìn trộm trên từng máy HS) */}
               {currentQItem.format === 'TRUE_FALSE' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {(currentQItem.tfItems || []).map(item => {
-                    const currentVal = tfAnswers[item.label] ?? false;
+                  {(activeShuffledTfItems.length > 0 ? activeShuffledTfItems : (currentQItem.tfItems || [])).map((item, tfPos) => {
+                    const currentVal = tfAnswers[item.label] ?? true;
                     const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
                     const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || isAutoRevealedAt2Sec;
                     const trueIsCorrect = Boolean(item.isCorrect);
+                    const displayLabel = String.fromCharCode(97 + tfPos);
 
                     return (
                       <div
@@ -3746,7 +3803,7 @@ export const StudentMobileView: React.FC<Props> = ({
                         }}
                       >
                         <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#f8fafc', flex: 1, lineHeight: 1.35 }}>
-                          <b style={{ color: '#38bdf8' }}>{item.label})</b> <MathRenderer text={cleanTFStatementText(item.text)} />
+                          <b style={{ color: '#38bdf8' }}>{displayLabel})</b> <MathRenderer text={cleanTFStatementText(item.text)} />
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
                           {isAutoRevealedAt2Sec ? (

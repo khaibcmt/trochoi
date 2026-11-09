@@ -2094,7 +2094,7 @@ export const HostArenaView: React.FC<Props> = ({
       question: firstQ,
       qIndex: 0
     });
-    alert(`🔀 ĐÃ XÁO ĐỀ THI THEO CHUẨN GDPT 2018 (${reordered.length} CÂU)!\n\n• Thứ tự bắt buộc: Hết Phần I (Trắc nghiệm) ➔ Hết Phần II (Đúng/Sai) ➔ Hết Phần III (Trả lời ngắn)\n• Các câu trong từng phần được xáo ngẫu nhiên\n• Toàn bộ máy học sinh đã được đồng bộ 100% giống hệt màn hình giáo viên!`);
+    alert(`🔀 ĐÃ XÁO ĐỀ THI & ĐẢO ĐÁP ÁN CHỐNG NHÌN TRỘM (${reordered.length} CÂU)!\n\n• Thứ tự bắt buộc: Hết Phần I (Trắc nghiệm) ➔ Hết Phần II (Đúng/Sai) ➔ Hết Phần III (Trả lời ngắn)\n• Màn hình Giáo viên và tất cả Học sinh luôn hiển thị cùng 1 câu hỏi\n• Các đáp án của cùng 1 câu hỏi tự động đổi chỗ ngẫu nhiên trên từng máy Học sinh để chống nhìn trộm!`);
   };
 
   // Restart match for a fresh new game round

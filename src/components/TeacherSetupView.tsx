@@ -1035,7 +1035,7 @@ export const TeacherSetupView: React.FC<Props> = ({
     const updatedHTML = formatQuizToHTML(shuffled);
     onSaveCurrentQuizToSubject(shuffled, updatedHTML, true);
     if (onSyncQuizLive) onSyncQuizLive(shuffled);
-    alert(`🔀 ĐÃ XÁO TRỘN ĐỀ THI THÀNH CÔNG (${shuffled.length} CÂU)!\n\n• Thứ tự xuất hiện: Toàn bộ Phần I (Trắc nghiệm) ➔ Toàn bộ Phần II (Đúng/Sai) ➔ Toàn bộ Phần III (Trả lời ngắn)\n• Các câu hỏi bên trong từng phần được xáo trộn ngẫu nhiên\n• Màn hình Giáo viên và Học sinh 100% khớp nhau từng phương án.`);
+    alert(`🔀 ĐÃ XÁO TRỘN ĐỀ THI & ĐẢO ĐÁP ÁN THÀNH CÔNG (${shuffled.length} CÂU)!\n\n• Thứ tự xuất hiện: Toàn bộ Phần I (Trắc nghiệm) ➔ Toàn bộ Phần II (Đúng/Sai) ➔ Toàn bộ Phần III (Trả lời ngắn)\n• Màn hình Giáo viên và tất cả Học sinh luôn làm cùng 1 câu hỏi\n• Các phương án trả lời tự động đảo vị trí ngẫu nhiên trên từng máy để chống nhìn trộm.`);
   };
 
   const handleStartArena = () => {

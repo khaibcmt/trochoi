@@ -2481,10 +2481,18 @@ export const SAMPLE_PHAN_3_SA = `<div>Câu: Có bao nhiêu bộ ba mã di truy�
 
 // Shuffles questions strictly adhering to GDPT 2018 format order:
 // Part 1 (Multiple Choice) -> Part 2 (True/False) -> Part 3 (Short Answer)
-// The questions WITHIN each part are randomly shuffled on every match!
+// The questions WITHIN each part AND the options within each question are randomly shuffled on every match!
 export function shuffleQuestionOrder(deck: QuizItem[]): QuizItem[] {
   if (!deck || deck.length === 0) return [];
-  const cloned: QuizItem[] = JSON.parse(JSON.stringify(deck));
+  const cloned: QuizItem[] = JSON.parse(JSON.stringify(deck)).map((q: QuizItem) => repairQuizItemIfCorrupted(q));
+
+  const shuffleArray = <T>(arr: T[]): T[] => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
 
   // Phân loại chính xác 3 dạng thức GDPT 2018:
   // Phần II: Đúng/Sai (format TRUE_FALSE hoặc có tfItems)
@@ -2494,17 +2502,53 @@ export function shuffleQuestionOrder(deck: QuizItem[]): QuizItem[] {
   const isPart3 = (q: QuizItem) => q.format === 'SHORT_ANSWER' || (!isPart2(q) && (q.shortAnswer !== undefined && q.shortAnswer !== ''));
   const isPart1 = (q: QuizItem) => !isPart2(q) && !isPart3(q);
 
-  const part1 = cloned.filter(isPart1).map(q => ({ ...q, format: (q.format || 'MULTIPLE_CHOICE') as QuestionFormat }));
-  const part2 = cloned.filter(isPart2).map(q => ({ ...q, format: 'TRUE_FALSE' as QuestionFormat }));
-  const part3 = cloned.filter(isPart3).map(q => ({ ...q, format: 'SHORT_ANSWER' as QuestionFormat }));
+  const part1 = cloned.filter(isPart1).map(q => {
+    const rawOpts = Array.isArray(q.opts) ? q.opts : [];
+    const safeCorrectIdx = typeof q.correct === 'number' && q.correct >= 0 && q.correct < rawOpts.length ? q.correct : 0;
+    const hasPositionalRef = rawOpts.some(o =>
+      /(?:cả\s+[a-d]|tất\s+cả.*đều|không\s+có\s+đáp\s+án|[a-d]\s+và\s+[a-d])/i.test(String(o || ''))
+    );
 
-  const shuffleArray = <T>(arr: T[]): T[] => {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+    if (rawOpts.length >= 2 && !hasPositionalRef) {
+      const tagged = rawOpts.map((text, idx) => ({
+        text: String(text || '').replace(/^[A-D][\.\:\)]\s*/i, '').trim() || String(text || ''),
+        isCorrect: idx === safeCorrectIdx
+      }));
+      const shuffledTagged = shuffleArray(tagged);
+      const newCorrectIdx = Math.max(0, shuffledTagged.findIndex(item => item.isCorrect));
+      return {
+        ...q,
+        format: 'MULTIPLE_CHOICE' as QuestionFormat,
+        opts: shuffledTagged.map(item => item.text),
+        correct: newCorrectIdx
+      };
     }
-    return arr;
-  };
+
+    return {
+      ...q,
+      format: (q.format || 'MULTIPLE_CHOICE') as QuestionFormat
+    };
+  });
+
+  const part2 = cloned.filter(isPart2).map(q => {
+    const rawTf = Array.isArray(q.tfItems) ? [...q.tfItems] : [];
+    if (rawTf.length >= 2) {
+      const shuffledTf = shuffleArray(rawTf).map((tf, i) => ({
+        label: String.fromCharCode(97 + i),
+        text: cleanTFStatementText(tf.text),
+        isCorrect: Boolean(tf.isCorrect)
+      }));
+      return {
+        ...q,
+        format: 'TRUE_FALSE' as QuestionFormat,
+        tfItems: shuffledTf,
+        opts: shuffledTf.map(tf => `${tf.label}) ${tf.text} (${tf.isCorrect ? 'Đúng' : 'Sai'})`)
+      };
+    }
+    return { ...q, format: 'TRUE_FALSE' as QuestionFormat };
+  });
+
+  const part3 = cloned.filter(isPart3).map(q => ({ ...q, format: 'SHORT_ANSWER' as QuestionFormat }));
 
   const shuffledPart1 = shuffleArray(part1);
   const shuffledPart2 = shuffleArray(part2);
