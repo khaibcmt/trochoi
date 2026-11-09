@@ -113,19 +113,22 @@ export const App: React.FC = () => {
   // Initial student params from URL
   const studentRoomParam = urlParams.get('r') || urlParams.get('room') || '12345';
   const studentTeamParam = (urlParams.get('t') === 'B' || urlParams.get('team') === 'BLUE') ? 'BLUE' : 'RED';
-  const studentGmParam: GamePlayType = (urlParams.get('gm') === 'F' || urlParams.get('gm') === 'FAST')
-    ? 'FAST'
+  const studentGmParam: GamePlayType = (urlParams.get('gm') === 'TUG')
+    ? 'TUG'
     : (urlParams.get('gm') === 'B' || urlParams.get('gm') === 'BELL')
     ? 'BELL'
     : (urlParams.get('gm') === 'BOSS')
     ? 'BOSS'
-    : 'TUG';
+    : 'FAST';
   const studentSubjParam = urlParams.get('subj') || 'ALL_SUBJ';
 
   // Teacher & Host state
   const [subjectsDB, setSubjectsDB] = useState<Record<string, SubjectData>>(() => getInitialSubjects());
   const [currentSubjectKey, setCurrentSubjectKey] = useState<string>('BIO');
-  const [gameType, setGameType] = useState<GamePlayType>(studentGmParam);
+  const [gameType, setGameType] = useState<GamePlayType>(() => {
+    if (urlParams.get('gm')) return studentGmParam;
+    return 'FAST';
+  });
   const [joinMode, setJoinMode] = useState<JoinMode>('AUTO_ALL');
   const [maxPerTeam, setMaxPerTeam] = useState<number>(5);
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
@@ -229,7 +232,7 @@ export const App: React.FC = () => {
 
   const [matchState, setMatchState] = useState<MatchState>(() => {
     const defaultState: MatchState = {
-      gameType: 'TUG',
+      gameType: 'FAST',
       status: 'LOBBY',
       currentRound: 1,
       redRoundWins: 0,
@@ -268,7 +271,7 @@ export const App: React.FC = () => {
               redPlayers: Array.isArray(parsed.redPlayers) ? parsed.redPlayers : [],
               bluePlayers: Array.isArray(parsed.bluePlayers) ? parsed.bluePlayers : [],
               status: parsed.status || 'LOBBY',
-              gameType: parsed.gameType || 'TUG',
+              gameType: parsed.gameType || 'FAST',
               globalQIndex: typeof parsed.globalQIndex === 'number' ? parsed.globalQIndex : 0,
               ropeScore: typeof parsed.ropeScore === 'number' ? parsed.ropeScore : 0,
               redTotalCorrect: typeof parsed.redTotalCorrect === 'number' ? parsed.redTotalCorrect : 0,

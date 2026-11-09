@@ -159,7 +159,7 @@ export const HostArenaView: React.FC<Props> = ({
   // Generate QR URLs
   useEffect(() => {
     const base = getStudentShareBaseUrl();
-    const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : ''));
+    const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : '&gm=TUG'));
     const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
     const rUrl = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
     const bUrl = `${base}?r=${activeRoomId}&role=player&t=B${gmFlag}&bk=${bkIdx}`;
@@ -785,7 +785,7 @@ export const HostArenaView: React.FC<Props> = ({
       const vpH = viewportRef.current?.clientHeight || window.innerHeight;
 
       const updatePullerAnim = (pullers: THREE.Group[], isRedTeam: boolean) => {
-        const curMode = matchStateRef.current?.gameType || 'TUG';
+        const curMode = matchStateRef.current?.gameType || 'FAST';
         const curStatus = matchStateRef.current?.status || 'LOBBY';
         const answeredIds = [
           ...(matchStateRef.current?.redAnsweredIds || []),
@@ -2235,9 +2235,9 @@ export const HostArenaView: React.FC<Props> = ({
               }}
               title="Đổi trò chơi ngay lập tức (Học sinh giữ nguyên kết nối)"
             >
+              <option value="FAST">⚡ Ai Nhanh Nhất (Đua Tốc Độ 3D)</option>
               <option value="TUG">🪢 Kéo Co 3D (Chia Đội)</option>
               <option value="BELL">🔔 Rung Chuông Vàng (3 ❤️)</option>
-              <option value="FAST">⚡ Đua Tốc Độ (Cá Nhân)</option>
               <option value="BOSS">🐉 Diệt Boss (Cả Lớp)</option>
             </select>
           )}

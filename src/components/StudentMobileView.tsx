@@ -173,7 +173,7 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [tempInputName, setTempInputName] = useState<string>(studentName);
   const [team, setTeam] = useState<PlayerTeam>(initialTeam || 'RED');
-  const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'TUG');
+  const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'FAST');
   const [role, setRole] = useState<PlayerRole>('PULLER');
   const [top10List, setTop10List] = useState<{ id: string; name: string; team: PlayerTeam; score: number; correct: number }[]>(() => {
     try {

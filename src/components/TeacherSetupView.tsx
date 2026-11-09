@@ -115,7 +115,7 @@ export const TeacherSetupView: React.FC<Props> = ({
   useEffect(() => {
     if (!activeRoomId) return;
     const base = getStudentShareBaseUrl();
-    const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : ''));
+    const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : '&gm=TUG'));
     const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
     const url = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
     setRoomQRUrl(url);
@@ -1169,16 +1169,42 @@ export const TeacherSetupView: React.FC<Props> = ({
 
         {/* 4 Game Modes Grid - Single Row with 4 distinct 3D Colors */}
         <section className="gamemode-selector" aria-label="Chọn chế độ thi đấu">
-          {/* Khối 1: ĐỎ CHIẾN BINH - KÉO CO 3D */}
+          {/* Khối 1: XANH CYAN SIÊU TỐC - AI NHANH NHẤT (ĐUA TỐC ĐỘ 3D) */}
+          <div
+            className={`gm-card fast-gm ${gameType === 'FAST' ? 'active-gm' : ''}`}
+            id="gm-card-FAST"
+            onClick={() => onSelectGameType('FAST')}
+            title="Bấm để chọn: Ai Nhanh Nhất (Đua Tốc Độ 3D)"
+          >
+            <div className="gm-top-row">
+              <span className="gm-badge" style={{ background: gameType === 'FAST' ? 'rgba(0,0,0,0.35)' : '#e0f2fe', color: gameType === 'FAST' ? '#ffffff' : '#075985' }}>
+                ⚡ CHẾ ĐỘ 1 (MẶC ĐỊNH)
+              </span>
+              <span className="gm-check-indicator" style={{ background: gameType === 'FAST' ? '#ffffff' : '#e0f2fe', color: gameType === 'FAST' ? '#0369a1' : '#0c4a6e' }}>
+                {gameType === 'FAST' ? '✓ Đang chọn' : 'Chọn'}
+              </span>
+            </div>
+            <div className="gm-card-body">
+              <div className="gm-icon">⚡</div>
+              <div className="gm-info">
+                <h3>⚡ AI NHANH NHẤT (ĐUA TỐC ĐỘ 3D)</h3>
+                <p>
+                  Chơi chung toàn lớp • Tính điểm cá nhân & tốc độ trả lời đúng • Bảng vàng xếp hạng Realtime!
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Khối 2: ĐỎ CHIẾN BINH - KÉO CO 3D */}
           <div
             className={`gm-card tug-gm ${gameType === 'TUG' ? 'active-gm' : ''}`}
             id="gm-card-TUG"
             onClick={() => onSelectGameType('TUG')}
-            title="Bấm để chọn Chế độ 1: Đấu Trường Kéo Co 3D"
+            title="Bấm để chọn: Đấu Trường Kéo Co 3D"
           >
             <div className="gm-top-row">
               <span className="gm-badge" style={{ background: gameType === 'TUG' ? 'rgba(0,0,0,0.35)' : '#fee2e2', color: gameType === 'TUG' ? '#ffffff' : '#991b1b' }}>
-                ⚔️ CHẾ ĐỘ 1
+                ⚔️ CHẾ ĐỘ 2
               </span>
               <span className="gm-check-indicator" style={{ background: gameType === 'TUG' ? '#ffffff' : '#fee2e2', color: gameType === 'TUG' ? '#b91c1c' : '#7f1d1d' }}>
                 {gameType === 'TUG' ? '✓ Đang chọn' : 'Chọn'}
@@ -1195,16 +1221,16 @@ export const TeacherSetupView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Khối 2: VÀNG HOÀNG KIM - RUNG CHUÔNG VÀNG 3D */}
+          {/* Khối 3: VÀNG HOÀNG KIM - RUNG CHUÔNG VÀNG 3D */}
           <div
             className={`gm-card bell-gm ${gameType === 'BELL' ? 'active-gm' : ''}`}
             id="gm-card-BELL"
             onClick={() => onSelectGameType('BELL')}
-            title="Bấm để chọn Chế độ 2: Rung Chuông Vàng 3D"
+            title="Bấm để chọn: Rung Chuông Vàng 3D"
           >
             <div className="gm-top-row">
               <span className="gm-badge" style={{ background: gameType === 'BELL' ? 'rgba(0,0,0,0.35)' : '#fef3c7', color: gameType === 'BELL' ? '#ffffff' : '#92400e' }}>
-                🔔 CHẾ ĐỘ 2
+                🔔 CHẾ ĐỘ 3
               </span>
               <span className="gm-check-indicator" style={{ background: gameType === 'BELL' ? '#ffffff' : '#fef3c7', color: gameType === 'BELL' ? '#b45309' : '#78350f' }}>
                 {gameType === 'BELL' ? '✓ Đang chọn' : 'Chọn'}
@@ -1221,38 +1247,12 @@ export const TeacherSetupView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Khối 3: XANH CYAN SIÊU TỐC - ĐUA TỐC ĐỘ 3D */}
-          <div
-            className={`gm-card fast-gm ${gameType === 'FAST' ? 'active-gm' : ''}`}
-            id="gm-card-FAST"
-            onClick={() => onSelectGameType('FAST')}
-            title="Bấm để chọn Chế độ 3: Đua Tốc Độ 3D"
-          >
-            <div className="gm-top-row">
-              <span className="gm-badge" style={{ background: gameType === 'FAST' ? 'rgba(0,0,0,0.35)' : '#e0f2fe', color: gameType === 'FAST' ? '#ffffff' : '#075985' }}>
-                🏎️ CHẾ ĐỘ 3
-              </span>
-              <span className="gm-check-indicator" style={{ background: gameType === 'FAST' ? '#ffffff' : '#e0f2fe', color: gameType === 'FAST' ? '#0369a1' : '#0c4a6e' }}>
-                {gameType === 'FAST' ? '✓ Đang chọn' : 'Chọn'}
-              </span>
-            </div>
-            <div className="gm-card-body">
-              <div className="gm-icon">🏎️</div>
-              <div className="gm-info">
-                <h3>ĐUA TỐC ĐỘ 3D (CÁ NHÂN)</h3>
-                <p>
-                  Chơi chung toàn lớp • Tính điểm cá nhân & số câu đúng để xếp hạng • Câu trả lời sai không bị phạt!
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Khối 4: TÍM HUYỀN BÍ - ĐÁNH BOSS KIẾN THỨC 3D */}
           <div
             className={`gm-card boss-gm ${gameType === 'BOSS' ? 'active-gm' : ''}`}
             id="gm-card-BOSS"
             onClick={() => onSelectGameType('BOSS')}
-            title="Bấm để chọn Chế độ 4: Đánh Boss Kiến Thức 3D"
+            title="Bấm để chọn: Đánh Boss Kiến Thức 3D"
           >
             <div className="gm-top-row">
               <span className="gm-badge" style={{ background: gameType === 'BOSS' ? 'rgba(0,0,0,0.35)' : '#f3e8ff', color: gameType === 'BOSS' ? '#ffffff' : '#6b21a8' }}>
