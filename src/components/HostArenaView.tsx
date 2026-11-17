@@ -22,7 +22,6 @@ import { getOrCreateRoomKey } from '../utils/commandSign';
 import { questionDurationFor, computeRemainingSec } from '../utils/questionTiming';
 import { fastPairX, bossPairAngle, tugPairDistance, tugPairZ, TUG_PAIR_ANCHOR } from '../utils/stagePairs';
 import { BUILD_TAG } from '../utils/buildTag';
-import { readHostDiagCounters } from '../utils/hostDiag';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
@@ -119,31 +118,6 @@ export const HostArenaView: React.FC<Props> = ({
   useEffect(() => {
     return CloudNetwork.subscribeTelemetry(setNetTelemetry);
   }, []);
-
-  // 📡 Chẩn đoán tải host (hiển thị cạnh nhãn 🏷️): mỗi giây đọc hiệu số bộ đếm
-  // tin vào (CloudNetwork) và số lần flush roster (hostDiag) so với lần đọc
-  // trước → tin/s và flush/s; độ trễ vòng quét + độ tươi tín hiệu đọc thẳng.
-  const [hostDiag, setHostDiag] = useState({ rx: 0, flush: 0, lag: 0, fresh: 0, total: 0 });
-  const hostDiagPrevRef = useRef<{ delivered: number; flushTotal: number } | null>(null);
-
-  useEffect(() => {
-    if (matchState.settings?.showHostDiag === false) return;
-    hostDiagPrevRef.current = null;
-    const timer = setInterval(() => {
-      const delivered = CloudNetwork.getDeliveredCount();
-      const counters = readHostDiagCounters();
-      const prev = hostDiagPrevRef.current;
-      hostDiagPrevRef.current = { delivered, flushTotal: counters.rosterFlushTotal };
-      setHostDiag({
-        rx: prev ? Math.max(0, delivered - prev.delivered) : 0,
-        flush: prev ? Math.max(0, counters.rosterFlushTotal - prev.flushTotal) : 0,
-        lag: counters.sweepLagMs,
-        fresh: counters.fresh,
-        total: counters.total
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [matchState.settings?.showHostDiag]);
 
   const handleCycleCongestionMode = () => {
     const modes: AntiCongestionMode[] = ['AUTO', 'WEAK_WIFI', 'TURBO'];
@@ -2539,27 +2513,6 @@ export const HostArenaView: React.FC<Props> = ({
           >
             🏷️ {BUILD_TAG}
           </span>
-
-          {/* 📡 Chẩn đoán tải host: tin vào/s • flush danh sách/s • trễ vòng quét • HS tươi/tổng */}
-          {matchState.settings?.showHostDiag !== false && (
-            <span
-              title="Chẩn đoán tải máy chủ: tin vào mỗi giây • số lần cập nhật danh sách mỗi giây • độ trễ vòng quét giữ chỗ • HS có tín hiệu <15s / tổng HS"
-              style={{
-                flex: '0 0 auto',
-                alignSelf: 'center',
-                color: '#cbd5e1',
-                background: 'rgba(30, 41, 59, 0.85)',
-                border: '1px solid #475569',
-                borderRadius: '6px',
-                padding: '2px 6px',
-                fontSize: '10.5px',
-                fontWeight: 800,
-                whiteSpace: 'nowrap'
-              }}
-            >
-              📡 {hostDiag.rx} tin/s • flush {hostDiag.flush}/s • quét trễ {hostDiag.lag}ms • tươi {hostDiag.fresh}/{hostDiag.total}
-            </span>
-          )}
 
           {/* Đợt 3 (2.3): lỗi publish chunk/state gần nhất — phát đề thất bại phải hiện rõ cho host */}
           {netTelemetry.lastPublishError && (
