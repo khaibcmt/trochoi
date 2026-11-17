@@ -36,6 +36,46 @@ function formatChemicalSubscriptsOutsideTags(input: string): string {
     .join('');
 }
 
+// Đợt 7 (1.3): map ký tự số mũ / chỉ số dưới Unicode (dạng Word hay xuất ra:
+// x², 10⁻³, CO₂, H₂SO₄...) sang ký tự LaTeX tương ứng (chỉ số mũ -> ^, chỉ số dưới -> _)
+const UNICODE_SUPERSCRIPT_MAP: Record<string, string> = {
+  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+  '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+  '⁺': '+', '⁻': '-', 'ⁿ': 'n'
+};
+const UNICODE_SUBSCRIPT_MAP: Record<string, string> = {
+  '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
+  '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9',
+  '₊': '+', '₋': '-'
+};
+
+/**
+ * Đợt 7 (1.3): Nâng số mũ / chỉ số dưới Unicode đứng sau một "gốc" (token chữ/số
+ * hoặc nhóm ngoặc (...)) thành công thức $gốc^{n}$ / $gốc_{n}$ để KaTeX render.
+ * Chỉ áp cho phần chữ ngoài thẻ HTML. Chỉ số dưới ASCII (CO2, H2SO4) KHÔNG đi
+ * qua đây — bộ hạ chỉ số hoá học formatChemicalSubscriptsOutsideTags lo riêng,
+ * nên hai bộ không chồng chéo (bộ này chỉ chạm ký tự Unicode ⁰-ⁿ / ₀-₉).
+ */
+function convertUnicodeSuperSubScripts(text: string): string {
+  const parts = text.split(/(<[^>]+>)/g);
+  return parts
+    .map(part => {
+      if (part.startsWith('<')) return part;
+      let out = part.replace(
+        /((?:\([^()]*\))|(?:[A-Za-z0-9]+))([⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿ]+)/g,
+        (_m, base: string, sup: string) =>
+          `$${base}^{${[...sup].map(c => UNICODE_SUPERSCRIPT_MAP[c] ?? c).join('')}}$`
+      );
+      out = out.replace(
+        /((?:\([^()]*\))|(?:[A-Za-z0-9]+))([₀₁₂₃₄₅₆₇₈₉₊₋]+)/g,
+        (_m, base: string, sub: string) =>
+          `$${base}_{${[...sub].map(c => UNICODE_SUBSCRIPT_MAP[c] ?? c).join('')}}$`
+      );
+      return out;
+    })
+    .join('');
+}
+
 /**
  * Preprocess STEM texts for Math, Physics, Chemistry, Biology, Geography:
  * 1. Normalizes Word Unicode Math symbols (𝑥, 𝑦, 𝛼, 𝛽...)
@@ -47,17 +87,39 @@ export function preprocessSTEMMath(raw: string): string {
   if (!raw) return '';
   let str = normalizeWordMathUnicode(raw);
 
+  // Đợt 7 (1.3): Nhận thêm cặp ngoặc LaTeX dạng \(...\) (inline) và \[...\]
+  // (display) — chuẩn hoá sớm về $...$ / $$...$$ để dùng chung pipeline KaTeX.
+  str = str
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, inner) => `$$${inner}$$`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, inner) => `$${inner}$`);
+
+  // Đợt 7 (1.3): Ký hiệu căn Unicode √ -> \sqrt (có nhóm {…} hoặc token theo
+  // sau thì bọc thành \sqrt{…}; √ đứng một mình thì thành \sqrt trần). Chạy
+  // trước bước tách đoạn $...$ để cả công thức trong/ngoài $ đều sạch; phần
+  // ngoài $ sẽ được bareLatexRegex bọc $...$ ở bước dưới như các lệnh khác.
+  str = str
+    .replace(/√\s*\{([^{}]+)\}/g, '\\sqrt{$1}')
+    .replace(/√\s*(\([^()]*\)|[A-Za-z0-9]+)/g, '\\sqrt{$1}')
+    .replace(/√/g, '\\sqrt ');
+
   // Normalize chemical arrows if not already inside HTML tags
   str = str.replace(/(\s)-->?(\s)/g, '$1$\\rightarrow$$2');
   str = str.replace(/(\s)<=>(\s)/g, '$1$\\rightleftharpoons$$2');
 
   // Detect bare LaTeX commands not enclosed in $...$
+  // Đợt 7 (1.3): bổ sung các lệnh trần hay gặp còn thiếu: \dfrac, \tfrac (phân
+  // số cỡ lớn/nhỏ như \frac), \text{...} (chữ thường trong công thức, có tham
+  // số ngoặc nhọn) và các hàm \sin \cos \tan \cot \log \ln.
   const bareLatexRegex =
-    /(?:\\(?:frac\{[^{}]+\}\{[^{}]+\}|sqrt(?:\[[^{}]+\])?\{[^{}]+\}|vec\{[^{}]+\}|overrightarrow\{[^{}]+\}|overline\{[^{}]+\}|widehat\{[^{}]+\}|int(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|lim_\{[^{}]+\}|sum(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|alpha|beta|gamma|Delta|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Omega|partial|nabla|infty|approx|times|div|pm|leq|geq|neq|equiv|subset|subseteq|in|notin|cup|cap|to|rightarrow|rightleftharpoons|cdot))(?:[^\$\n<>]*)?/g;
+    /(?:\\(?:dfrac\{[^{}]+\}\{[^{}]+\}|tfrac\{[^{}]+\}\{[^{}]+\}|frac\{[^{}]+\}\{[^{}]+\}|sqrt(?:\[[^{}]+\])?\{[^{}]+\}|text\{[^{}]+\}|vec\{[^{}]+\}|overrightarrow\{[^{}]+\}|overline\{[^{}]+\}|widehat\{[^{}]+\}|int(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|lim_\{[^{}]+\}|sum(?:_\{[^{}]+\})?(?:\^\{[^{}]+\})?|sin|cos|tan|cot|log|ln|alpha|beta|gamma|Delta|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Omega|partial|nabla|infty|approx|times|div|pm|leq|geq|neq|equiv|subset|subseteq|in|notin|cup|cap|to|rightarrow|rightleftharpoons|cdot))(?:[^\$\n<>]*)?/g;
 
   const segments = str.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
   for (let i = 0; i < segments.length; i++) {
     if (!segments[i].startsWith('$')) {
+      // Đợt 7 (1.3): nâng x² / CO₂ / H₂... (số mũ & chỉ số dưới Unicode) thành
+      // công thức TRƯỚC khi bọc lệnh LaTeX trần và hạ chỉ số hoá học ASCII, để
+      // các bước sau thấy sẵn cặp $...$ hoàn chỉnh và không xử lý trùng.
+      segments[i] = convertUnicodeSuperSubScripts(segments[i]);
       segments[i] = segments[i].replace(bareLatexRegex, match => {
         const trimmed = match.trim();
         if (trimmed.length > 0) {
