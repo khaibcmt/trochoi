@@ -72,11 +72,11 @@ export interface Player {
   // vẫn được host gộp vào đúng bản ghi này, không tạo "người ma".
   studentId?: string;
   // Đợt 5 (4B.2): mốc host nhìn thấy HS lần cuối (ping/enter/đáp án — giờ phía HOST).
-  // Quá 15s không có tín hiệu → offline=true (xám "mất kết nối", giữ nguyên chỗ/điểm/mạng);
-  // quá 90s → giải phóng chỗ theo luật từng chế độ (xem utils/presence.ts).
+  // Quá 90s im lặng hoàn toàn → offline=true (xám "mất kết nối", giữ nguyên chỗ/điểm/mạng);
+  // quá 300s (5 phút) → giải phóng chỗ theo luật từng chế độ (xem utils/presence.ts).
   lastSeen?: number;
   offline?: boolean;
-  // Đã bị giải phóng chỗ sau 90s ở chế độ BELL (loại khỏi sàn, thành khán giả) —
+  // Đã bị giải phóng chỗ sau 300s ở chế độ BELL (loại khỏi sàn, thành khán giả) —
   // bản ghi còn giữ cho bảng điểm cuối trận; các chế độ khác thì bản ghi bị dọn hẳn.
   holdReleased?: boolean;
   label: string;
@@ -197,7 +197,7 @@ export interface CloudMessage {
   // Đợt 5 (4B.3): các trường chỉ RESYNC_STATE mang theo (host → đúng HS xin resync):
   // canonicalPlayerId = id bản ghi host đã gộp (HS nhận làm playerId của mình nếu khác),
   // hasPlayer = host còn bản ghi của HS hay không, holdReleased = chỗ đã bị giải phóng
-  // sau 90s ở ván hiện tại (chờ ván sau), trạng thái đã-trả-lời câu hiện tại của HS:
+  // sau 300s ở ván hiện tại (chờ ván sau), trạng thái đã-trả-lời câu hiện tại của HS:
   canonicalPlayerId?: string;
   hasPlayer?: boolean;
   holdReleased?: boolean;
