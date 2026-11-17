@@ -20,7 +20,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
   gameType,
   allPlayers,
   activeRoomId,
-  totalQuestions = 12,
+  totalQuestions,
   onDownloadCSV,
   onPrintPDFEvidence
 }) => {
@@ -31,7 +31,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const safeTotalQ = Math.max(1, totalQuestions || 12);
+  const safeTotalQ = Math.max(1, totalQuestions || 1);
 
   // 1. BẢNG XẾP HẠNG TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC: fastScore, streak, cược, phạt -1000đ khi sai)
   const scoreLeaderboard = [...allPlayers].sort((a, b) => {
@@ -53,8 +53,8 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
   // - Trả về thang điểm 10: Chỉ tính (Số câu đúng / Tổng số câu) * 10 rồi làm tròn 1 chữ số thập phân.
   // - Sắp xếp thực tế từ cao đến thấp để giáo viên ghi trực tiếp vào sổ điểm.
   const correctLeaderboard = [...allPlayers].sort((a, b) => {
-    const scoreA = Number((((a.correct || 0) / safeTotalQ) * 10).toFixed(1));
-    const scoreB = Number((((b.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    const scoreA = getTeacherGradebookScore(a.correct || 0, safeTotalQ).grade;
+    const scoreB = getTeacherGradebookScore(b.correct || 0, safeTotalQ).grade;
     if (scoreB !== scoreA) {
       return scoreB - scoreA;
     }
