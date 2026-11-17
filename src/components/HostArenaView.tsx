@@ -3223,13 +3223,19 @@ export const HostArenaView: React.FC<Props> = ({
                 const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length);
                 const scoreDisplay = liveRankMode === 'CORRECT'
                   ? `✅ ${p.correct || 0}/${quizList.length} • 📒 ${gbScore.grade.toFixed(1)}đ`
-                  : matchState.gameType === 'BELL'
+                  : null;
+                // Tab THEO ĐIỂM SỐ (thầy chốt 20:52 17/11/2026): cùng khung hàng với
+                // tab Số Câu Đúng nhưng số liệu CHÍNH là ĐIỂM TRÒ CHƠI (fastScore)
+                // hiện to ở dòng chính; số câu đúng (+ mạng/khán giả ở Rung Chuông
+                // Vàng) xuống dòng phụ nhỏ — nhường bề rộng để TÊN HS hiện đầy đủ.
+                const scoreMain = `${p.fastScore || 0}đ`;
+                const scoreSub = matchState.gameType === 'BELL'
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
-                  : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
+                  : `${p.correct || 0} đúng`;
                 // Đã giải phóng chỗ (holdReleased) không hiện "mất kết nối" — xem khối nhãn 3D.
                 const isOfflineHeld = p.offline === true && !p.holdReleased;
                 return (
-                  <div key={p.id} className={`flb-row rank-${rank}`} style={isOfflineHeld ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
+                  <div key={p.id} className={`flb-row rank-${rank}${liveRankMode === 'SCORE' ? ' flb-row-score' : ''}`} style={isOfflineHeld ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-level" title={`${levelFromXp(p.xp || 0).name} • ${p.xp || 0} XP`}>
                       <span className="flb-level-icon">{levelFromXp(p.xp || 0).icon}</span>
@@ -3249,9 +3255,16 @@ export const HostArenaView: React.FC<Props> = ({
                       )}
                       {isOfflineHeld ? '📴 ' : ''}{p.label}{isOfflineHeld ? ' (mất kết nối)' : ''}
                     </div>
-                    <div className="flb-pts" style={{ color: liveRankMode === 'CORRECT' ? '#4ade80' : undefined }}>
-                      {scoreDisplay}
-                    </div>
+                    {liveRankMode === 'CORRECT' ? (
+                      <div className="flb-pts" style={{ color: '#4ade80' }}>
+                        {scoreDisplay}
+                      </div>
+                    ) : (
+                      <div className="flb-pts flb-pts-stack">
+                        <span className="flb-pts-main">{scoreMain}</span>
+                        <span className="flb-pts-sub">{scoreSub}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
