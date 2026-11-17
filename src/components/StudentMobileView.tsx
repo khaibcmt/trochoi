@@ -838,7 +838,7 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   // Đợt 5 (4B.2): NHỊP TIM GỌN — PLAYER_PING { playerId, studentId, ts } mỗi 5s, tách
-  // hẳn khỏi tin gửi điểm (sendEnter). Host chỉ dùng ping để ghi lastSeen giữ chỗ 90s;
+  // hẳn khỏi tin gửi điểm (sendEnter). Host chỉ dùng ping để ghi lastSeen giữ chỗ 5 phút;
   // ping đi QoS 0 và không vào hàng đợi offline (mất 1 ping vô hại, ping sau bù ngay).
   const lastPingSentRef = useRef<number>(0);
   const sendPlayerPing = () => {
@@ -1448,8 +1448,8 @@ export const StudentMobileView: React.FC<Props> = ({
       }
 
       if (d.holdReleased) {
-        // Chỗ đã bị giải phóng sau 90s ở ván hiện tại: rời ván này, chờ ván sau vào lại.
-        triggerBonusToast('📴 Bạn đã mất kết nối quá 90 giây nên đã rời ván này — đợi ván sau vào lại nhé!');
+        // Chỗ đã bị giải phóng sau thời gian giữ chỗ ở ván hiện tại: rời ván này, chờ ván sau vào lại.
+        triggerBonusToast('📴 Bạn đã mất kết nối quá lâu nên đã rời ván này — đợi ván sau vào lại nhé!');
         if (!hasFinishedAllQuestionsRef.current) setScreen('WAITING');
         return;
       }
@@ -2341,6 +2341,31 @@ export const StudentMobileView: React.FC<Props> = ({
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Wake Lock: giữ màn hình HS không tự khoá giữa trận (chặn gốc chuỗi văng oan:
+  // máy tự khoá → JS bị treo + MQTT keepalive ngừng → Last-Will bắn → bị giải phóng chỗ).
+  useEffect(() => {
+    if (!('wakeLock' in navigator)) return;
+    let lock: any = null;
+    let disposed = false;
+    const requestLock = async () => {
+      if (disposed || lock || document.hidden) return;
+      try {
+        lock = await (navigator as any).wakeLock.request('screen');
+        if (lock && typeof lock.addEventListener === 'function') {
+          lock.addEventListener('release', () => { lock = null; });
+        }
+      } catch { lock = null; }
+    };
+    const onVisWake = () => { if (!document.hidden) requestLock(); };
+    requestLock();
+    document.addEventListener('visibilitychange', onVisWake);
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVisWake);
+      if (lock) { try { lock.release(); } catch {} lock = null; }
+    };
   }, []);
 
   const awardRandomPowerUp = () => {
