@@ -19,10 +19,12 @@ import {
   verifyCommandSync
 } from '../utils/commandSign';
 import {
-  PLAYER_PING_INTERVAL_MS,
   RESYNC_BACKGROUND_THRESHOLD_MS,
+  estimateRoomSize,
   generateStudentId,
   parseStudentIdentity,
+  pingIntervalWithJitter,
+  presenceTimingForRoomSize,
   resolveStudentId,
   serializeStudentIdentity,
   studentStorageKey
@@ -840,11 +842,21 @@ export const StudentMobileView: React.FC<Props> = ({
   // Đợt 5 (4B.2): NHỊP TIM GỌN — PLAYER_PING { playerId, studentId, ts } mỗi 5s, tách
   // hẳn khỏi tin gửi điểm (sendEnter). Host chỉ dùng ping để ghi lastSeen giữ chỗ 5 phút;
   // ping đi QoS 0 và không vào hàng đợi offline (mất 1 ping vô hại, ping sau bù ngay).
+  // Đợt GIA CỐ TẢI: nhịp ping THÍCH ỨNG theo quy mô phòng ước lượng từ nhịp tim
+  // host (roomSizeRef): ≤30 người giữ 5s như cũ; phòng đông tới 200 thì 15s +
+  // jitter theo định danh (rải đều, không dồn cùng mốc). Host cũng nới ngưỡng
+  // "mất kết nối" theo đúng nấc này nên ping thưa KHÔNG làm HS bị xám oan.
+  const roomSizeRef = useRef<number>(0);
   const lastPingSentRef = useRef<number>(0);
   const sendPlayerPing = () => {
     if (!hasJoinedArenaRef.current || isPlaceholderOrEmptyName(studentNameRef.current)) return;
     const now = Date.now();
-    if (now - lastPingSentRef.current < PLAYER_PING_INTERVAL_MS - 250) return;
+    const timing = presenceTimingForRoomSize(roomSizeRef.current);
+    const effectivePingMs = pingIntervalWithJitter(
+      timing.pingIntervalMs,
+      studentIdRef.current || myPlayerIdRef.current || ''
+    );
+    if (now - lastPingSentRef.current < effectivePingMs - 250) return;
     lastPingSentRef.current = now;
     CloudNetwork.sendMessage({
       type: 'PLAYER_PING',
@@ -1972,6 +1984,11 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'HOST_HEARTBEAT') {
       setNetworkState(CloudNetwork.getStatus());
+      // Đợt GIA CỐ TẢI: ước lượng quy mô phòng từ chính nhịp tim (danh sách
+      // playerIds ở nhịp đầy đủ, tổng thành viên ở nhịp rút gọn) để nhịp ping
+      // của máy này tự thưa dần khi phòng đông — xem presenceTimingForRoomSize.
+      const estRoomSize = estimateRoomSize(d);
+      if (estRoomSize > 0) roomSizeRef.current = estRoomSize;
       // Hiệu chỉnh lệch giờ máy HS theo đồng hồ host: offset = serverTs - giờ máy lúc nhận.
       // Bỏ qua bản retained phát lại khi vừa subscribe (đánh dấu _mid 'ret_...') vì serverTs của nó đã cũ.
       if (typeof d.serverTs === 'number' && d.serverTs > 0 && !(d._mid || '').startsWith('ret_')) {
@@ -2290,15 +2307,14 @@ export const StudentMobileView: React.FC<Props> = ({
       const now = Date.now();
       const scoreChanged = fastScoreRef.current !== lastSyncedScore;
       const neededDelay = hasConfirmedEnterRef.current ? 4500 : 2000;
+      // Đợt GIA CỐ TẢI: chu kỳ gửi lại hồ sơ đầy đủ cũng giãn theo quy mô phòng
+      // (20s ở lớp thường → 60s ở phòng 200) — hồ sơ đầy đủ là gói to nhất HS
+      // phát định kỳ; điểm mới nhất vẫn luôn chảy qua đáp án + nhịp tim host.
+      const profileResyncMs = presenceTimingForRoomSize(roomSizeRef.current).profileResyncMs;
       if (scoreChanged || now - lastSyncTs >= neededDelay) {
-        if (hasConfirmedEnterRef.current && !scoreChanged && now - lastSyncTs < 20000) {
+        if (hasConfirmedEnterRef.current && !scoreChanged && now - lastSyncTs < profileResyncMs) {
           // Đã yên vị trong phòng và điểm không đổi: nhịp tim gọn là đủ giữ chỗ.
           sendPlayerPing();
-          // Vẫn làm mới mốc để bản đầy đủ kế tiếp cách nhau tối đa ~20s (bù retained).
-          if (now - lastSyncTs >= 20000) {
-            lastSyncTs = now;
-            sendEnter();
-          }
           return;
         }
         lastSyncTs = now;
