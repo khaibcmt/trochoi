@@ -1045,7 +1045,9 @@ body, html {
 .flb-name { font-size: 13.5px; font-weight: 900; color: #f8fafc; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.2; word-break: break-word; min-width: 0; }
 .flb-row.rank-1 .flb-name { font-size: 15px; color: #fef08a; }
 .flb-row.rank-2 .flb-name { font-size: 14px; color: #ffffff; }
-.flb-row.rank-3 .flb-name { font-size: 13.5px; color: #ffedd5; }
+.flb-row.rank-3 .flb-name { font-size: 13.5px; color: #fdba74; }
+.flb-row.rank-4 .flb-name, .flb-row.rank-5 .flb-name, .flb-row.rank-6 .flb-name { color: #2dd4bf; }
+.flb-row.rank-7 .flb-name, .flb-row.rank-8 .flb-name, .flb-row.rank-9 .flb-name, .flb-row.rank-10 .flb-name { color: #c084fc; }
 .flb-pts { font-weight: 900; color: #38bdf8; font-size: 11.5px; white-space: nowrap; }
 
 /* Modals */
