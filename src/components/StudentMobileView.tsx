@@ -15,6 +15,14 @@ import {
 import { MathRenderer } from '../utils/katexHelper';
 import { BUILD_TAG } from '../utils/buildTag';
 import {
+  fetchOwnStudentRecord,
+  getOrCreateStudentDeviceId,
+  levelFromXp,
+  readCachedStudentXp,
+  writeCachedStudentXp
+} from '../utils/studentLevel';
+import { defaultFetch } from '../utils/license';
+import {
   extractRoomKeyFromUrlParts,
   isSensitiveCommand,
   verifyCommandSync
@@ -193,7 +201,7 @@ export const StudentMobileView: React.FC<Props> = ({
   const [team, setTeam] = useState<PlayerTeam>(initialTeam || 'RED');
   const [gameType, setGameType] = useState<GamePlayType>(initialGameType || 'FAST');
   const [role, setRole] = useState<PlayerRole>('PULLER');
-  const [top10List, setTop10List] = useState<{ id: string; name: string; team: PlayerTeam; score: number; correct: number }[]>(() => {
+  const [top10List, setTop10List] = useState<{ id: string; name: string; team: PlayerTeam; score: number; correct: number; xp?: number }[]>(() => {
     try {
       const savedLive = localStorage.getItem(`kc3d_live_sync_${initialRoomId || '12345'}`);
       if (savedLive) {
@@ -339,6 +347,38 @@ export const StudentMobileView: React.FC<Props> = ({
     }
   });
   const studentIdRef = useRef<string>(studentIdentity.studentId);
+
+  // HỆ CẤP ĐỘ (17/11) — MÃ MÁY TOÀN CỤC của điện thoại (STU-…): sinh 1 lần,
+  // lưu localStorage key RIÊNG, không theo phòng — cấp độ bám theo mã này dù
+  // em nhập tên khác ở phòng khác. XP: nạp ngay từ cache tại máy để tin vào
+  // phòng đầu tiên đã gắn được, đồng thời đọc bản ghi của CHÍNH MÌNH từ
+  // kc3d_students (đúng 1 GET khi mở view) để làm tươi; đọc xong mà em đã vào
+  // phòng thì gửi lại ENTER 1 lần cho host cập nhật icon (vẫn là tin vào
+  // phòng sẵn có — zero-tải: không thêm loại tin, không ghi gì lúc thi).
+  const studentDeviceIdRef = useRef<string>((() => {
+    try { return getOrCreateStudentDeviceId(localStorage); } catch { return ''; }
+  })());
+  const myXpRef = useRef<number>((() => {
+    try { return readCachedStudentXp(localStorage); } catch { return 0; }
+  })());
+  useEffect(() => {
+    const deviceId = studentDeviceIdRef.current;
+    if (!deviceId) return;
+    let cancelled = false;
+    fetchOwnStudentRecord(defaultFetch, deviceId).then(rec => {
+      if (cancelled || !rec) return;
+      const freshXp = Math.max(0, rec.xp || 0);
+      if (freshXp !== myXpRef.current) {
+        myXpRef.current = freshXp;
+        try { writeCachedStudentXp(localStorage, freshXp); } catch { /* bỏ qua */ }
+        if (hasJoinedArenaRef.current) {
+          sendEnter(studentNameRef.current);
+        }
+      }
+    }).catch(() => { /* mất mạng thì dùng XP cache — không chặn vào phòng */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Gameplay state - myPlayerId = studentId bền (xem ghi chú ĐỢT 5 ở trên)
   const [myPlayerId, setMyPlayerId] = useState<string>(() => studentIdentity.studentId);
@@ -817,6 +857,10 @@ export const StudentMobileView: React.FC<Props> = ({
         : 'PLAYER_READY_ROPE',
       playerId: myPlayerIdRef.current,
       studentId: studentIdRef.current,
+      // Hệ CẤP ĐỘ: mã máy toàn cục + XP trước trận (đọc từ kc3d_students) —
+      // host dùng để hiện icon cấp + ghi XP cuối trận theo deviceId.
+      deviceId: studentDeviceIdRef.current || undefined,
+      xp: myXpRef.current,
       tabSessionId,
       preferredTeam: finalTeam,
       playerName: cleanName,
@@ -886,6 +930,8 @@ export const StudentMobileView: React.FC<Props> = ({
           type: 'PLAYER_FINISH_QUIZ',
           playerId: myPlayerId,
           studentId: studentIdRef.current,
+          deviceId: studentDeviceIdRef.current || undefined,
+          xp: myXpRef.current,
           preferredTeam: teamRef.current,
           playerName: validName,
           avatar: avatarRef.current,
@@ -1230,7 +1276,7 @@ export const StudentMobileView: React.FC<Props> = ({
     peerUpdate?: { id: string; name: string; team: PlayerTeam; score: number; correct: number }
   ) => {
     setTop10List(prev => {
-      const map = new Map<string, { id: string; name: string; team: PlayerTeam; score: number; correct: number }>();
+      const map = new Map<string, { id: string; name: string; team: PlayerTeam; score: number; correct: number; xp?: number }>();
 
       const sourceBase = Array.isArray(incomingList) && incomingList.length > 0 ? incomingList : prev;
       sourceBase.forEach((raw: any) => {
@@ -1245,7 +1291,10 @@ export const StudentMobileView: React.FC<Props> = ({
           name: pname,
           team: raw.team || raw.preferredTeam || 'RED',
           score: pscore,
-          correct: pcorrect
+          correct: pcorrect,
+          // Hệ CẤP ĐỘ: XP đi kèm nhịp tim host (để hiện icon cấp) — giữ lại
+          // giá trị đã biết nếu gói mới chưa mang theo.
+          xp: typeof raw.xp === 'number' ? raw.xp : undefined
         });
       });
 
@@ -1256,7 +1305,8 @@ export const StudentMobileView: React.FC<Props> = ({
           name: peerUpdate.name,
           team: peerUpdate.team || ex?.team || 'RED',
           score: Math.max(ex?.score ?? 0, peerUpdate.score),
-          correct: Math.max(ex?.correct ?? 0, peerUpdate.correct)
+          correct: Math.max(ex?.correct ?? 0, peerUpdate.correct),
+          xp: ex?.xp
         });
       }
 
@@ -3497,19 +3547,28 @@ export const StudentMobileView: React.FC<Props> = ({
                       fontWeight: 900,
                       color: idx === 0 ? '#facc15' : idx === 1 ? '#e2e8f0' : idx === 2 ? '#fb923c' : '#94a3b8',
                       minWidth: '26px',
-                      textAlign: 'center'
+                      textAlign: 'center',
+                      flexShrink: 0
                     }}
                   >
                     {rankBadge}
+                  </span>
+                  {/* Hệ CẤP ĐỘ: icon cấp — cột riêng bề rộng cố định, không bị tên chèn ép */}
+                  <span
+                    title={levelFromXp(item.xp || 0).name}
+                    style={{ fontSize: '16px', minWidth: '24px', textAlign: 'center', flexShrink: 0, lineHeight: 1 }}
+                  >
+                    {levelFromXp(item.xp || 0).icon}
                   </span>
                   <span
                     style={{
                       fontSize: '13.5px',
                       fontWeight: 800,
                       color: isMe ? '#fef08a' : '#f8fafc',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
+                      // Tên KHÔNG cắt cụt: cho phép xuống dòng trên màn điện thoại.
+                      whiteSpace: 'normal',
+                      wordBreak: 'break-word',
+                      lineHeight: 1.25
                     }}
                   >
                     {item.name || (item as any).label || 'Học sinh'}
