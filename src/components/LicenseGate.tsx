@@ -20,6 +20,7 @@ import {
   setLocalPwHash,
   setMachineStatus,
   sha256Hex,
+  shouldPromptEntryGate,
   submitRegistration,
   validateRegistration,
   verifyMasterCode,
@@ -30,8 +31,15 @@ import {
 
 /**
  * Cửa bản quyền Đấu Trường 3D — hook dùng trong TeacherSetupView:
- *  - guardAction(fn): máy chưa kích hoạt (và không phải Admin) → mở modal
- *    đăng ký thay vì chạy fn; kích hoạt xong thì chạy fn đang chờ.
+ *  - Cổng điểm-vào (Chuyện 1): hook mount cùng TeacherSetupView = mỗi lần
+ *    vào khu giáo viên; máy chưa kích hoạt + không phải Admin → tự hiện
+ *    modal mời đăng ký sau khi đối chiếu xong trạng thái với Firebase.
+ *    Đóng modal thì dùng tiếp đề có sẵn bình thường; lần vào sau mời lại.
+ *  - guardAction(fn) (Chuyện 2): máy chưa kích hoạt (và không phải Admin)
+ *    bấm 2 nút Thêm Đề Mới / Lưu Đề Này → mở modal đăng ký thay vì chạy fn;
+ *    kích hoạt xong thì chạy fn đang chờ.
+ *  - Cả 2 điểm trên dùng CHUNG một màn hình xác thực lớn "ĐẤU TRƯỜNG
+ *    ONLINE PRO" (mẫu thầy chốt 17/11) — cùng component, cùng luồng gửi.
  *  - openAdmin(): đăng nhập Admin 2 khoá (mã chủ + mã cá nhân của thầy).
  *  - openMachines(): panel 🔐 Quản lý máy (chỉ Admin).
  *  - modals: JSX của cả 3 modal + toast — render một lần ở cuối màn hình.
@@ -103,23 +111,30 @@ export function useLicenseGate(): LicenseGateApi {
     toastTimer.current = setTimeout(() => setToast(''), 4000);
   }, []);
 
-  /* ----- Kiểm trạng thái kích hoạt với Firebase khi tải trang ----- */
+  /* ----- Kiểm trạng thái kích hoạt với Firebase khi tải trang -----
+   * statusSynced = đã đối chiếu xong (mọi kết cục, kể cả mất mạng) — cổng
+   * điểm-vào chỉ quyết định sau mốc này để không mời nhầm máy đã kích hoạt
+   * ở Firebase mà bộ nhớ máy vừa bị xoá, và để bắt cả ca bị khoá từ xa. */
+  const [statusSynced, setStatusSynced] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       let lic: any = undefined;
       try { lic = await fbGet(defaultFetch, 'kc3d_licenses/' + machineId); } catch { lic = undefined; }
-      if (cancelled || lic === undefined) return; // mất mạng → giữ trạng thái đã lưu
-      const local = readLocalActivation(safeStore);
-      const remote = !lic ? 'none' : lic.status === 'locked' ? 'locked' : 'active';
-      const next = applyRemoteStatus(local.activated, remote as any);
-      if (next && !local.activated && lic) {
-        writeLocalActivation(safeStore, {
-          email: lic.email || '', name: lic.name || '', school: lic.school || '', at: lic.at || Date.now()
-        });
+      if (cancelled) return;
+      if (lic !== undefined) { // mất mạng (undefined) → giữ trạng thái đã lưu
+        const local = readLocalActivation(safeStore);
+        const remote = !lic ? 'none' : lic.status === 'locked' ? 'locked' : 'active';
+        const next = applyRemoteStatus(local.activated, remote as any);
+        if (next && !local.activated && lic) {
+          writeLocalActivation(safeStore, {
+            email: lic.email || '', name: lic.name || '', school: lic.school || '', at: lic.at || Date.now()
+          });
+        }
+        if (!next && local.activated) clearLocalActivation(safeStore);
+        setActivated(next);
       }
-      if (!next && local.activated) clearLocalActivation(safeStore);
-      if (!cancelled) setActivated(next);
+      setStatusSynced(true);
     })();
     return () => { cancelled = true; };
   }, [machineId]);
@@ -288,6 +303,27 @@ export function useLicenseGate(): LicenseGateApi {
     setMachinesBusy(false);
   };
 
+  /* ----- Cổng điểm-vào khu giáo viên (Chuyện 1) -----
+   * Hook mount cùng TeacherSetupView nên effect này chạy đúng MỘT lần mỗi
+   * lần vào khu giáo viên (đã đối chiếu Firebase xong): chưa kích hoạt +
+   * không phải Admin → mở modal mời đăng ký ở chế độ KHÔNG có hành động chờ
+   * (đóng modal là dùng tiếp đề có sẵn; 2 nút vẫn bị guardAction chặn riêng
+   * như cũ). Dùng chung state showReg với cửa ở 2 nút nên không bao giờ có
+   * 2 modal chồng nhau. */
+  const entryPromptedRef = useRef(false);
+  useEffect(() => {
+    if (!statusSynced || entryPromptedRef.current) return;
+    if (showReg || adminStep || showMachines) return;
+    if (!shouldPromptEntryGate({ isAdmin, activated })) return;
+    entryPromptedRef.current = true;
+    pendingAction.current = null;
+    const info = readLocalActivation(safeStore).info;
+    if (info) setRegForm({ email: info.email || '', name: info.name || '', school: info.school || '' });
+    setRegDone(false);
+    setRegError('');
+    setShowReg(true);
+  }, [statusSynced, isAdmin, activated, showReg, adminStep, showMachines]);
+
   /* ----- JSX các modal ----- */
   const fmtTime = (ts: number) => {
     if (!ts) return '';
@@ -298,33 +334,44 @@ export function useLicenseGate(): LicenseGateApi {
     <>
       {showReg && (
         <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) setShowReg(false); }}>
-          <div style={cardStyle}>
+          <div style={{ ...cardStyle, maxWidth: '560px', padding: '28px 30px' }}>
             {!regDone ? (
               <>
-                <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: 900, color: '#facc15' }}>
-                  🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D
+                <div style={{ textAlign: 'center', fontSize: '27px', fontWeight: 900, letterSpacing: '0.5px', color: '#facc15', lineHeight: 1.2 }}>
+                  ĐẤU TRƯỜNG ONLINE PRO
                 </div>
-                <p style={{ fontSize: '14.5px', lineHeight: 1.6, margin: '10px 0 0' }}>
-                  Hai nút <b>➕ Thêm Đề Mới</b> và <b>💾 Lưu Đề Này</b> cần đăng ký kích hoạt cho máy này.
-                  Thầy cô chỉ cần <b>điền form đúng 1 lần duy nhất</b> — hệ thống <b>tự động kích hoạt ngay</b>,
-                  từ đó dùng thoải mái, không phải đăng ký lại.
+                <p style={{ textAlign: 'center', fontSize: '14.5px', color: '#c7d2fe', margin: '8px 0 0', lineHeight: 1.55 }}>
+                  Xác thực thông tin Giáo viên để kích hoạt hệ thống điều khiển phòng thi 3D
                 </p>
-                <p style={{ fontSize: '14px', margin: '12px 0 0', color: '#94a3b8' }}>Mã máy của máy này (cố định):</p>
-                <p style={{ textAlign: 'center', fontSize: '23px', fontWeight: 900, letterSpacing: '1px', color: '#facc15', margin: '2px 0 0' }}>{machineId}</p>
-                <label style={labelStyle}>Địa chỉ email</label>
+                <p style={{ fontSize: '14px', lineHeight: 1.6, margin: '14px 0 0' }}>
+                  Đây là <b>lần điền đầu tiên và duy nhất</b> — hệ thống <b>tự động kích hoạt ngay</b> và
+                  <b> ghi nhớ máy này vĩnh viễn</b>, lần sau vào thẳng, không hỏi lại. Kích hoạt xong sẽ mở
+                  khoá 2 nút <b>➕ Thêm Đề Mới</b> và <b>💾 Lưu Đề Này</b>.
+                </p>
+                <p style={{ fontSize: '13.5px', lineHeight: 1.55, margin: '8px 0 0', color: '#94a3b8' }}>
+                  Chưa kích hoạt vẫn <b>chơi / tổ chức thi bằng các bộ đề có sẵn như bình thường</b>.
+                </p>
+                <label style={labelStyle}>ĐỊA CHỈ GMAIL *</label>
                 <input style={inputStyle} type="email" placeholder="vd: nguyenvana@gmail.com" value={regForm.email}
                   onChange={e => setRegForm({ ...regForm, email: e.target.value })} />
-                <label style={labelStyle}>Họ và tên giáo viên</label>
+                <label style={labelStyle}>HỌ VÀ TÊN THẦY / CÔ *</label>
                 <input style={inputStyle} type="text" placeholder="vd: Nguyễn Văn A" value={regForm.name}
                   onChange={e => setRegForm({ ...regForm, name: e.target.value })} />
-                <label style={labelStyle}>Trường</label>
+                <label style={labelStyle}>TRƯỜNG CÔNG TÁC *</label>
                 <input style={inputStyle} type="text" placeholder="vd: THPT Mang Thít" value={regForm.school}
                   onChange={e => setRegForm({ ...regForm, school: e.target.value })} />
+                <p style={{ fontSize: '13px', margin: '12px 0 0', color: '#94a3b8' }}>
+                  Mã máy của máy này (cố định): <b style={{ color: '#facc15', letterSpacing: '0.5px' }}>{machineId}</b>
+                </p>
                 {regError && <p style={{ color: '#fca5a5', fontWeight: 700, fontSize: '14px', margin: '10px 0 0' }}>{regError}</p>}
-                <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
-                  <button type="button" style={ghostBtn} onClick={() => setShowReg(false)}>Để sau</button>
-                  <button type="button" style={primaryBtn} disabled={regBusy} onClick={handleRegSubmit}>
-                    {regBusy ? '⏳ Đang gửi...' : '📩 Gửi đăng ký & kích hoạt ngay'}
+                <button type="button" disabled={regBusy} onClick={handleRegSubmit}
+                  style={{ ...primaryBtn, width: '100%', marginTop: '18px', padding: '14px 18px', fontSize: '16.5px' }}>
+                  {regBusy ? '⏳ Đang gửi...' : '🚀 VÀO ĐẤU TRƯỜNG ONLINE'}
+                </button>
+                <div style={{ textAlign: 'center', marginTop: '8px' }}>
+                  <button type="button" onClick={() => setShowReg(false)}
+                    style={{ background: 'transparent', border: 0, color: '#94a3b8', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: '6px 10px' }}>
+                    Bỏ qua, dùng đề có sẵn →
                   </button>
                 </div>
               </>
