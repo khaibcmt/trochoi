@@ -32,6 +32,86 @@ export const HOST_RX_OUTAGE_MS = 45000;
 /** HS quay lại từ nền: mất kết nối (ẩn trang) quá 5s thì xin RESYNC tường minh. */
 export const RESYNC_BACKGROUND_THRESHOLD_MS = 5000;
 
+// ---------------------------------------------------------------------------
+// Đợt GIA CỐ TẢI (17/11/2026): thời gian hiện diện THÍCH ỨNG theo quy mô phòng.
+// Mục tiêu thiết kế 200 HS/phòng (nấc thật ở trường ~60): phòng càng đông, ping
+// càng thưa để tổng lưu lượng ping vào host/broker/wifi KHÔNG tăng tuyến tính
+// theo số HS; ngưỡng hiển thị "mất kết nối" co giãn theo đúng nhịp ping mới
+// (≈3 nhịp ping + biên an toàn) để không xám oan; giữ chỗ vẫn 5 PHÚT theo đồng
+// hồ tường (≥20 nhịp ping ở mọi nấc) và van mất-thu phía host ≥ 3 nhịp ping.
+// ---------------------------------------------------------------------------
+export interface PresenceTiming {
+  /** Nhịp PLAYER_PING cơ sở của 1 HS (trước jitter theo định danh). */
+  pingIntervalMs: number;
+  /** Im lặng quá bấy lâu → hiển thị "mất kết nối" (HELD) nhưng giữ chỗ. */
+  offlineAfterMs: number;
+  /** Im lặng quá bấy lâu → giải phóng chỗ theo luật chế độ chơi. */
+  holdMs: number;
+  /** Host không nhận BẤT KỲ tin nào quá bấy lâu → nghi host mất thu, dừng quét. */
+  outageMs: number;
+  /** Chu kỳ HS gửi lại hồ sơ đầy đủ (sendEnter) khi không có gì thay đổi. */
+  profileResyncMs: number;
+}
+
+/** Bộ thời gian hiện diện cho phòng có `playerCount` người chơi (bản ghi phía host). */
+export function presenceTimingForRoomSize(playerCount: number): PresenceTiming {
+  const n = typeof playerCount === 'number' && isFinite(playerCount) && playerCount > 0 ? Math.floor(playerCount) : 0;
+  if (n <= 30) {
+    // Nấc lớp thường: GIỮ NGUYÊN hành vi đã chốt các đợt trước (5s / 15s / 5 phút).
+    return { pingIntervalMs: 5000, offlineAfterMs: 15000, holdMs: PLAYER_HOLD_MS, outageMs: HOST_RX_OUTAGE_MS, profileResyncMs: 20000 };
+  }
+  if (n <= 80) {
+    // Nấc thật ở trường (lớp đông nhất 48 HS + dự giờ ≈ 60): ping 8s → ~7,5 ping/s.
+    return { pingIntervalMs: 8000, offlineAfterMs: 25000, holdMs: PLAYER_HOLD_MS, outageMs: HOST_RX_OUTAGE_MS, profileResyncMs: 30000 };
+  }
+  if (n <= 150) {
+    return { pingIntervalMs: 12000, offlineAfterMs: 40000, holdMs: PLAYER_HOLD_MS, outageMs: 60000, profileResyncMs: 45000 };
+  }
+  // Nấc thiết kế 200: ping 15s → ~13 ping/s vào host dù phòng có 200 người.
+  return { pingIntervalMs: 15000, offlineAfterMs: 50000, holdMs: PLAYER_HOLD_MS, outageMs: 60000, profileResyncMs: 60000 };
+}
+
+/**
+ * Giãn nhịp ping theo ĐỊNH DANH từng HS (xác định, không ngẫu nhiên mỗi lần):
+ * cộng thêm 0–40% của nhịp cơ sở theo hàm băm của identityKey. Nhờ đó 200 HS
+ * không ping DỒN CÙNG MỘT MỐC sau khi host phát tín hiệu chung (chống dồn dập
+ * đồng loạt), mà rải đều trong cửa sổ nhịp; cùng một HS luôn giữ cùng độ lệch
+ * nên nhịp của em đó ổn định, không tự dồn vào nhau theo thời gian.
+ */
+export function pingIntervalWithJitter(baseMs: number, identityKey: string): number {
+  const base = typeof baseMs === 'number' && isFinite(baseMs) && baseMs > 0 ? baseMs : PLAYER_PING_INTERVAL_MS;
+  const key = String(identityKey || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = (h * 31 + key.charCodeAt(i)) | 0;
+  }
+  const spreadPct = Math.abs(h) % 41; // 0..40 (%)
+  return base + Math.floor((base * spreadPct) / 100);
+}
+
+/**
+ * Ước lượng quy mô phòng từ các trường HOST_HEARTBEAT mang theo: ưu tiên danh
+ * sách playerIds khi nhịp tim kèm roster đầy đủ; nhịp rút gọn (top10Unchanged)
+ * vẫn luôn mang tổng thành viên 2 đội / tổng người chế độ BELL nên vẫn ước
+ * lượng được. Trả 0 khi không có tín hiệu nào (phía HS giữ nguyên ước lượng cũ).
+ */
+export function estimateRoomSize(sig: {
+  playerIds?: unknown;
+  redTotalMembers?: number;
+  blueTotalMembers?: number;
+  bellTotalCount?: number;
+}): number {
+  if (Array.isArray(sig.playerIds) && sig.playerIds.length > 0) return sig.playerIds.length;
+  const teams =
+    (typeof sig.redTotalMembers === 'number' && isFinite(sig.redTotalMembers) ? sig.redTotalMembers : 0) +
+    (typeof sig.blueTotalMembers === 'number' && isFinite(sig.blueTotalMembers) ? sig.blueTotalMembers : 0);
+  if (teams > 0) return teams;
+  if (typeof sig.bellTotalCount === 'number' && isFinite(sig.bellTotalCount) && sig.bellTotalCount > 0) {
+    return sig.bellTotalCount;
+  }
+  return 0;
+}
+
 export type PresenceStatus = 'ONLINE' | 'HELD' | 'RELEASED';
 
 /**
@@ -47,23 +127,36 @@ export type PresenceStatus = 'ONLINE' | 'HELD' | 'RELEASED';
 export function getPresenceStatus(
   lastSeen: number | undefined | null,
   now: number,
-  knownOffline: boolean = false
+  knownOffline: boolean = false,
+  timing?: PresenceTiming
 ): PresenceStatus {
   if (typeof lastSeen !== 'number' || !isFinite(lastSeen) || lastSeen <= 0) {
     return knownOffline ? 'HELD' : 'ONLINE';
   }
+  const holdMs = timing?.holdMs ?? PLAYER_HOLD_MS;
+  const offlineAfterMs = timing?.offlineAfterMs ?? PLAYER_OFFLINE_AFTER_MS;
   const age = now - lastSeen;
-  if (age > PLAYER_HOLD_MS) return 'RELEASED';
-  if (age >= PLAYER_OFFLINE_AFTER_MS || knownOffline) return 'HELD';
+  if (age > holdMs) return 'RELEASED';
+  if (age >= offlineAfterMs || knownOffline) return 'HELD';
   return 'ONLINE';
 }
 
-export function isPresenceHeld(lastSeen: number | undefined | null, now: number, knownOffline = false): boolean {
-  return getPresenceStatus(lastSeen, now, knownOffline) === 'HELD';
+export function isPresenceHeld(
+  lastSeen: number | undefined | null,
+  now: number,
+  knownOffline = false,
+  timing?: PresenceTiming
+): boolean {
+  return getPresenceStatus(lastSeen, now, knownOffline, timing) === 'HELD';
 }
 
-export function shouldReleasePlayer(lastSeen: number | undefined | null, now: number, knownOffline = false): boolean {
-  return getPresenceStatus(lastSeen, now, knownOffline) === 'RELEASED';
+export function shouldReleasePlayer(
+  lastSeen: number | undefined | null,
+  now: number,
+  knownOffline = false,
+  timing?: PresenceTiming
+): boolean {
+  return getPresenceStatus(lastSeen, now, knownOffline, timing) === 'RELEASED';
 }
 
 /**
@@ -72,9 +165,14 @@ export function shouldReleasePlayer(lastSeen: number | undefined | null, now: nu
  * HOST_RX_OUTAGE_MS không có tin mới; chưa từng nhận tin nào (0/undefined/không hợp
  * lệ) → false, không phạt oan lúc host vừa khởi động.
  */
-export function isHostReceptionOutage(lastRxAt: number | undefined | null, now: number): boolean {
+export function isHostReceptionOutage(
+  lastRxAt: number | undefined | null,
+  now: number,
+  outageMs: number = HOST_RX_OUTAGE_MS
+): boolean {
   if (typeof lastRxAt !== 'number' || !isFinite(lastRxAt) || lastRxAt <= 0) return false;
-  return now - lastRxAt > HOST_RX_OUTAGE_MS;
+  const threshold = typeof outageMs === 'number' && isFinite(outageMs) && outageMs > 0 ? outageMs : HOST_RX_OUTAGE_MS;
+  return now - lastRxAt > threshold;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +356,8 @@ export function sweepPlayerPresence(
   bluePlayers: Player[],
   gameType: GamePlayType,
   now: number,
-  lastSeenById?: Map<string, number>
+  lastSeenById?: Map<string, number>,
+  timing?: PresenceTiming
 ): { redPlayers: Player[]; bluePlayers: Player[]; releasedIds: string[]; changed: boolean } {
   const releasedIds: string[] = [];
   let changed = false;
@@ -273,7 +372,7 @@ export function sweepPlayerPresence(
       const seen = lastSeenById?.get(p.id) ?? p.lastSeen;
       // Cờ offline trong bản ghi chỉ do PLAYER_OFFLINE (will) hoặc chính vòng quét này
       // đặt; ping/enter luôn xoá cờ ngay khi HS có tín hiệu lại nên không bị kẹt HELD.
-      const status = getPresenceStatus(seen, now, p.offline === true);
+      const status = getPresenceStatus(seen, now, p.offline === true, timing);
       if (status === 'RELEASED') {
         changed = true;
         releasedIds.push(p.id);
