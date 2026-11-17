@@ -686,6 +686,9 @@ export function buildResyncStateMessage(
     msg.totalScore = player.fastScore || 0;
     msg.savedCorrect = player.correct || 0;
     msg.avatar = player.avatar;
+    // Luật cược mới (17/11/2026): trạng thái lá chắn An Toàn theo sổ HOST —
+    // HS đồng bộ lại gương tại máy từ đây để hai phía không lệch nhau.
+    msg.safeShieldUsed = player.safeShieldUsed === true;
   }
   return msg;
 }
