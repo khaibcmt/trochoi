@@ -1404,35 +1404,6 @@ body, html {
   flex-shrink: 0;
 }
 
-#mobile-fast-timer-wrap {
-  width: 100%;
-  height: 22px;
-  background: #0f172a;
-  border: 1.5px solid #475569;
-  border-radius: 11px;
-  margin: 4px 0;
-  position: relative;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-#mobile-fast-timer-fill {
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg, #10b981, #34d399);
-  transition: width 0.1s linear;
-}
-#mobile-fast-timer-txt {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11.5px;
-  font-weight: 900;
-  color: #fff;
-  text-shadow: 0 1px 2px #000;
-}
-
 .choices-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
