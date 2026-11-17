@@ -3411,8 +3411,11 @@ export function getConvertedGradeByRank(rankNumber: number, totalScore: number) 
 // Tính điểm ghi vào Sổ điểm Giáo viên chuẩn theo Thông tư 22/2021/TT-BGDĐT:
 // Tất cả trả về thang điểm 10, chỉ tính (số câu đúng / tổng số câu) * 10, làm tròn đến 1 chữ số thập phân.
 // Tính điểm thực tế xếp thứ tự từ cao đến thấp để giáo viên ghi trực tiếp vào sổ điểm.
-export function getTeacherGradebookScore(correctCount: number, totalQuestions: number = 12, _rankByCorrect?: number) {
-  const safeTotalQ = Math.max(1, totalQuestions || 12);
+// QUAN TRỌNG: totalQuestions BẮT BUỘC là tổng số câu THẬT của đề/trận đang chơi — tuyệt đối
+// không để mặc định cứng theo đề ví dụ 12 câu (lỗi cũ: trận 24 câu vẫn chia cho 12 nên
+// em nào đúng từ 12 câu trở lên cũng bị kẹp thành 10.0 điểm).
+export function getTeacherGradebookScore(correctCount: number, totalQuestions: number, _rankByCorrect?: number) {
+  const safeTotalQ = Math.max(1, Math.floor(totalQuestions) || 1);
   const safeCorrect = Math.max(0, Math.min(safeTotalQ, correctCount || 0));
   const exactGrade = Number(((safeCorrect / safeTotalQ) * 10).toFixed(1));
 
