@@ -1658,16 +1658,14 @@ export const TeacherSetupView: React.FC<Props> = ({
             </div>
 
             {/* Hàng 2: Các công cụ soạn & lưu đề chuẩn xác, không bị lặp lại */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'stretch' }}>
               <button
                 type="button"
-                className="btn-action-sm kc-cta-live"
+                className="btn-action-sm kc-row-btn kc-cta-save"
                 style={{
-                  height: '34px',
                   color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 14px'
+                  fontSize: '13px'
                 }}
                 onClick={() => license.guardAction(handleSaveToSubject)}
                 title="Lưu toàn bộ câu hỏi của 3 phần vào môn học này (cần đăng ký kích hoạt 1 lần)"
@@ -1677,15 +1675,13 @@ export const TeacherSetupView: React.FC<Props> = ({
 
               <button
                 type="button"
-                className="btn-action-sm"
+                className="btn-action-sm kc-row-btn"
                 style={{
-                  height: '34px',
                   background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)',
                   borderColor: '#a5b4fc',
                   color: '#ffffff',
                   fontWeight: 900,
                   fontSize: '13px',
-                  padding: '0 14px',
                   boxShadow: '0 2px 8px rgba(79, 70, 229, 0.35)'
                 }}
                 onClick={handleShuffleByPartOrder}
@@ -1698,9 +1694,8 @@ export const TeacherSetupView: React.FC<Props> = ({
 
               <button
                 type="button"
-                className="btn-action-sm"
+                className="btn-action-sm kc-row-btn"
                 style={{
-                  height: '40px',
                   background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
                   borderColor: '#fde68a',
                   borderWidth: '2px',
@@ -1708,7 +1703,6 @@ export const TeacherSetupView: React.FC<Props> = ({
                   fontWeight: 900,
                   fontSize: '14.5px',
                   letterSpacing: '0.3px',
-                  padding: '0 20px',
                   boxShadow:
                     '0 4px 16px rgba(234, 88, 12, 0.5), 0 0 0 2px rgba(251, 191, 36, 0.55)',
                   textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)'
@@ -1721,13 +1715,11 @@ export const TeacherSetupView: React.FC<Props> = ({
 
               <button
                 type="button"
-                className="btn-action-sm kc-cta-live"
+                className="btn-action-sm kc-row-btn kc-cta-add"
                 style={{
-                  height: '34px',
                   color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 12px'
+                  fontSize: '13px'
                 }}
                 onClick={() => license.guardAction(onAddSubject)}
                 title="Thêm môn học mới vào hệ thống (cần đăng ký kích hoạt 1 lần)"
@@ -1738,15 +1730,13 @@ export const TeacherSetupView: React.FC<Props> = ({
               {!subjectsDB[currentSubjectKey]?.fixed && (
                 <button
                   type="button"
-                  className="btn-action-sm"
+                  className="btn-action-sm kc-row-btn"
                   style={{
-                    height: '34px',
                     background: '#fee2e2',
                     borderColor: '#fca5a5',
                     color: '#991b1b',
                     fontWeight: 900,
-                    fontSize: '13px',
-                    padding: '0 12px'
+                    fontSize: '13px'
                   }}
                   onClick={onDeleteCurrentSubject}
                   title="Xóa môn học tự thêm này"
