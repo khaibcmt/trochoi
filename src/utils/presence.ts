@@ -296,6 +296,11 @@ export interface IncomingPlayerIdentity {
   savedCorrect?: number;
   avatar?: Player['avatar'];
   ready?: boolean;
+  // Hệ CẤP ĐỘ (17/11): mã máy toàn cục + XP HS tự đọc từ kc3d_students, gắn
+  // kèm tin vào phòng. Chỉ để host hiển thị cấp + ghi XP cuối trận theo
+  // deviceId — KHÔNG liên quan điểm trận (host tự ghi sổ).
+  deviceId?: string;
+  xp?: number;
 }
 
 /**
@@ -327,6 +332,11 @@ export function mergePlayerRecord(existing: Player, incoming: IncomingPlayerIden
   return {
     ...existing,
     studentId: incoming.studentId || existing.studentId || incoming.playerId || existing.id,
+    // Hệ CẤP ĐỘ: giữ mã máy mới nhất HS báo kèm tin vào phòng; XP lấy giá trị
+    // HS vừa đọc từ kc3d_students (bản ghi Firebase là nguồn sự thật, tin vào
+    // phòng sau luôn mang XP tươi hơn bản ghi host đang giữ).
+    deviceId: incoming.deviceId || existing.deviceId,
+    xp: typeof incoming.xp === 'number' ? incoming.xp : existing.xp,
     label: hasRealIncomingName ? incomingName : hasRealExistingName ? existing.label : incomingName || existing.label,
     avatar: incoming.avatar || existing.avatar,
     ready: existing.ready || incoming.ready === true,
