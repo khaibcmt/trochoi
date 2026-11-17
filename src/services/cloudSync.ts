@@ -1,6 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { CloudBackupData, CloudSyncProfile, SubjectData, MatchSettings, QuizItem } from '../types';
 import { parseHTMLToQuiz } from '../data/defaultSubjects';
+import { QUIZ_CHUNK_BUDGET_BYTES, serializedByteLength } from './network';
 
 const SYNC_PROFILE_KEY = 'thpt_cloud_sync_profile_v1';
 
@@ -96,9 +97,159 @@ async function safeFetchJson(url: string, options: RequestInit): Promise<any | n
   }
 }
 
+// ============================================================================
+// Đợt 6 (2.5): Sao lưu MQTT CHIA NHỎ theo môn + MANIFEST + báo cáo trung thực
+// ----------------------------------------------------------------------------
+// Trước đây toàn bộ kho đề bị nhét vào ĐÚNG 1 tin retained duy nhất
+// (topic thpt_sync_v2/<key>) — kho có vài môn chứa ảnh là vượt giới hạn gói của
+// broker công cộng, publish rớt lặng lẽ mà phía lưu vẫn tưởng đã sao lưu xong.
+//
+// Thiết kế mới (vẫn dùng retained + QoS 1 trên cùng broker):
+//   thpt_sync_v2/<key>/manifest     : 1 tin mục lục — số môn, tổng dung lượng,
+//                                     thời gian, và danh sách từng phần kèm
+//                                     topic/số mảnh/dung lượng của nó.
+//   thpt_sync_v2/<key>/meta         : phần thông tin chung (cài đặt trận, môn
+//                                     đang chọn, danh sách câu đang mở, stats).
+//   thpt_sync_v2/<key>/subject/<i>  : mỗi môn 1 tin riêng (i = thứ tự môn).
+// Phần nào (meta hoặc 1 môn) vẫn vượt ngân sách byte thì bị cắt CHUỖI payload
+// thành nhiều mảnh tại …/frag/<j> — dùng cùng ngân sách ~180KB/tin như chunk đề
+// Đợt 3 (QUIZ_CHUNK_BUDGET_BYTES), trừ hao so với giới hạn ~256KB của broker.
+// Thứ tự publish: các phần trước, MANIFEST CUỐI CÙNG — phía khôi phục thấy
+// manifest là biết các phần của đúng lượt sao lưu đó (mỗi phần đều mang cùng
+// lastUpdated với manifest; lệch lastUpdated = phần cũ sót lại -> coi như thiếu).
+// TƯƠNG THÍCH NGƯỢC: bản sao lưu CŨ (1 tin duy nhất ở thpt_sync_v2/<key>) vẫn
+// được đường khôi phục đọc theo nhánh fallback khi không có manifest.
+// ============================================================================
+
+const SYNC_TOPIC_ROOT = 'thpt_sync_v2';
+const SYNC_PART_BUDGET_BYTES = QUIZ_CHUNK_BUDGET_BYTES;
+
+interface SyncPartDescriptor {
+  subjectKey: string | null; // null = phần meta (thông tin chung)
+  name?: string; // tên môn (để báo lỗi thiếu cho dễ hiểu)
+  topic: string; // topic đầy đủ của phần (chưa gồm hậu tố /frag/<j>)
+  fragments: number; // 1 = payload nằm nguyên tại topic; >1 = cắt mảnh ở topic/frag/<j>
+  bytes: number; // dung lượng byte của payload phần (trước khi cắt mảnh)
+}
+
+interface SyncManifest {
+  kind: 'thpt_sync_manifest';
+  version: 2;
+  topicKey: string;
+  lastUpdated: number;
+  totalBytes: number;
+  totalSubjects: number;
+  meta: SyncPartDescriptor;
+  subjects: SyncPartDescriptor[];
+}
+
+interface PlannedSyncMessage {
+  topic: string;
+  payload: string;
+}
+
+// Lên kế hoạch publish cho 1 phần: vừa ngân sách thì 1 tin; quá lớn thì cắt chuỗi
+// payload thành nhiều mảnh, mỗi mảnh bọc envelope JSON vẫn nằm dưới ngân sách byte
+// (ước lượng xấu nhất 3 byte/ký tự UTF-8 + chừa 1KB cho envelope).
+function planPartMessages(fullTopic: string, payloadStr: string): { messages: PlannedSyncMessage[]; fragments: number; bytes: number } {
+  const bytes = serializedByteLength(payloadStr);
+  if (bytes <= SYNC_PART_BUDGET_BYTES) {
+    return { messages: [{ topic: fullTopic, payload: payloadStr }], fragments: 1, bytes };
+  }
+  const sliceChars = Math.max(1024, Math.floor((SYNC_PART_BUDGET_BYTES - 1024) / 3));
+  const slices: string[] = [];
+  for (let i = 0; i < payloadStr.length; i += sliceChars) {
+    slices.push(payloadStr.slice(i, i + sliceChars));
+  }
+  const messages = slices.map((data, j) => ({
+    topic: `${fullTopic}/frag/${j}`,
+    payload: JSON.stringify({ kind: 'thpt_sync_fragment', fragIndex: j, fragTotal: slices.length, data })
+  }));
+  return { messages, fragments: slices.length, bytes };
+}
+
+function publishRetained(client: MqttClient, topic: string, payload: string): Promise<boolean> {
+  return new Promise((res) => {
+    try {
+      client.publish(topic, payload, { retain: true, qos: 1 }, (err) => res(!err));
+    } catch {
+      res(false);
+    }
+  });
+}
+
 // 1. Sao lưu qua MQTT Retained Message (Chạy 100% trên GitHub Pages & Máy trường học không cần backend)
+// Đợt 6 (2.5): chia nhỏ theo môn + manifest như khối thiết kế ở trên. Chỉ resolve(true)
+// khi MỌI phần và manifest đều được broker xác nhận (callback publish QoS 1 không lỗi).
 function saveToMqttCloud(topicKey: string, backupData: CloudBackupData): Promise<boolean> {
   return new Promise((resolve) => {
+    const lastUpdated = Date.now();
+    const base = `${SYNC_TOPIC_ROOT}/${topicKey}`;
+
+    // --- Dựng các phần: 1 phần meta + mỗi môn 1 phần ---
+    const planned: PlannedSyncMessage[] = [];
+    let totalBytes = 0;
+
+    const metaTopic = `${base}/meta`;
+    const metaPayloadStr = JSON.stringify({
+      kind: 'thpt_sync_meta',
+      topicKey,
+      lastUpdated,
+      meta: {
+        version: backupData.version,
+        deviceLabel: backupData.deviceLabel,
+        currentSubjectKey: backupData.currentSubjectKey,
+        matchSettings: backupData.matchSettings,
+        activeQuizList: backupData.activeQuizList,
+        stats: backupData.stats
+      }
+    });
+    const metaPlan = planPartMessages(metaTopic, metaPayloadStr);
+    planned.push(...metaPlan.messages);
+    totalBytes += metaPlan.bytes;
+    const metaDescriptor: SyncPartDescriptor = {
+      subjectKey: null,
+      topic: metaTopic,
+      fragments: metaPlan.fragments,
+      bytes: metaPlan.bytes
+    };
+
+    const subjectKeys = Object.keys(backupData.subjectsDB || {});
+    const subjectDescriptors: SyncPartDescriptor[] = [];
+    subjectKeys.forEach((subjectKey, idx) => {
+      const subject = backupData.subjectsDB[subjectKey];
+      const topic = `${base}/subject/${idx}`;
+      const payloadStr = JSON.stringify({
+        kind: 'thpt_sync_subject',
+        topicKey,
+        lastUpdated,
+        subjectKey,
+        subject
+      });
+      const plan = planPartMessages(topic, payloadStr);
+      planned.push(...plan.messages);
+      totalBytes += plan.bytes;
+      subjectDescriptors.push({
+        subjectKey,
+        name: subject?.name,
+        topic,
+        fragments: plan.fragments,
+        bytes: plan.bytes
+      });
+    });
+
+    const manifest: SyncManifest = {
+      kind: 'thpt_sync_manifest',
+      version: 2,
+      topicKey,
+      lastUpdated,
+      totalBytes,
+      totalSubjects: subjectKeys.length,
+      meta: metaDescriptor,
+      subjects: subjectDescriptors
+    };
+
+    // --- Publish lần lượt từng phần, manifest cuối cùng ---
     let completed = false;
     const client = mqtt.connect(MQTT_SYNC_BROKERS[0], {
       clientId: `thpt_sync_pub_${Math.random().toString(16).slice(2, 8)}`,
@@ -115,19 +266,25 @@ function saveToMqttCloud(topicKey: string, backupData: CloudBackupData): Promise
       }
     };
 
-    const timer = setTimeout(() => finish(false), 8000);
+    const timer = setTimeout(() => finish(false), Math.min(120000, 12000 + planned.length * 5000));
 
-    client.on('connect', () => {
-      const payloadStr = JSON.stringify({
-        topicKey,
-        lastUpdated: Date.now(),
-        backup: backupData
-      });
-
-      client.publish(`thpt_sync_v2/${topicKey}`, payloadStr, { retain: true, qos: 1 }, (err) => {
+    client.on('connect', async () => {
+      try {
+        for (const msg of planned) {
+          const okPub = await publishRetained(client, msg.topic, msg.payload);
+          if (!okPub) {
+            clearTimeout(timer);
+            finish(false);
+            return;
+          }
+        }
+        const okManifest = await publishRetained(client, `${base}/manifest`, JSON.stringify(manifest));
         clearTimeout(timer);
-        finish(!err);
-      });
+        finish(okManifest);
+      } catch {
+        clearTimeout(timer);
+        finish(false);
+      }
     });
 
     client.on('error', () => {
@@ -137,18 +294,38 @@ function saveToMqttCloud(topicKey: string, backupData: CloudBackupData): Promise
   });
 }
 
+interface MqttLoadResult {
+  ok: boolean;
+  backup?: CloudBackupData;
+  lastUpdated?: number;
+  // Đợt 6 (2.5): có manifest nhưng thiếu phần -> báo rõ thiếu phần/môn nào,
+  // TUYỆT ĐỐI không khôi phục thầm lặng một bản thiếu.
+  incomplete?: boolean;
+  missingParts?: string[];
+}
+
 // 2. Tải bản sao lưu qua MQTT Retained Message
-function loadFromMqttCloud(topicKey: string): Promise<{ ok: boolean; backup?: CloudBackupData; lastUpdated?: number }> {
+// Đợt 6 (2.5): đọc manifest + từng phần theo manifest; thiếu phần thì trả
+// incomplete kèm tên phần/môn thiếu. Không có manifest -> fallback đọc bản CŨ
+// 1 tin duy nhất ở topic gốc (tương thích ngược với sao lưu trước Đợt 6).
+function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
   return new Promise((resolve) => {
     let completed = false;
+    const base = `${SYNC_TOPIC_ROOT}/${topicKey}`;
+    const received = new Map<string, string>();
+    let legacyBackup: { backup: CloudBackupData; lastUpdated?: number } | null = null;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const client = mqtt.connect(MQTT_SYNC_BROKERS[0], {
       clientId: `thpt_sync_sub_${Math.random().toString(16).slice(2, 8)}`,
       connectTimeout: 7000
     });
 
-    const finish = (result: { ok: boolean; backup?: CloudBackupData; lastUpdated?: number }) => {
+    const finish = (result: MqttLoadResult) => {
       if (!completed) {
         completed = true;
+        if (graceTimer) clearTimeout(graceTimer);
+        clearTimeout(timer);
         try {
           client.end(true);
         } catch {}
@@ -156,40 +333,145 @@ function loadFromMqttCloud(topicKey: string): Promise<{ ok: boolean; backup?: Cl
       }
     };
 
+    const getManifest = (): SyncManifest | null => {
+      const raw = received.get(`${base}/manifest`);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.kind === 'thpt_sync_manifest' && parsed.meta && Array.isArray(parsed.subjects)) {
+          return parsed as SyncManifest;
+        }
+      } catch {}
+      return null;
+    };
+
+    // Đọc 1 phần theo mô tả trong manifest: ghép các mảnh (nếu bị cắt) và kiểm
+    // lastUpdated phải khớp manifest (phần cũ sót từ lượt sao lưu trước = thiếu).
+    const readPartPayload = (desc: SyncPartDescriptor, expectedUpdated: number): any | null => {
+      let payloadStr: string | null = null;
+      if (desc.fragments <= 1) {
+        payloadStr = received.get(desc.topic) ?? null;
+      } else {
+        let joined = '';
+        for (let j = 0; j < desc.fragments; j++) {
+          const raw = received.get(`${desc.topic}/frag/${j}`);
+          if (raw === undefined) return null;
+          try {
+            const frag = JSON.parse(raw);
+            if (!frag || typeof frag.data !== 'string') return null;
+            joined += frag.data;
+          } catch {
+            return null;
+          }
+        }
+        payloadStr = joined;
+      }
+      if (payloadStr === null) return null;
+      try {
+        const parsed = JSON.parse(payloadStr);
+        if (!parsed || parsed.lastUpdated !== expectedUpdated) return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    };
+
+    // Đánh giá trạng thái hiện có: đủ bộ theo manifest / có manifest nhưng thiếu / chưa có gì dùng được
+    const evaluateManifest = (): { state: 'complete'; backup: CloudBackupData; lastUpdated: number } | { state: 'incomplete'; missing: string[] } | { state: 'none' } => {
+      const manifest = getManifest();
+      if (!manifest) return { state: 'none' };
+      const missing: string[] = [];
+
+      const metaParsed = readPartPayload(manifest.meta, manifest.lastUpdated);
+      if (!metaParsed || !metaParsed.meta) missing.push('phần thông tin chung (cài đặt & danh sách câu đang mở)');
+
+      const subjectsDB: Record<string, SubjectData> = {};
+      for (const desc of manifest.subjects) {
+        const label = desc.name || desc.subjectKey || desc.topic;
+        const parsed = readPartPayload(desc, manifest.lastUpdated);
+        if (!parsed || !parsed.subject || !desc.subjectKey) {
+          missing.push(`môn ${label}`);
+        } else {
+          subjectsDB[desc.subjectKey] = parsed.subject as SubjectData;
+        }
+      }
+
+      if (missing.length > 0) return { state: 'incomplete', missing };
+
+      const meta = metaParsed.meta;
+      const backup: CloudBackupData = {
+        version: typeof meta.version === 'number' ? meta.version : 2,
+        lastUpdated: manifest.lastUpdated,
+        deviceLabel: meta.deviceLabel,
+        subjectsDB,
+        currentSubjectKey: meta.currentSubjectKey,
+        matchSettings: meta.matchSettings,
+        activeQuizList: meta.activeQuizList,
+        stats: meta.stats
+      };
+      return { state: 'complete', backup, lastUpdated: manifest.lastUpdated };
+    };
+
     const timer = setTimeout(() => {
-      finish({ ok: false });
-    }, 7000);
+      const ev = evaluateManifest();
+      if (ev.state === 'complete') {
+        finish({ ok: true, backup: ev.backup, lastUpdated: ev.lastUpdated });
+      } else if (ev.state === 'incomplete') {
+        finish({ ok: false, incomplete: true, missingParts: ev.missing });
+      } else if (legacyBackup) {
+        finish({ ok: true, backup: legacyBackup.backup, lastUpdated: legacyBackup.lastUpdated });
+      } else {
+        finish({ ok: false });
+      }
+    }, 12000);
 
     client.on('connect', () => {
-      const topic = `thpt_sync_v2/${topicKey}`;
-      client.subscribe(topic, { qos: 1 }, (err) => {
+      // Topic gốc (bản CŨ 1 tin) + toàn bộ cây con (manifest/meta/subject/frag)
+      client.subscribe([base, `${base}/#`], { qos: 1 }, (err) => {
         if (err) {
-          clearTimeout(timer);
           finish({ ok: false });
         }
       });
     });
 
-    client.on('message', (_topic, payload) => {
-      try {
-        const text = payload.toString();
-        const parsed = JSON.parse(text);
-        if (parsed && parsed.backup) {
-          clearTimeout(timer);
-          finish({
-            ok: true,
-            backup: parsed.backup,
-            lastUpdated: parsed.lastUpdated || Date.now()
-          });
-        }
-      } catch {
-        clearTimeout(timer);
-        finish({ ok: false });
+    client.on('message', (topic, payload) => {
+      const text = payload.toString();
+      if (topic === base) {
+        // Tin ở topic gốc = bản sao lưu CŨ (trước Đợt 6) — giữ làm fallback
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.backup) {
+            legacyBackup = { backup: parsed.backup, lastUpdated: parsed.lastUpdated || Date.now() };
+          }
+        } catch {}
+      } else {
+        received.set(topic, text);
+      }
+
+      const ev = evaluateManifest();
+      if (ev.state === 'complete') {
+        finish({ ok: true, backup: ev.backup, lastUpdated: ev.lastUpdated });
+        return;
+      }
+
+      // Ân hạn ngắn sau tin đầu tiên: nếu chỉ có bản CŨ (không manifest) thì chốt
+      // luôn bằng bản cũ, khỏi chờ hết thời gian chờ tối đa.
+      if (!graceTimer) {
+        graceTimer = setTimeout(() => {
+          if (completed) return;
+          const ev2 = evaluateManifest();
+          if (ev2.state === 'complete') {
+            finish({ ok: true, backup: ev2.backup, lastUpdated: ev2.lastUpdated });
+          } else if (ev2.state === 'none' && legacyBackup) {
+            finish({ ok: true, backup: legacyBackup.backup, lastUpdated: legacyBackup.lastUpdated });
+          }
+          // Có manifest nhưng còn thiếu phần: tiếp tục chờ tới hết giờ ở timer chính
+          // để các phần còn lại kịp về; hết giờ mà vẫn thiếu sẽ báo rõ ở timer chính.
+        }, 3500);
       }
     });
 
     client.on('error', () => {
-      clearTimeout(timer);
       finish({ ok: false });
     });
   });
@@ -226,18 +508,22 @@ export async function saveBackupToCloud(
     });
 
     const now = Date.now();
-    const updatedProfile: CloudSyncProfile = {
-      ...profile,
-      lastSyncedAt: now
-    };
-    saveStoredSyncProfile(updatedProfile);
 
-    // Lưu một bản sao đệm nội bộ để dự phòng ngay trên máy
+    // Dù kênh cloud thành hay bại, luôn giữ 1 bản sao đệm nội bộ ngay trên máy này
+    // (đây chính là "bản lưu trên máy này" được nhắc trong thông báo khi cloud fail).
     try {
       localStorage.setItem(`thpt_cloud_cache_${topicKey}`, JSON.stringify({ lastUpdated: now, backup: backupData }));
     } catch {}
 
+    // Đợt 6 (2.5): TRUNG THỰC — chỉ báo thành công khi ÍT NHẤT 1 kênh cloud xác nhận
+    // đã lưu (MQTT publish QoS 1 không lỗi, hoặc backend trả ok). Trước đây cả 2 kênh
+    // đều fail vẫn trả ok:true giả, giáo viên tưởng đề đã lên mây trong khi chưa hề.
     if (mqttSuccess || (backendData && backendData.ok)) {
+      const updatedProfile: CloudSyncProfile = {
+        ...profile,
+        lastSyncedAt: now
+      };
+      saveStoredSyncProfile(updatedProfile);
       return {
         ok: true,
         message: profile.type === 'GOOGLE'
@@ -247,11 +533,11 @@ export async function saveBackupToCloud(
       };
     }
 
-    // Nếu mạng chập chờn nhưng đã lưu vào bộ nhớ dự phòng
+    // Cả 2 kênh cloud đều thất bại -> báo lỗi rõ ràng, KHÔNG ghi lastSyncedAt.
     return {
-      ok: true,
-      message: 'Đã lưu và chuẩn bị dữ liệu đồng bộ thành công trên đám mây!',
-      lastUpdated: now
+      ok: false,
+      message:
+        'Chưa sao lưu được lên đám mây: cả 2 kênh đồng bộ đều thất bại (kênh MQTT trực tiếp và kênh máy chủ). Dữ liệu hiện CHỈ MỚI LƯU TRÊN MÁY NÀY — sang máy khác sẽ không thấy bản mới này. Thầy/Cô kiểm tra kết nối mạng rồi bấm Sao lưu lại nhé!'
     };
   } catch (err: any) {
     return { ok: false, message: 'Lỗi mạng khi kết nối đám mây: ' + (err.message || '') };
@@ -297,6 +583,16 @@ export async function loadBackupFromCloud(
         message: 'Tải dữ liệu từ đám mây thành công qua kênh trực tiếp!',
         backup: mqttResult.backup,
         lastUpdated: mqttResult.lastUpdated
+      };
+    }
+
+    // Đợt 6 (2.5): có bản sao lưu trên mây nhưng THIẾU phần — báo rõ thiếu môn/phần
+    // nào và DỪNG ở đây, không lẳng lặng khôi phục bản thiếu hay bản đệm cũ.
+    if (mqttResult.incomplete) {
+      const missingList = (mqttResult.missingParts || []).join('; ');
+      return {
+        ok: false,
+        message: `Bản sao lưu trên đám mây đang THIẾU dữ liệu: ${missingList}. Em chưa khôi phục để tránh làm mất đề — Thầy/Cô hãy mở máy đã sao lưu, kiểm tra mạng rồi bấm "Sao lưu" lại cho đủ, sau đó tải lại ở máy này.`
       };
     }
 
