@@ -27,6 +27,7 @@ import {
   buildResyncStateMessage,
   findPlayerByIdentity,
   isHostReceptionOutage,
+  materializePlayerFromScoringMessage,
   mergePlayerRecord,
   presenceTimingForRoomSize,
   sweepPlayerPresence
@@ -1040,10 +1041,12 @@ export const App: React.FC = () => {
     }
   }, [matchState.status, matchState.globalQIndex, matchState.currentRound, matchState.settings?.questionDurationSec, matchState.settings?.questionDurationTfSec, matchState.settings?.questionDurationSaSec, isDirectStudent]);
 
-  // Đợt 5 (4B.2): VÒNG QUÉT GIỮ CHỖ mỗi 5s — quá 15s không tín hiệu: bật cờ offline
+  // Đợt 5 (4B.2): VÒNG QUÉT GIỮ CHỖ mỗi 5s — quá 90s im lặng hoàn toàn: bật cờ offline
   // (host hiển thị xám "mất kết nối") nhưng giữ nguyên chỗ/điểm/mạng; quá 5 phút: giải
   // phóng chỗ theo luật từng chế độ (BELL: loại khỏi sàn giữ bản ghi khán giả;
   // TUG/FAST/BOSS: dọn bản ghi + khoá định danh tới hết ván đang PLAYING).
+  // Vòng quét này là TRỌNG TÀI DUY NHẤT của cờ hiển thị: will PLAYER_OFFLINE không
+  // còn đặt cờ (handler đã trung tính) — xem lý do ngưỡng 90s ở utils/presence.ts.
   useEffect(() => {
     if (isDirectStudent) return;
     const sweepTimer = setInterval(() => {
@@ -1051,10 +1054,10 @@ export const App: React.FC = () => {
       if (!ms || ms.status === 'ENDED') return;
       if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
       const now = Date.now();
-      // Đợt GIA CỐ TẢI: ngưỡng quét co giãn theo quy mô phòng hiện tại — phòng
-      // càng đông, HS ping càng thưa (8–15s) nên mốc "mất kết nối" và van mất-thu
-      // phải nới tương ứng, nếu không cả lớp bị xám/giải phóng oan dù vẫn đang
-      // ping đúng nhịp mới. Giữ chỗ vẫn 5 phút ở mọi nấc (timing.holdMs).
+      // Đợt GIA CỐ TẢI: nhịp ping và van mất-thu co giãn theo quy mô phòng hiện
+      // tại — phòng càng đông, HS ping càng thưa (8–15s) nên van mất-thu phải
+      // nới tương ứng. Mốc "mất kết nối" NAY THỐNG NHẤT 90s ở mọi nấc
+      // (timing.offlineAfterMs) và giữ chỗ vẫn 5 phút ở mọi nấc (timing.holdMs).
       const timing = presenceTimingForRoomSize(ms.redPlayers.length + ms.bluePlayers.length);
       const rxOutage = isHostReceptionOutage(lastHostRxAtRef.current, now, timing.outageMs);
       if (rxOutage) {
@@ -1071,8 +1074,12 @@ export const App: React.FC = () => {
         return;
       } else if (rxOutageRef.current) {
         rxOutageRef.current = false;
-        // Vừa hồi phục thu: ân hạn — làm mới lastSeen cho mọi bản ghi CHƯA bị will đánh dấu offline và chưa bị giải phóng
-        [...ms.redPlayers, ...ms.bluePlayers].forEach(p => { if (p.offline !== true && !p.holdReleased) lastSeenByIdRef.current.set(p.id, now); });
+        // Vừa hồi phục thu: ân hạn — làm mới lastSeen cho MỌI bản ghi chưa bị giải
+        // phóng chỗ. Thời gian host ĐIẾC không phải im lặng của HS: bản ghi đang
+        // mang cờ cũng được ân hạn như mọi bản ghi khác (cờ nay không còn mang
+        // "thẩm quyền will" — handler PLAYER_OFFLINE đã trung tính, vòng quét
+        // theo tuổi lastSeen là trọng tài duy nhất).
+        [...ms.redPlayers, ...ms.bluePlayers].forEach(p => { if (!p.holdReleased) lastSeenByIdRef.current.set(p.id, now); });
       }
       const result = sweepPlayerPresence(ms.redPlayers, ms.bluePlayers, ms.gameType, now, lastSeenByIdRef.current, timing);
       if (result.releasedIds.length > 0) {
@@ -1181,30 +1188,17 @@ export const App: React.FC = () => {
     }
 
     if (d.type === 'PLAYER_OFFLINE') {
-      // Last-Will của HS vừa bắn — chỉ BẬT CỜ hiển thị ngay, KHÔNG xoá bản ghi và
-      // KHÔNG còn ghi đè/đóng băng lastSeen như bản cũ. Lý do (sửa sự cố
-      // 17/11/2026): will có thể OAN (client chính của HS bị đóng cưỡng bức lúc
-      // tự chuyển broker cũng làm broker bắn will — xem safeCloseClient), mà bản
-      // cũ ghi đè lastSeen = thời điểm nhận will rồi vòng quét chốt HELD theo cờ
-      // bất kể tín hiệu thật → HS vẫn trả lời đều vẫn xám tới hết trận. Nay mốc
-      // "thấy lần cuối" luôn là tín hiệu THẬT gần nhất (ping/đáp án/hồ sơ): HS
-      // còn tín hiệu thì dấu hiệu sống + vòng quét tự gỡ cờ; HS chết thật thì
-      // lastSeen đứng yên, tuổi tăng dần qua ngưỡng xám rồi tới 5 phút mới giải
-      // phóng chỗ — đúng luật giữ chỗ, chỉ chậm hơn cách cũ tối đa một nhịp ping.
-      if (!d.playerId) return;
-      setMatchState(prev => {
-        const target = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
-        if (!target || target.holdReleased || target.offline) return prev;
-        const upd = (p: Player): Player =>
-          p.id === target.id ? { ...p, offline: true } : p;
-        const nextState = {
-          ...prev,
-          redPlayers: prev.redPlayers.map(upd),
-          bluePlayers: prev.bluePlayers.map(upd)
-        };
-        matchStateRef.current = nextState;
-        return nextState;
-      });
+      // TRUNG TÍNH HIỂN THỊ (diệt cờ oan tận gốc, 17/11/2026): will chỉ là tin đồn
+      // về một KẾT NỐI đã chết, KHÔNG phải bằng chứng HS đã rời phòng. Will bắn
+      // TRỄ là có thật: keepalive 30s nên broker chỉ phát hiện kết nối chết sau
+      // ~45s — lúc đó HS thường đã nối lại bằng kết nối mới và trả lời xong câu
+      // hiện tại; will của kết nối cũ tới SAU đáp án mà đặt cờ là xám oan cả tốp
+      // (will tới theo chùm khi một sự kiện mạng làm rớt nhiều máy cùng lúc).
+      // Vì vậy handler này KHÔNG đặt cờ, KHÔNG đụng lastSeen, KHÔNG đụng bản
+      // ghi: từ nay TUỔI lastSeen do vòng quét giữ chỗ quyết định là TRỌNG TÀI
+      // DUY NHẤT cho cờ hiển thị (im lặng hoàn toàn >90s mới xám, >300s mới
+      // giải phóng chỗ). HS chết thật thì lastSeen đứng yên, tuổi tự tăng qua
+      // các ngưỡng — không cần will "báo" hộ.
       return;
     }
 
@@ -1628,38 +1622,39 @@ export const App: React.FC = () => {
     else if (d.type === 'PULL_CORRECT') {
       setMatchState(prev => {
         if (prev.status === 'ENDED') return prev;
-        const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        // Đợt 5 (4B.1): đáp án cũng mang studentId — tra bản ghi theo định danh bền
-        // trước để đáp án của HS quay lại (playerId mới) vẫn cộng vào đúng bản ghi cũ.
-        let pObj = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId) || undefined;
-        if (!pObj && d.playerId && d.playerName && d.playerName.trim().length >= 1) {
-          const assignedTeam: 'RED' | 'BLUE' = d.team || (prev.redPlayers.length <= prev.bluePlayers.length ? 'RED' : 'BLUE');
-          pObj = {
-            id: d.playerId,
-            studentId: d.studentId || d.playerId,
-            lastSeen: Date.now(),
-            label: d.playerName.trim(),
-            team: assignedTeam,
-            ready: true,
-            spawned: false,
-            correct: 0,
-            freeze: 0,
-            role: 'PULLER',
-            lives: 3,
-            wrongTotal: 0,
-            streak: 0,
-            eliminated: false,
-            fastScore: 0,
-            avatar: d.avatar
-          };
-          if (assignedTeam === 'RED') prev.redPlayers = [...prev.redPlayers, pObj];
-          else prev.bluePlayers = [...prev.bluePlayers, pObj];
+        // Sửa sự cố "CHƠI MÀ VÔ HÌNH" (17/11/2026, phòng 65521, HS "Vip" câu 5 —
+        // banner "⚡ Tia chớp: Vip" hiện mà BXH/sân khấu không có Vip): đáp án
+        // mang định danh + tên thật mà roster chưa có bản ghi → VẬT CHẤT HOÁ bản
+        // ghi tạm BẤT BIẾN ngay trong lần cập nhật này qua helper thuần
+        // materializePlayerFromScoringMessage (utils/presence.ts). Bản cũ tự GÁN
+        // prev.redPlayers/prev.bluePlayers (mutate state cũ) TRƯỚC điểm return
+        // sớm vì trùng đáp án: return cùng tham chiếu prev → React bailout,
+        // bản ghi chỉ tồn tại như tác dụng phụ trên object cũ, dễ bị lần ghi
+        // state dựng từ snapshot khác đè mất, trong khi answerKey/firstBlood đã
+        // bị đốt nên không đáp án nào về sau dựng lại được. Nay hai mảng làm
+        // việc (workRed/workBlue) đi theo MỌI return của handler — kể cả return
+        // sớm vì trùng đáp án — nên bản ghi tạm không thể bị đánh rơi.
+        const mat = materializePlayerFromScoringMessage(prev.redPlayers, prev.bluePlayers, d, Date.now());
+        const workRed = mat.redPlayers;
+        const workBlue = mat.bluePlayers;
+        if (mat.materialized && mat.player) {
+          // Đáp án trực tiếp giữa trận là bằng chứng hiện diện mạnh hơn quyết
+          // định giải phóng chỗ cũ: gỡ định danh khỏi releasedHoldKeys để vòng
+          // hoàn thiện hồ sơ (sendEnter → gộp mergePlayerRecord) không bị cổng
+          // holdKeyHit chặn nữa. Luật "bị loại" của BELL không bị ảnh hưởng:
+          // BELL giữ bản ghi khán giả khi giải phóng, không qua đường xoá này.
+          mat.releasedKeysToClear.forEach(k => releasedHoldKeysRef.current.delete(k));
+          lastSeenByIdRef.current.set(mat.player.id, mat.player.lastSeen || Date.now());
         }
-        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
+        const withProvisional = (base: MatchState): MatchState =>
+          mat.materialized ? { ...base, redPlayers: workRed, bluePlayers: workBlue } : base;
+        const allP = [...workRed, ...workBlue];
+        const pObj = mat.player || undefined;
+        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return withProvisional(prev);
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
         const answerKey = answerKeyFor(pObj.id, targetQIdx);
-        if (answeredQKeysRef.current.has(answerKey)) return prev;
+        if (answeredQKeysRef.current.has(answerKey)) return withProvisional(prev);
         answeredQKeysRef.current.add(answerKey);
         // Đợt 5 (4B.2/4B.3): đáp án là bằng chứng HS đang sống + lưu lựa chọn để RESYNC.
         lastSeenByIdRef.current.set(pObj.id, Date.now());
@@ -1771,8 +1766,8 @@ export const App: React.FC = () => {
             firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
             firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
             liveFeed: nextFeed,
-            redPlayers: [...prev.redPlayers],
-            bluePlayers: [...prev.bluePlayers]
+            redPlayers: [...workRed],
+            bluePlayers: [...workBlue]
           };
         }
 
@@ -1800,8 +1795,8 @@ export const App: React.FC = () => {
             firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
             firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
             liveFeed: nextFeed,
-            redPlayers: [...prev.redPlayers],
-            bluePlayers: [...prev.bluePlayers]
+            redPlayers: [...workRed],
+            bluePlayers: [...workBlue]
           };
         }
 
@@ -1832,8 +1827,8 @@ export const App: React.FC = () => {
             firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
             firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
             liveFeed: nextFeed,
-            redPlayers: [...prev.redPlayers],
-            bluePlayers: [...prev.bluePlayers]
+            redPlayers: [...workRed],
+            bluePlayers: [...workBlue]
           };
         }
 
@@ -1861,8 +1856,8 @@ export const App: React.FC = () => {
           firstBloodPlayerId: isFirstBlood ? pObj.id : prev.firstBloodPlayerId,
           firstBloodPlayerName: isFirstBlood ? pObj.label : prev.firstBloodPlayerName,
           liveFeed: nextFeed,
-          redPlayers: [...prev.redPlayers],
-          bluePlayers: [...prev.bluePlayers]
+          redPlayers: [...workRed],
+          bluePlayers: [...workBlue]
         };
       });
     }
@@ -1937,14 +1932,26 @@ export const App: React.FC = () => {
     }
     else if (d.type === 'FREEZE_WRONG') {
       setMatchState(prev => {
-        const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        // Đợt 5 (4B.1): tra theo định danh bền trước, như PULL_CORRECT.
-        const pObj = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
-        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
+        // Như PULL_CORRECT (sửa sự cố "chơi mà vô hình" 17/11/2026): đáp án SAI
+        // cũng là tin ghi điểm mang định danh + tên thật — HS chưa có bản ghi
+        // phải được VẬT CHẤT HOÁ bản ghi tạm trong cùng lần cập nhật này. Bản
+        // cũ KHÔNG có fallback nào ở handler này: đáp án sai của HS lạ bị nuốt
+        // im lặng (return prev) và HS vô hình bền vững như ca PULL_CORRECT.
+        const mat = materializePlayerFromScoringMessage(prev.redPlayers, prev.bluePlayers, d, Date.now());
+        const workRed = mat.redPlayers;
+        const workBlue = mat.bluePlayers;
+        if (mat.materialized && mat.player) {
+          mat.releasedKeysToClear.forEach(k => releasedHoldKeysRef.current.delete(k));
+          lastSeenByIdRef.current.set(mat.player.id, mat.player.lastSeen || Date.now());
+        }
+        const withProvisional = (base: MatchState): MatchState =>
+          mat.materialized ? { ...base, redPlayers: workRed, bluePlayers: workBlue } : base;
+        const pObj = mat.player;
+        if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return withProvisional(prev);
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
         const answerKey = answerKeyFor(pObj.id, targetQIdx);
-        if (answeredQKeysRef.current.has(answerKey)) return prev;
+        if (answeredQKeysRef.current.has(answerKey)) return withProvisional(prev);
         answeredQKeysRef.current.add(answerKey);
         // Đợt 5 (4B.2/4B.3): đáp án sai cũng là tín hiệu sống + lưu lựa chọn cho RESYNC.
         lastSeenByIdRef.current.set(pObj.id, Date.now());
@@ -2034,8 +2041,8 @@ export const App: React.FC = () => {
           ...prev,
           redAnsweredIds: nextRedAns,
           blueAnsweredIds: nextBlueAns,
-          redPlayers: [...prev.redPlayers],
-          bluePlayers: [...prev.bluePlayers]
+          redPlayers: [...workRed],
+          bluePlayers: [...workBlue]
         };
       });
     }
