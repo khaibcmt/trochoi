@@ -21,6 +21,7 @@ import { MathRenderer } from '../utils/katexHelper';
 import { getOrCreateRoomKey } from '../utils/commandSign';
 import { questionDurationFor, computeRemainingSec } from '../utils/questionTiming';
 import { fastPairX, bossPairAngle, tugPairDistance, tugPairZ, TUG_PAIR_ANCHOR } from '../utils/stagePairs';
+import { BUILD_TAG } from '../utils/buildTag';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
@@ -2492,6 +2493,26 @@ export const HostArenaView: React.FC<Props> = ({
             <span>{netTelemetry.congestionMode === 'WEAK_WIFI' ? '🛡️ Chống Nghẽn Wi-Fi' : netTelemetry.congestionMode === 'TURBO' ? '⚡ Đa Server Turbo' : '🟢 Đa Server • Đa Luồng'}</span>
             <span style={{ fontSize: '10px', opacity: 0.9 }}>({netTelemetry.rttMs}ms)</span>
           </button>
+
+          {/* Nhãn phiên bản bản dựng: ảnh chụp màn hình tự cho biết tab đang chạy bản nào */}
+          <span
+            title="Mã bản dựng của trang này (sinh tự động lúc build) — đối chiếu khi báo sự cố"
+            style={{
+              flex: '0 0 auto',
+              alignSelf: 'center',
+              color: '#cbd5e1',
+              background: 'rgba(30, 41, 59, 0.85)',
+              border: '1px solid #475569',
+              borderRadius: '6px',
+              padding: '2px 6px',
+              fontSize: '10.5px',
+              fontWeight: 800,
+              letterSpacing: '0.3px',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            🏷️ {BUILD_TAG}
+          </span>
 
           {/* Đợt 3 (2.3): lỗi publish chunk/state gần nhất — phát đề thất bại phải hiện rõ cho host */}
           {netTelemetry.lastPublishError && (
