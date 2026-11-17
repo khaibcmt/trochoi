@@ -2880,9 +2880,12 @@ export const HostArenaView: React.FC<Props> = ({
 
             const isFirstBloodWinner = matchState.firstBloodPlayerId === p.id;
             const isOnFire = (p.streak || 0) >= 3;
-            // Đợt 5 (4B.2): HS quá 15s không ping (hoặc will PLAYER_OFFLINE đã bắn) →
-            // nhãn xám "mất kết nối" nhưng nhân vật/chỗ/điểm vẫn giữ nguyên (giữ chỗ 90s).
-            const isOfflineHeld = p.offline === true;
+            // Đợt 5 (4B.2): HS im lặng HOÀN TOÀN quá 90s (vòng quét quyết định theo
+            // tuổi lastSeen — will PLAYER_OFFLINE không còn đặt cờ) → nhãn xám
+            // "mất kết nối" nhưng nhân vật/chỗ/điểm vẫn giữ nguyên (giữ chỗ 300s).
+            // Bản ghi đã GIẢI PHÓNG chỗ (holdReleased: bị loại/hết giữ chỗ ở BELL)
+            // KHÔNG mang hậu tố này — đó là trạng thái khác hẳn mất kết nối.
+            const isOfflineHeld = p.offline === true && !p.holdReleased;
             const prefixBadges = `${isOfflineHeld ? '📴 ' : ''}${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
 
             let labelText = '';
@@ -3179,14 +3182,16 @@ export const HostArenaView: React.FC<Props> = ({
                   : matchState.gameType === 'BELL'
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
                   : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
+                // Đã giải phóng chỗ (holdReleased) không hiện "mất kết nối" — xem khối nhãn 3D.
+                const isOfflineHeld = p.offline === true && !p.holdReleased;
                 return (
-                  <div key={p.id} className={`flb-row rank-${rank}`} style={p.offline ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
+                  <div key={p.id} className={`flb-row rank-${rank}`} style={isOfflineHeld ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-name" title={p.label}>
                       {matchState.gameType === 'TUG' && (
                         <span style={{ fontSize: '10px', marginRight: '4px' }}>{p.team === 'RED' ? '🔴' : '🔵'}</span>
                       )}
-                      {p.offline ? '📴 ' : ''}{p.label}{p.offline ? ' (mất kết nối)' : ''}
+                      {isOfflineHeld ? '📴 ' : ''}{p.label}{isOfflineHeld ? ' (mất kết nối)' : ''}
                     </div>
                     <div className="flb-pts" style={{ color: liveRankMode === 'CORRECT' ? '#4ade80' : undefined }}>
                       {scoreDisplay}
@@ -3323,18 +3328,18 @@ export const HostArenaView: React.FC<Props> = ({
                       borderRadius: '999px',
                       fontSize: '11.5px',
                       fontWeight: 900,
-                      background: p.offline
+                      background: (p.offline && !p.holdReleased)
                         ? 'rgba(100, 116, 139, 0.35)'
                         : matchState.gameType === 'TUG'
                         ? (p.team === 'RED' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.3)')
                         : 'rgba(16, 185, 129, 0.25)',
-                      border: `1.5px solid ${p.offline ? '#94a3b8' : matchState.gameType === 'TUG' ? (p.team === 'RED' ? '#f87171' : '#38bdf8') : '#34d399'}`,
+                      border: `1.5px solid ${(p.offline && !p.holdReleased) ? '#94a3b8' : matchState.gameType === 'TUG' ? (p.team === 'RED' ? '#f87171' : '#38bdf8') : '#34d399'}`,
                       color: '#ffffff',
-                      opacity: p.offline ? 0.7 : undefined
+                      opacity: (p.offline && !p.holdReleased) ? 0.7 : undefined
                     }}
                   >
-                    <span>{p.offline ? '📴' : p.ready ? '✅' : '🟢'}</span>
-                    <span>{p.label}{p.offline ? ' (mất kết nối)' : ''}</span>
+                    <span>{(p.offline && !p.holdReleased) ? '📴' : p.ready ? '✅' : '🟢'}</span>
+                    <span>{p.label}{(p.offline && !p.holdReleased) ? ' (mất kết nối)' : ''}</span>
                   </span>
                 ))}
                 {allPlayers.length > 10 && (
