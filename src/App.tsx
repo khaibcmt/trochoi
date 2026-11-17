@@ -21,6 +21,13 @@ import {
 } from './data/defaultSubjects';
 import { AudioFX } from './services/audio';
 import { CloudNetwork } from './services/network';
+import { getOrCreateRoomKey } from './utils/commandSign';
+import {
+  buildResyncStateMessage,
+  findPlayerByIdentity,
+  mergePlayerRecord,
+  sweepPlayerPresence
+} from './utils/presence';
 import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
@@ -230,6 +237,21 @@ export const App: React.FC = () => {
     }
   };
 
+  // Bộ chống trùng đáp án phía host — khai báo TRƯỚC matchState để initializer khôi phục
+  // được answeredQKeys từ snapshot kc3d_host_saved_state_<room> khi F5.
+  const answeredQKeysRef = useRef<Set<string>>(new Set());
+  // Đợt 5 (4B.3): chi tiết lựa chọn của từng đáp án đã ghi (khoá như answeredQKeys) để
+  // host trả đúng lựa chọn trong RESYNC_STATE; khôi phục cùng snapshot với answeredQKeys.
+  const answeredDetailsRef = useRef<Map<string, { isCorrect: boolean; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string }>>(new Map());
+  // Đợt 5 (4B.2): lastSeen theo đồng hồ HOST cho từng bản ghi — PLAYER_PING chỉ cập nhật
+  // ref này (không ghi state mỗi 5s để tránh re-render liên tục với 50+ HS); vòng quét
+  // giữ chỗ 5s đọc ref này để bật/tắt cờ offline và giải phóng chỗ sau 90s.
+  const lastSeenByIdRef = useRef<Map<string, number>>(new Map());
+  // Đợt 5 (4B.2): khoá định danh (studentId/playerId) đã bị giải phóng chỗ ở ván hiện
+  // tại (chế độ không phải BELL — bản ghi đã bị dọn): còn đang PLAYING thì chưa cho
+  // vào lại, trận về LOBBY (ván sau) mới vào lại bình thường.
+  const releasedHoldKeysRef = useRef<Set<string>>(new Set());
+
   const [matchState, setMatchState] = useState<MatchState>(() => {
     const defaultState: MatchState = {
       gameType: 'FAST',
@@ -265,21 +287,44 @@ export const App: React.FC = () => {
                            localStorage.getItem('kc3d_host_saved_state_' + sessionRoom);
           if (savedStr) {
             const parsed = JSON.parse(savedStr);
+            // Tách answeredQKeys khỏi dữ liệu trận: khôi phục vào ref chống trùng đáp án,
+            // không để lọt vào matchState.
+            const { answeredQKeys: savedAnsweredQKeys, answeredDetails: savedAnsweredDetails, ...parsedState } = parsed;
+            if (Array.isArray(savedAnsweredQKeys)) {
+              answeredQKeysRef.current = new Set(
+                savedAnsweredQKeys.filter((k: any) => typeof k === 'string')
+              );
+            }
+            // Đợt 5 (4B.3): khôi phục chi tiết đáp án đã lưu kèm snapshot (cho RESYNC_STATE).
+            if (Array.isArray(savedAnsweredDetails)) {
+              savedAnsweredDetails.forEach((entry: any) => {
+                if (Array.isArray(entry) && typeof entry[0] === 'string' && entry[1] && typeof entry[1] === 'object') {
+                  answeredDetailsRef.current.set(entry[0], entry[1]);
+                }
+              });
+            }
+            // Đợt 5 (4B.2): host vừa F5/tải lại — ÂN HẠN lastSeen cho mọi HS khôi phục
+            // từ snapshot bằng mốc hiện tại; ping 5s của HS sẽ làm tươi lại ngay, tránh
+            // việc vòng quét đầu tiên giải phóng oan cả lớp vì mốc cũ trong snapshot.
+            const graceNow = Date.now();
+            [...(parsedState.redPlayers || []), ...(parsedState.bluePlayers || [])].forEach((p: any) => {
+              if (p && p.id) lastSeenByIdRef.current.set(p.id, graceNow);
+            });
             return {
               ...defaultState,
-              ...parsed,
-              redPlayers: Array.isArray(parsed.redPlayers) ? parsed.redPlayers : [],
-              bluePlayers: Array.isArray(parsed.bluePlayers) ? parsed.bluePlayers : [],
-              status: parsed.status || 'LOBBY',
-              gameType: parsed.gameType || 'FAST',
-              globalQIndex: typeof parsed.globalQIndex === 'number' ? parsed.globalQIndex : 0,
-              ropeScore: typeof parsed.ropeScore === 'number' ? parsed.ropeScore : 0,
-              redTotalCorrect: typeof parsed.redTotalCorrect === 'number' ? parsed.redTotalCorrect : 0,
-              blueTotalCorrect: typeof parsed.blueTotalCorrect === 'number' ? parsed.blueTotalCorrect : 0,
-              redRoundWins: typeof parsed.redRoundWins === 'number' ? parsed.redRoundWins : 0,
-              blueRoundWins: typeof parsed.blueRoundWins === 'number' ? parsed.blueRoundWins : 0,
-              bossHP: typeof parsed.bossHP === 'number' ? parsed.bossHP : 1000,
-              maxBossHP: typeof parsed.maxBossHP === 'number' ? parsed.maxBossHP : 1000
+              ...parsedState,
+              redPlayers: Array.isArray(parsedState.redPlayers) ? parsedState.redPlayers : [],
+              bluePlayers: Array.isArray(parsedState.bluePlayers) ? parsedState.bluePlayers : [],
+              status: parsedState.status || 'LOBBY',
+              gameType: parsedState.gameType || 'FAST',
+              globalQIndex: typeof parsedState.globalQIndex === 'number' ? parsedState.globalQIndex : 0,
+              ropeScore: typeof parsedState.ropeScore === 'number' ? parsedState.ropeScore : 0,
+              redTotalCorrect: typeof parsedState.redTotalCorrect === 'number' ? parsedState.redTotalCorrect : 0,
+              blueTotalCorrect: typeof parsedState.blueTotalCorrect === 'number' ? parsedState.blueTotalCorrect : 0,
+              redRoundWins: typeof parsedState.redRoundWins === 'number' ? parsedState.redRoundWins : 0,
+              blueRoundWins: typeof parsedState.blueRoundWins === 'number' ? parsedState.blueRoundWins : 0,
+              bossHP: typeof parsedState.bossHP === 'number' ? parsedState.bossHP : 1000,
+              maxBossHP: typeof parsedState.maxBossHP === 'number' ? parsedState.maxBossHP : 1000
             };
           }
         }
@@ -331,12 +376,18 @@ export const App: React.FC = () => {
     });
   };
 
-  const answeredQKeysRef = useRef<Set<string>>(new Set());
   const firstBloodByQRef = useRef<Set<number>>(new Set());
   const lastEnterAckMapRef = useRef<Record<string, number>>({});
+  // Đợt 5 (4B.3): mốc host bắt đầu câu hiện tại (để RESYNC_STATE trả serverStartTime +
+  // durationSec cho HS dựng lại deadline theo cơ chế Đợt 1) + chống spam RESYNC_STATE.
+  const questionTimingRef = useRef<{ qIndex: number; serverStartTime?: number; durationSec?: number }>({ qIndex: -1 });
+  const questionTimingKeyRef = useRef<string>('');
+  const lastResyncAtRef = useRef<Record<string, number>>({});
 
   const handleSelectGameType = (newGameType: GamePlayType) => {
     answeredQKeysRef.current.clear();
+    answeredDetailsRef.current.clear();
+    releasedHoldKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     setGameType(newGameType);
     setMatchState(prev => {
@@ -484,8 +535,12 @@ export const App: React.FC = () => {
     } catch {}
 
     answeredQKeysRef.current.clear();
+    answeredDetailsRef.current.clear();
+    releasedHoldKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     lastEnterAckMapRef.current = {};
+    releasedHoldKeysRef.current.clear();
+    lastSeenByIdRef.current.clear();
 
     setMatchState(prev => ({
       ...prev,
@@ -531,8 +586,12 @@ export const App: React.FC = () => {
     } catch {}
 
     answeredQKeysRef.current.clear();
+    answeredDetailsRef.current.clear();
+    releasedHoldKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     lastEnterAckMapRef.current = {};
+    releasedHoldKeysRef.current.clear();
+    lastSeenByIdRef.current.clear();
 
     setMatchState(prev => ({
       ...prev,
@@ -563,6 +622,8 @@ export const App: React.FC = () => {
   // Launch Arena (Chuẩn bị vào sàn đấu - Giữ nguyên mã phòng, giữ nguyên học sinh đã vào và đồng bộ đúng thứ tự câu hỏi của giáo viên: Phần I ➔ Phần II ➔ Phần III)
   const handleLaunchArena = (parsedQuiz: QuizItem[]) => {
     answeredQKeysRef.current.clear();
+    answeredDetailsRef.current.clear();
+    releasedHoldKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     const orderedAndShuffled = shuffleQuestionOrder(parsedQuiz);
     const normalizedDeck: QuizItem[] = orderedAndShuffled.map((item, idx) => ({
@@ -654,19 +715,55 @@ export const App: React.FC = () => {
   const viewRef = useRef<'TEACHER_SETUP' | 'HOST_ARENA' | 'STUDENT_MOBILE'>(view);
   viewRef.current = view;
 
+  // Đợt 8 (4D): DEBOUNCE ghi snapshot — matchState đổi liên tục khi HS trả lời, ghi
+  // JSON.stringify vào 2 storage mỗi lần đổi làm host giật. Nay gom tối đa 1 lần/500ms;
+  // bản ghi NGAY LẬP TỨC vẫn còn ở effect beforeunload/pagehide bên dưới + flush khi
+  // effect dọn dẹp, nên F5/đóng tab không mất dữ liệu.
+  const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const writeHostSnapshot = (state: MatchState, roomId: string, currentView: string) => {
+    try {
+      // Lưu kèm answeredQKeys để F5 không mất bộ chống trùng đáp án phía host
+      const payload = JSON.stringify({
+        ...state,
+        answeredQKeys: Array.from(answeredQKeysRef.current),
+        answeredDetails: Array.from(answeredDetailsRef.current.entries())
+      });
+      sessionStorage.setItem('kc3d_host_saved_state_' + roomId, payload);
+      localStorage.setItem('kc3d_host_saved_state_' + roomId, payload);
+      sessionStorage.setItem('kc3d_host_session_active', '1');
+      sessionStorage.setItem('kc3d_host_room_id', roomId);
+      sessionStorage.setItem('kc3d_host_view', currentView);
+    } catch {}
+  };
+
   // Tự động lưu snapshot phòng và danh sách học sinh liên tục để bảo toàn 100% khi bấm F5 hoặc làm mới trang
   useEffect(() => {
-    if (activeRoomId && !isDirectStudent) {
-      try {
-        const payload = JSON.stringify(matchState);
-        sessionStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
-        localStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
-        sessionStorage.setItem('kc3d_host_session_active', '1');
-        sessionStorage.setItem('kc3d_host_room_id', activeRoomId);
-        sessionStorage.setItem('kc3d_host_view', view);
-      } catch {}
-    }
+    if (!activeRoomId || isDirectStudent) return;
+    if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = setTimeout(() => {
+      snapshotTimerRef.current = null;
+      writeHostSnapshot(matchStateRef.current, activeRoomId, viewRef.current);
+    }, 500);
+    // KHÔNG flush trong cleanup của effect này (cleanup chạy mỗi lần matchState đổi
+    // sẽ huỷ tác dụng debounce) — việc xả ghi khi đổi phòng/unmount do effect riêng
+    // ngay dưới đảm nhận, còn F5/đóng tab do beforeunload/pagehide đảm nhận.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchState, activeRoomId, view, isDirectStudent]);
+
+  // Đợt 8 (4D): xả bản ghi snapshot đang chờ debounce NGAY khi đổi phòng/unmount —
+  // ghi cho PHÒNG CŨ (closure giữ activeRoomId cũ) trước khi phòng mới ghi đè.
+  useEffect(() => {
+    return () => {
+      if (snapshotTimerRef.current) {
+        clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+        if (activeRoomId && !isDirectStudent) {
+          writeHostSnapshot(matchStateRef.current, activeRoomId, viewRef.current);
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoomId, isDirectStudent]);
 
   // Bắt sự kiện beforeunload / pagehide để lưu snapshot ngay lập tức trước khi trình duyệt reload
   useEffect(() => {
@@ -674,7 +771,11 @@ export const App: React.FC = () => {
     const saveSnapshotSync = () => {
       try {
         if (activeRoomId && matchStateRef.current) {
-          const payload = JSON.stringify(matchStateRef.current);
+          const payload = JSON.stringify({
+            ...matchStateRef.current,
+            answeredQKeys: Array.from(answeredQKeysRef.current),
+            answeredDetails: Array.from(answeredDetailsRef.current.entries())
+          });
           sessionStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
           localStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
           sessionStorage.setItem('kc3d_host_session_active', '1');
@@ -761,6 +862,9 @@ export const App: React.FC = () => {
   }, [activeRoomId, isDirectStudent, isHostReloadSession]);
 
   const lastSyncedQuizSigRef = useRef<string>('');
+  // Đợt 8 (4D): chữ ký roster (top10 + playerIds) của nhịp tim trước — không đổi thì
+  // nhịp kế tiếp gửi bản RÚT GỌN (bỏ top10/playerIds, đặt top10Unchanged) cho nhẹ gói.
+  const lastHeartbeatRosterSigRef = useRef<string>('');
 
   // Broadcast host heartbeat (Tối ưu chống nghẽn mạng: chỉ đính kèm full mảng quiz khi đề thi thay đổi, còn lại gửi nhẹ < 1KB)
   const broadcastHeartbeat = (currentMS: MatchState, currentQ: QuizItem[], roomId: string, forceFullQuiz: boolean = false) => {
@@ -825,10 +929,23 @@ export const App: React.FC = () => {
       );
     } catch {}
 
+    // Đợt 8 (4D): roster (top10 + playerIds) KHÔNG đổi so với nhịp trước và nhịp này
+    // không kèm full quiz → gửi bản RÚT GỌN: bỏ top10/playerIds, đặt top10Unchanged.
+    // Phía HS giữ nguyên top10/danh sách cũ khi thấy cờ này (xem StudentMobileView).
+    const rosterSig =
+      top10List.map(p => `${p.id}:${p.score}:${p.correct}:${p.lives}:${p.eliminated ? 1 : 0}`).join(',') +
+      '|' +
+      playerIds.join(',');
+    const rosterUnchanged = !shouldIncludeFullQuiz && rosterSig === lastHeartbeatRosterSigRef.current;
+    lastHeartbeatRosterSigRef.current = rosterSig;
+
     CloudNetwork.sendMessage({
       type: 'HOST_HEARTBEAT',
       gameType: currentMS.gameType,
       status: currentMS.status,
+      serverTs: Date.now(),
+      durationSec: currentMS.settings?.questionDurationSec,
+      ttsStudentEnabled: currentMS.settings?.ttsStudentEnabled === true,
       currentRound: currentMS.currentRound,
       redRoundWins: currentMS.redRoundWins,
       blueRoundWins: currentMS.blueRoundWins,
@@ -845,8 +962,7 @@ export const App: React.FC = () => {
       worldEvent: currentMS.activeWorldEvent || 'NONE',
       worldEventTitle: currentMS.worldEventTitle || '',
       subj: currentSubjectKeyRef.current,
-      top10: top10List,
-      playerIds,
+      ...(rosterUnchanged ? { top10Unchanged: true } : { top10: top10List, playerIds }),
       question: activeQWithMeta,
       quiz: shouldIncludeFullQuiz ? activeDeck : undefined
     });
@@ -854,6 +970,52 @@ export const App: React.FC = () => {
 
   const broadcastHeartbeatRef = useRef(broadcastHeartbeat);
   broadcastHeartbeatRef.current = broadcastHeartbeat;
+
+  // Đợt 5 (4B.3): ghi lại mốc bắt đầu câu hiện tại phía host mỗi khi (trạng thái PLAYING,
+  // chỉ số câu) thay đổi — cùng thời điểm HostArenaView phát QUESTION_START — để
+  // RESYNC_STATE trả đúng serverStartTime/durationSec cho HS quay lại giữa câu.
+  useEffect(() => {
+    if (isDirectStudent) return;
+    if (matchState.status !== 'PLAYING') return;
+    const key = `PLAYING_${matchState.currentRound}_${matchState.globalQIndex}`;
+    if (questionTimingKeyRef.current !== key) {
+      questionTimingKeyRef.current = key;
+      questionTimingRef.current = {
+        qIndex: matchState.globalQIndex,
+        serverStartTime: Date.now(),
+        durationSec: matchState.settings?.questionDurationSec || 30
+      };
+    }
+  }, [matchState.status, matchState.globalQIndex, matchState.currentRound, matchState.settings?.questionDurationSec, isDirectStudent]);
+
+  // Đợt 5 (4B.2): VÒNG QUÉT GIỮ CHỖ mỗi 5s — quá 15s không tín hiệu: bật cờ offline
+  // (host hiển thị xám "mất kết nối") nhưng giữ nguyên chỗ/điểm/mạng; quá 90s: giải
+  // phóng chỗ theo luật từng chế độ (BELL: loại khỏi sàn giữ bản ghi khán giả;
+  // TUG/FAST/BOSS: dọn bản ghi + khoá định danh tới hết ván đang PLAYING).
+  useEffect(() => {
+    if (isDirectStudent) return;
+    const sweepTimer = setInterval(() => {
+      const ms = matchStateRef.current;
+      if (!ms || ms.status === 'ENDED') return;
+      if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
+      const now = Date.now();
+      const result = sweepPlayerPresence(ms.redPlayers, ms.bluePlayers, ms.gameType, now, lastSeenByIdRef.current);
+      if (result.releasedIds.length > 0) {
+        const allBefore = [...ms.redPlayers, ...ms.bluePlayers];
+        result.releasedIds.forEach(id => {
+          releasedHoldKeysRef.current.add(id);
+          const rec = allBefore.find(p => p.id === id);
+          if (rec?.studentId) releasedHoldKeysRef.current.add(rec.studentId);
+        });
+      }
+      if (result.changed) {
+        const nextState = { ...ms, redPlayers: result.redPlayers, bluePlayers: result.bluePlayers };
+        matchStateRef.current = nextState;
+        setMatchState(nextState);
+      }
+    }, 5000);
+    return () => clearInterval(sweepTimer);
+  }, [isDirectStudent]);
 
   // Wrapper cập nhật đồng bộ matchStateRef ngay lập tức (0ms) để chống Race Condition khi Giáo viên bấm BẮT ĐẦU THI
   const handleUpdateMatchStateSync: React.Dispatch<React.SetStateAction<MatchState>> = (updater) => {
@@ -874,8 +1036,141 @@ export const App: React.FC = () => {
   const handleHostIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
 
+    if (d.type === 'QUIZ_CHUNK_REQUEST') {
+      // Đợt 3 (2.3): HS xin phát lại gói đề thiếu — tầng mạng (network.ts) đã tự phát lại
+      // đúng các gói đó từ bản đồ chunk theo quizHash, host không cần xử lý thêm ở đây.
+      return;
+    }
+
+    if (d.type === 'PLAYER_PING') {
+      // Đợt 5 (4B.2): nhịp tim gọn mỗi 5s — CHỈ ghi lastSeen (đồng hồ host) vào ref,
+      // ping không bao giờ tạo bản ghi mới và không phát ENTER_CONFIRMED. Chỉ khi HS
+      // đang bị đánh dấu offline mà ping lại được mới cần ghi state để gỡ màu xám.
+      if (!d.playerId) return;
+      const pingNow = Date.now();
+      const pingTarget = findPlayerByIdentity(
+        matchStateRef.current.redPlayers,
+        matchStateRef.current.bluePlayers,
+        d.playerId,
+        d.studentId
+      );
+      if (!pingTarget) return;
+      lastSeenByIdRef.current.set(pingTarget.id, pingNow);
+      if (pingTarget.offline && !pingTarget.holdReleased) {
+        setMatchState(prev => {
+          const upd = (p: Player): Player =>
+            p.id === pingTarget.id ? { ...p, offline: false, lastSeen: pingNow } : p;
+          const nextState = {
+            ...prev,
+            redPlayers: prev.redPlayers.map(upd),
+            bluePlayers: prev.bluePlayers.map(upd)
+          };
+          matchStateRef.current = nextState;
+          return nextState;
+        });
+      }
+      return;
+    }
+
+    if (d.type === 'PLAYER_OFFLINE') {
+      // Đợt 5 (4B.2): Last-Will của HS vừa bắn (rớt hẳn) — ĐÓNG BĂNG lastSeen tại thời
+      // điểm host nhận tin và bật cờ offline ngay, KHÔNG xoá bản ghi: vòng quét giữ
+      // chỗ sẽ đếm đủ 90s từ mốc đóng băng này mới giải phóng chỗ.
+      if (!d.playerId) return;
+      const offlineNow = Date.now();
+      setMatchState(prev => {
+        const target = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
+        if (!target || target.holdReleased) return prev;
+        lastSeenByIdRef.current.set(target.id, offlineNow);
+        if (target.offline && target.lastSeen === offlineNow) return prev;
+        const upd = (p: Player): Player =>
+          p.id === target.id ? { ...p, offline: true, lastSeen: offlineNow } : p;
+        const nextState = {
+          ...prev,
+          redPlayers: prev.redPlayers.map(upd),
+          bluePlayers: prev.bluePlayers.map(upd)
+        };
+        matchStateRef.current = nextState;
+        return nextState;
+      });
+      return;
+    }
+
+    if (d.type === 'RESYNC_REQUEST') {
+      // Đợt 5 (4B.3): HS xin đồng bộ tường minh sau reconnect/F5/quay lại từ nền —
+      // trả RESYNC_STATE dựng từ trạng thái thật phía host (không qua heartbeat đoán mò).
+      if (!d.playerId) return;
+      const resyncNow = Date.now();
+      const lastResyncAt = lastResyncAtRef.current[d.playerId] || 0;
+      if (resyncNow - lastResyncAt < 800) return; // chống bão resync khi nhiều kênh cùng nối lại
+      lastResyncAtRef.current[d.playerId] = resyncNow;
+
+      const ms = matchStateRef.current;
+      const player = findPlayerByIdentity(ms.redPlayers, ms.bluePlayers, d.playerId, d.studentId);
+      if (player) {
+        lastSeenByIdRef.current.set(player.id, resyncNow);
+        if (player.offline && !player.holdReleased) {
+          setMatchState(prev => {
+            const upd = (p: Player): Player =>
+              p.id === player.id ? { ...p, offline: false, lastSeen: resyncNow } : p;
+            const nextState = {
+              ...prev,
+              redPlayers: prev.redPlayers.map(upd),
+              bluePlayers: prev.bluePlayers.map(upd)
+            };
+            matchStateRef.current = nextState;
+            return nextState;
+          });
+        }
+      }
+
+      const qIdx = Math.min(Math.max(0, ms.globalQIndex), Math.max(0, (quizListRef.current.length || 1) - 1));
+      const deck = quizListRef.current;
+      const rawQ = deck[qIdx];
+      const question = rawQ ? { ...rawQ, qIndex: qIdx, totalQuestions: deck.length } : undefined;
+      const timing = questionTimingRef.current.qIndex === ms.globalQIndex
+        ? questionTimingRef.current
+        : { serverStartTime: undefined, durationSec: ms.settings?.questionDurationSec || 30 };
+
+      let answer: { hasAnswered: boolean; isCorrect?: boolean | null; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string } = { hasAnswered: false };
+      if (player) {
+        const key = `${player.id}_q_${ms.globalQIndex}`;
+        const altKey = `${d.playerId}_q_${ms.globalQIndex}`;
+        const has = answeredQKeysRef.current.has(key) || answeredQKeysRef.current.has(altKey);
+        const det = answeredDetailsRef.current.get(key) || answeredDetailsRef.current.get(altKey);
+        answer = {
+          hasAnswered: has,
+          isCorrect: det ? det.isCorrect : null,
+          selectedOptionOriginalIdx: det && typeof det.selectedOptionOriginalIdx !== 'undefined' ? det.selectedOptionOriginalIdx : null,
+          tfAnswers: det?.tfAnswers,
+          shortAnswerInput: det?.shortAnswerInput
+        };
+      }
+
+      const holdReleased = player
+        ? Boolean(player.holdReleased)
+        : Boolean(
+            (d.studentId && releasedHoldKeysRef.current.has(d.studentId)) ||
+            releasedHoldKeysRef.current.has(d.playerId)
+          );
+
+      CloudNetwork.sendMessage(
+        buildResyncStateMessage(ms, player, d.playerId, {
+          question,
+          serverStartTime: timing.serverStartTime,
+          durationSec: timing.durationSec || ms.settings?.questionDurationSec || 30,
+          serverTs: resyncNow,
+          answer,
+          holdReleased
+        })
+      );
+      return;
+    }
+
     if (d.type === 'MATCH_START' || d.type === 'GAME_SWITCH' || d.type === 'GAME_SWITCHED') {
       answeredQKeysRef.current.clear();
+      answeredDetailsRef.current.clear();
+      releasedHoldKeysRef.current.clear();
       firstBloodByQRef.current.clear();
       return;
     }
@@ -884,9 +1179,12 @@ export const App: React.FC = () => {
       if (!d.playerId) return;
       const isReady = d.type === 'PLAYER_READY_ROPE' || d.type === 'PLAYER_FINISH_QUIZ' || d.type === 'PLAYER_UPDATE_NAME';
       setMatchState(prev => {
-        const existingRedIdx = prev.redPlayers.findIndex(x => x.id === d.playerId);
-        const existingBlueIdx = prev.bluePlayers.findIndex(x => x.id === d.playerId);
-        const existing = existingRedIdx !== -1 ? prev.redPlayers[existingRedIdx] : (existingBlueIdx !== -1 ? prev.bluePlayers[existingBlueIdx] : null);
+        // Đợt 5 (4B.1): tìm bản ghi theo ĐỊNH DANH BỀN trước (studentId), rồi mới theo
+        // playerId phiên tab — HS quay lại bằng playerId mới vẫn trúng bản ghi cũ.
+        const existingByIdentity = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
+        const existingRedIdx = existingByIdentity ? prev.redPlayers.findIndex(x => x.id === existingByIdentity.id) : -1;
+        const existingBlueIdx = existingByIdentity ? prev.bluePlayers.findIndex(x => x.id === existingByIdentity.id) : -1;
+        const existing = existingByIdentity;
 
         const incomingName = (d.playerName || '').trim();
         const isIncomingGeneric =
@@ -894,38 +1192,58 @@ export const App: React.FC = () => {
           incomingName === 'Chưa lưu tên';
 
         if (existing) {
-          const hasRealExistingName =
-            Boolean(existing.label) &&
-            existing.label !== 'Chưa lưu tên';
-
-          const nextLabel = (!isIncomingGeneric && incomingName)
-            ? incomingName
-            : (hasRealExistingName ? existing.label : (incomingName && incomingName !== 'Chưa lưu tên' ? incomingName : existing.label));
+          // Đợt 5 (4B.2): bản ghi đã bị giải phóng chỗ ở ván này (BELL đã loại) và ván
+          // còn đang PLAYING → KHÔNG hồi sinh giữa ván; trả RESYNC_STATE báo giữ chỗ
+          // đã hết để HS chờ ván sau. Trận về LOBBY thì gộp/hồi sinh bình thường.
+          if (existing.holdReleased && prev.status === 'PLAYING') {
+            const nowR = Date.now();
+            const lastR = lastResyncAtRef.current[d.playerId!] || 0;
+            if (nowR - lastR >= 800) {
+              lastResyncAtRef.current[d.playerId!] = nowR;
+              const deckR = quizListRef.current;
+              const safeIdxR = Math.min(Math.max(0, prev.globalQIndex), Math.max(0, (deckR.length || 1) - 1));
+              const rawQR = deckR[safeIdxR];
+              CloudNetwork.sendMessage(
+                buildResyncStateMessage(prev, existing, d.playerId!, {
+                  question: rawQR ? { ...rawQR, qIndex: safeIdxR, totalQuestions: deckR.length } : undefined,
+                  serverStartTime: questionTimingRef.current.qIndex === prev.globalQIndex ? questionTimingRef.current.serverStartTime : undefined,
+                  durationSec: prev.settings?.questionDurationSec || 30,
+                  serverTs: nowR,
+                  answer: { hasAnswered: answeredQKeysRef.current.has(`${existing.id}_q_${prev.globalQIndex}`) },
+                  holdReleased: true
+                })
+              );
+            }
+            return prev;
+          }
 
           const nextReady = existing.ready || isReady;
           if (isReady && !existing.ready) {
             AudioFX.stepInRope();
           }
 
-          // HOTFIX 1.1: Ghi đè trạng thái mới vào đúng playerId cũ và bảo lưu điểm cao nhất (không bao giờ reset điểm về 0 khi rớt mạng vào lại)
-          const nextFastScore = d.type === 'PLAYER_FINISH_QUIZ' && typeof d.savedScore === 'number'
-            ? Math.max(existing.fastScore || 0, d.savedScore)
-            : Math.max(
-                existing.fastScore || 0,
-                typeof d.savedScore === 'number' ? d.savedScore : (existing.fastScore || 0)
-              );
-          const nextCorrect = Math.max(existing.correct || 0, typeof d.savedCorrect === 'number' ? d.savedCorrect : 0);
-          const nextAvatar = d.avatar || existing.avatar;
+          // Đợt 5 (4B.1) + HOTFIX 1.1: GỘP vào bản ghi cũ theo studentId — giữ nguyên
+          // id/đội/vai trò/mạng/streak của bản ghi cũ, điểm & số câu đúng lấy giá trị
+          // cao hơn (không bao giờ reset điểm về 0 khi rớt mạng vào lại), lastSeen mới.
+          const updatedPlayer: Player = mergePlayerRecord(
+            existing,
+            {
+              playerId: d.playerId,
+              studentId: d.studentId,
+              playerName: d.playerName,
+              savedScore: d.savedScore,
+              savedCorrect: d.savedCorrect,
+              avatar: d.avatar,
+              ready: isReady
+            },
+            Date.now()
+          );
+          lastSeenByIdRef.current.set(updatedPlayer.id, updatedPlayer.lastSeen || Date.now());
+          const nextLabel = updatedPlayer.label;
+          const nextFastScore = updatedPlayer.fastScore || 0;
+          const nextCorrect = updatedPlayer.correct || 0;
+          const nextAvatar = updatedPlayer.avatar;
           const avatarChanged = JSON.stringify(existing.avatar || null) !== JSON.stringify(nextAvatar || null);
-
-          const updatedPlayer: Player = {
-            ...existing,
-            label: nextLabel,
-            avatar: nextAvatar,
-            ready: nextReady,
-            fastScore: nextFastScore,
-            correct: nextCorrect
-          };
 
           const currentList = quizListRef.current && quizListRef.current.length > 0 ? quizListRef.current : quizList;
           const safeIdx = Math.min(Math.max(0, prev.globalQIndex), Math.max(0, (currentList.length || 1) - 1));
@@ -944,6 +1262,8 @@ export const App: React.FC = () => {
             existing.fastScore !== nextFastScore ||
             existing.correct !== nextCorrect ||
             avatarChanged ||
+            existing.offline !== updatedPlayer.offline ||
+            existing.studentId !== updatedPlayer.studentId ||
             (existingRedIdx !== -1 && existingBlueIdx !== -1);
 
           // Chỉ phản hồi ENTER_CONFIRMED nhẹ (< 1KB, không đính kèm cả mảng quiz nặng) khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi 50+ HS cùng kết nối
@@ -952,6 +1272,7 @@ export const App: React.FC = () => {
             CloudNetwork.sendMessage({
               type: 'ENTER_CONFIRMED',
               playerId: updatedPlayer.id,
+              studentId: updatedPlayer.studentId,
               team: updatedPlayer.team,
               role: updatedPlayer.role,
               label: updatedPlayer.label,
@@ -998,6 +1319,39 @@ export const App: React.FC = () => {
           return prev;
         }
 
+        // Đợt 5 (4B.2): định danh này đã bị GIẢI PHÓNG CHỖ ở ván hiện tại (bản ghi đã
+        // dọn) — ván còn đang PLAYING thì chưa vào lại được (trả RESYNC_STATE báo
+        // holdReleased để HS chờ); trận về LOBBY/ENDED là ván sau → gỡ khoá, vào lại
+        // như người chơi quay lại bình thường.
+        const holdKeyHit =
+          (d.studentId ? releasedHoldKeysRef.current.has(d.studentId) : false) ||
+          (d.playerId ? releasedHoldKeysRef.current.has(d.playerId) : false);
+        if (holdKeyHit && prev.status === 'PLAYING') {
+          const nowH = Date.now();
+          const lastH = lastResyncAtRef.current[d.playerId!] || 0;
+          if (nowH - lastH >= 800) {
+            lastResyncAtRef.current[d.playerId!] = nowH;
+            const deckH = quizListRef.current;
+            const safeIdxH = Math.min(Math.max(0, prev.globalQIndex), Math.max(0, (deckH.length || 1) - 1));
+            const rawQH = deckH[safeIdxH];
+            CloudNetwork.sendMessage(
+              buildResyncStateMessage(prev, null, d.playerId!, {
+                question: rawQH ? { ...rawQH, qIndex: safeIdxH, totalQuestions: deckH.length } : undefined,
+                serverStartTime: questionTimingRef.current.qIndex === prev.globalQIndex ? questionTimingRef.current.serverStartTime : undefined,
+                durationSec: prev.settings?.questionDurationSec || 30,
+                serverTs: nowH,
+                answer: { hasAnswered: false },
+                holdReleased: true
+              })
+            );
+          }
+          return prev;
+        }
+        if (holdKeyHit) {
+          if (d.studentId) releasedHoldKeysRef.current.delete(d.studentId);
+          if (d.playerId) releasedHoldKeysRef.current.delete(d.playerId);
+        }
+
         // Cho phép mở rộng dung lượng phòng lên tới 500+ học sinh
         const totalP = prev.redPlayers.length + prev.bluePlayers.length;
         const maxAllowed = Math.max(500, prev.settings?.roomCapacity || 500);
@@ -1035,6 +1389,10 @@ export const App: React.FC = () => {
           const finalName = incomingName;
           const newP: Player = {
             id: d.playerId || 'hs_' + Math.random(),
+            // Đợt 5 (4B.1/4B.2): gắn định danh bền + lastSeen ngay từ bản ghi đầu tiên.
+            studentId: d.studentId || d.playerId,
+            lastSeen: Date.now(),
+            offline: false,
             label: finalName,
             team: assignedTeam,
             ready: isReady,
@@ -1049,6 +1407,7 @@ export const App: React.FC = () => {
             fastScore: typeof d.savedScore === 'number' ? d.savedScore : 0,
             avatar: d.avatar
           };
+          lastSeenByIdRef.current.set(newP.id, newP.lastSeen || Date.now());
 
           const nextRed = assignedTeam === 'RED' ? [...prev.redPlayers, newP] : prev.redPlayers;
           const nextBlue = assignedTeam === 'BLUE' ? [...prev.bluePlayers, newP] : prev.bluePlayers;
@@ -1056,6 +1415,7 @@ export const App: React.FC = () => {
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
             playerId: newP.id,
+            studentId: newP.studentId,
             team: newP.team,
             role: 'PULLER',
             label: newP.label,
@@ -1082,6 +1442,7 @@ export const App: React.FC = () => {
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
             playerId: d.playerId,
+            studentId: d.studentId,
             team: assignedTeam,
             role: 'SPECTATOR',
             label: d.playerName || 'Khán giả',
@@ -1120,11 +1481,15 @@ export const App: React.FC = () => {
       setMatchState(prev => {
         if (prev.status === 'ENDED') return prev;
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        let pObj = allP.find(x => x.id === d.playerId);
+        // Đợt 5 (4B.1): đáp án cũng mang studentId — tra bản ghi theo định danh bền
+        // trước để đáp án của HS quay lại (playerId mới) vẫn cộng vào đúng bản ghi cũ.
+        let pObj = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId) || undefined;
         if (!pObj && d.playerId && d.playerName && d.playerName.trim().length >= 1) {
           const assignedTeam: 'RED' | 'BLUE' = d.team || (prev.redPlayers.length <= prev.bluePlayers.length ? 'RED' : 'BLUE');
           pObj = {
             id: d.playerId,
+            studentId: d.studentId || d.playerId,
+            lastSeen: Date.now(),
             label: d.playerName.trim(),
             team: assignedTeam,
             ready: true,
@@ -1148,6 +1513,14 @@ export const App: React.FC = () => {
         const answerKey = `${pObj.id}_q_${targetQIdx}`;
         if (answeredQKeysRef.current.has(answerKey)) return prev;
         answeredQKeysRef.current.add(answerKey);
+        // Đợt 5 (4B.2/4B.3): đáp án là bằng chứng HS đang sống + lưu lựa chọn để RESYNC.
+        lastSeenByIdRef.current.set(pObj.id, Date.now());
+        answeredDetailsRef.current.set(answerKey, {
+          isCorrect: true,
+          selectedOptionOriginalIdx: typeof d.selectedOptionOriginalIdx !== 'undefined' ? d.selectedOptionOriginalIdx : null,
+          tfAnswers: d.tfAnswers,
+          shortAnswerInput: d.shortAnswerInput
+        });
 
         // Kiểm tra Tia Chớp Đầu Tiên (First Blood) cho câu hỏi này
         const isFirstBlood = !firstBloodByQRef.current.has(targetQIdx);
@@ -1349,8 +1722,9 @@ export const App: React.FC = () => {
     else if (d.type === 'MYSTERY_CHEST_CLAIMED') {
       setMatchState(prev => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        const pObj = allP.find(x => x.id === d.playerId);
+        const pObj = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
         if (!pObj) return prev;
+        lastSeenByIdRef.current.set(pObj.id, Date.now());
 
         const delta = typeof d.bonusScoreDelta === 'number' ? d.bonusScoreDelta : 0;
         pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + delta;
@@ -1415,13 +1789,22 @@ export const App: React.FC = () => {
     else if (d.type === 'FREEZE_WRONG') {
       setMatchState(prev => {
         const allP = [...prev.redPlayers, ...prev.bluePlayers];
-        const pObj = allP.find(x => x.id === d.playerId);
+        // Đợt 5 (4B.1): tra theo định danh bền trước, như PULL_CORRECT.
+        const pObj = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
         const answerKey = `${pObj.id}_q_${targetQIdx}`;
         if (answeredQKeysRef.current.has(answerKey)) return prev;
         answeredQKeysRef.current.add(answerKey);
+        // Đợt 5 (4B.2/4B.3): đáp án sai cũng là tín hiệu sống + lưu lựa chọn cho RESYNC.
+        lastSeenByIdRef.current.set(pObj.id, Date.now());
+        answeredDetailsRef.current.set(answerKey, {
+          isCorrect: false,
+          selectedOptionOriginalIdx: typeof d.selectedOptionOriginalIdx !== 'undefined' ? d.selectedOptionOriginalIdx : null,
+          tfAnswers: d.tfAnswers,
+          shortAnswerInput: d.shortAnswerInput
+        });
 
         pObj.wrongTotal = (pObj.wrongTotal || 0) + 1;
         pObj.streak = 0;
@@ -1522,6 +1905,12 @@ export const App: React.FC = () => {
 
     CloudNetwork.setHostMessageListener((msg) => handleHostIncomingMessageRef.current(msg));
 
+    // Đợt 8 (4C): phía HOST là phía duy nhất quyết định broker (công bố broker epoch)
+    // và ký lệnh điều khiển bằng KHOÁ PHÒNG của phòng này (sinh 1 lần, lưu theo phòng;
+    // link QR nhúng &k=<khoá> để HS kiểm tra chữ ký). Đặt TRƯỚC connect/gửi lệnh.
+    CloudNetwork.setBrokerRole('HOST');
+    CloudNetwork.setRoomKey(getOrCreateRoomKey(activeRoomId));
+
     if (view !== 'STUDENT_MOBILE') {
       CloudNetwork.connect(
         activeRoomId,
@@ -1569,6 +1958,9 @@ export const App: React.FC = () => {
   };
 
   // Export JSON
+  // Đợt 6 (2.2) ĐÃ KIỂM CHỨNG: serialize NGUYÊN mảng QuizItem, không qua bước lọc trường nào
+  // -> imageUri/audioUri/explanation (và mọi trường khác của QuizItem) có trong dữ liệu xuất
+  // mỗi khi câu hỏi mang các trường đó. Đừng thêm bước map/lọc ở đây kẻo làm rơi trường.
   const handleExportJSON = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(quizList, null, 2));
     const dlAnchorElem = document.createElement('a');
