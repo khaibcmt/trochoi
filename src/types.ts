@@ -116,9 +116,6 @@ export interface MatchSettings {
   questionDurationTfSec?: number; // Phần 2 — TRUE_FALSE, default 60s
   questionDurationSaSec?: number; // Phần 3 — SHORT_ANSWER, default 60s
   bossMaxHP: number; // default 1000
-  // Đợt 4 (GĐ3): công tắc chung của host — bật thì máy học sinh mới hiện nút 🔊
-  // và mới đáp ứng lệnh đọc đồng bộ TTS_READ. Mặc định TẮT (undefined = tắt).
-  ttsStudentEnabled?: boolean;
 }
 
 export interface MatchState {
@@ -273,10 +270,6 @@ export interface CloudMessage {
   // Đợt 3 (2.4): khi question đầy đủ đã bị rút khỏi gói (đi đường chunk riêng), gói chỉ còn
   // tham chiếu này — HS lấy câu thật từ bộ đề đã ghép theo quizHash + qIndex/globalQIndex.
   questionRefOnly?: boolean;
-  // Đợt 4 (GĐ3): trạng thái công tắc "Đọc đề trên máy học sinh" của host, phát kèm
-  // HOST_HEARTBEAT để HS biết có được hiện nút 🔊 / đáp ứng TTS_READ hay không.
-  // Tin TTS_READ { qIndex } do host phát khi bấm Đọc Đề để HS đọc đồng bộ câu đó.
-  ttsStudentEnabled?: boolean;
   allRanks?: any[];
   rankings?: any[];
   avatar?: AvatarConfig;
