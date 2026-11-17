@@ -62,7 +62,11 @@ export function presenceTimingForRoomSize(playerCount: number): PresenceTiming {
   }
   if (n <= 80) {
     // Nấc thật ở trường (lớp đông nhất 48 HS + dự giờ ≈ 60): ping 8s → ~7,5 ping/s.
-    return { pingIntervalMs: 8000, offlineAfterMs: 25000, holdMs: PLAYER_HOLD_MS, outageMs: HOST_RX_OUTAGE_MS, profileResyncMs: 30000 };
+    // offlineAfter 25s → 40s (sửa 17/11/2026): host phải dựng đám đông 3D + nhãn
+    // nên vòng lặp JS có lúc nghẽn vài giây, cộng broker công cộng trễ theo đợt —
+    // 25s chỉ bằng ~2 nhịp ping bị trễ là cả lớp xám oan; 40s ≈ 5 nhịp ping vẫn
+    // thừa an toàn mà giữ chỗ 300s không đổi.
+    return { pingIntervalMs: 8000, offlineAfterMs: 40000, holdMs: PLAYER_HOLD_MS, outageMs: HOST_RX_OUTAGE_MS, profileResyncMs: 30000 };
   }
   if (n <= 150) {
     return { pingIntervalMs: 12000, offlineAfterMs: 40000, holdMs: PLAYER_HOLD_MS, outageMs: 60000, profileResyncMs: 45000 };
@@ -121,8 +125,17 @@ export type PresenceStatus = 'ONLINE' | 'HELD' | 'RELEASED';
  * - tuổi < 15s → ONLINE;
  * - 15s ≤ tuổi ≤ 300s → HELD (mất kết nối hiển thị xám, giữ nguyên chỗ);
  * - tuổi > 300s → RELEASED (giải phóng chỗ theo luật từng chế độ chơi).
- * knownOffline = host đã nhận PLAYER_OFFLINE (Last-Will) → coi như HELD ngay dù
- * tuổi chưa tới 15s (nhưng RELEASED vẫn phải chờ đủ 5 phút tính từ lastSeen đóng băng).
+ * knownOffline = host đã nhận PLAYER_OFFLINE (Last-Will): CHỈ còn ý nghĩa khi
+ * CHƯA TỪNG có lastSeen (bản ghi chưa có mốc tín hiệu nào mà will đã tới → HELD).
+ * Khi đã có lastSeen, TUỔI TÍN HIỆU LÀ TRỌNG TÀI DUY NHẤT — sửa sự cố
+ * 17/11/2026: bản cũ cho knownOffline ép HELD bất kể lastSeen mới tới đâu, mà
+ * vòng quét lại truyền chính cờ offline sẵn có của bản ghi vào làm knownOffline
+ * → cờ TỰ CHỐT: một will OAN (client HS bị đóng cưỡng bức lúc tự chuyển broker
+ * cũng bắn will) hoặc một vòng quét nhân lúc ping trễ là đủ để HS bị xám tới hết
+ * trận DÙ ĐÁP ÁN VẪN VỀ ĐỀU (đáp án chỉ cập nhật lastSeen, không qua được chốt
+ * này). Nay tín hiệu tươi luôn thắng will cũ: HS còn gửi bất cứ tin nào thì
+ * không thể mang trạng thái mất kết nối; HS chết thật thì lastSeen đứng yên,
+ * tuổi tăng dần qua HELD rồi RELEASED đúng luật giữ chỗ.
  */
 export function getPresenceStatus(
   lastSeen: number | undefined | null,
@@ -137,7 +150,7 @@ export function getPresenceStatus(
   const offlineAfterMs = timing?.offlineAfterMs ?? PLAYER_OFFLINE_AFTER_MS;
   const age = now - lastSeen;
   if (age > holdMs) return 'RELEASED';
-  if (age >= offlineAfterMs || knownOffline) return 'HELD';
+  if (age >= offlineAfterMs) return 'HELD';
   return 'ONLINE';
 }
 
@@ -370,8 +383,11 @@ export function sweepPlayerPresence(
         continue;
       }
       const seen = lastSeenById?.get(p.id) ?? p.lastSeen;
-      // Cờ offline trong bản ghi chỉ do PLAYER_OFFLINE (will) hoặc chính vòng quét này
-      // đặt; ping/enter luôn xoá cờ ngay khi HS có tín hiệu lại nên không bị kẹt HELD.
+      // Cờ offline trong bản ghi do PLAYER_OFFLINE (will) hoặc chính vòng quét này
+      // đặt. getPresenceStatus nay quyết định theo TUỔI của `seen` là chính (cờ chỉ
+      // còn dùng khi chưa có mốc nào) nên cờ KHÔNG THỂ tự chốt: chỉ cần lastSeen
+      // được làm mới bởi bất kỳ tín hiệu nào (ping/đáp án/hồ sơ phía host ghi nhận)
+      // là vòng quét này tự đưa bản ghi về ONLINE và xoá cờ ở nhánh dưới.
       const status = getPresenceStatus(seen, now, p.offline === true, timing);
       if (status === 'RELEASED') {
         changed = true;
