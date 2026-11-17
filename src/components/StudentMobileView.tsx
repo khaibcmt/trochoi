@@ -4553,8 +4553,8 @@ export const StudentMobileView: React.FC<Props> = ({
 
                     const colors = [
                       'linear-gradient(135deg, #dc2626, #991b1b)',
-                      'linear-gradient(135deg, #0284c7, #0369a1)',
                       'linear-gradient(135deg, #d97706, #b45309)',
+                      'linear-gradient(135deg, #0284c7, #0369a1)',
                       'linear-gradient(135deg, #059669, #047857)'
                     ];
                     const isDisabled = hasAnsweredCurrentQ || isAnswerLocked || isSyncingState || (gameType === 'TUG' && isFrozen) || isAutoRevealedAt2Sec;
