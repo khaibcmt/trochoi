@@ -11,6 +11,7 @@ import {
   exportSyncCodeString,
   importSyncCodeString
 } from '../services/cloudSync';
+import { readFileAsText } from '../utils/fileText';
 
 interface Props {
   isOpen: boolean;
@@ -260,29 +261,27 @@ export const CloudSyncModal: React.FC<Props> = ({
   };
 
   // 8. Nhập file JSON
-  const handleUploadBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const text = String(ev.target?.result || '');
-        const backup = JSON.parse(text) as CloudBackupData;
-        if (backup && backup.subjectsDB) {
-          onApplyBackup(backup);
-          setStatusMessage({
-            type: 'success',
-            text: `🎉 Khôi phục thành công ${backup.stats?.totalSubjects || Object.keys(backup.subjectsDB).length} môn học từ file sao lưu!`
-          });
-        } else {
-          setStatusMessage({ type: 'error', text: 'File sao lưu không đúng định dạng của Đấu Trường 3D!' });
-        }
-      } catch {
-        setStatusMessage({ type: 'error', text: 'Lỗi đọc file JSON. Vui lòng chọn file sao lưu hợp lệ!' });
-      }
-    };
-    reader.readAsText(file);
     e.target.value = '';
+    try {
+      // Đợt 4 (GĐ3.4): đọc bằng hàm dùng chung — ngửi BOM UTF-8/UTF-16, fallback
+      // windows-1258, chuẩn hoá NFC (file sao lưu lưu bằng Notepad ANSI vẫn mở đúng).
+      const text = await readFileAsText(file);
+      const backup = JSON.parse(text) as CloudBackupData;
+      if (backup && backup.subjectsDB) {
+        onApplyBackup(backup);
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 Khôi phục thành công ${backup.stats?.totalSubjects || Object.keys(backup.subjectsDB).length} môn học từ file sao lưu!`
+        });
+      } else {
+        setStatusMessage({ type: 'error', text: 'File sao lưu không đúng định dạng của Đấu Trường 3D!' });
+      }
+    } catch {
+      setStatusMessage({ type: 'error', text: 'Lỗi đọc file JSON. Vui lòng chọn file sao lưu hợp lệ!' });
+    }
   };
 
   const formatTimestamp = (ts?: number) => {
