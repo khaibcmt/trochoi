@@ -75,6 +75,9 @@ export const QOS1_MESSAGE_TYPES = new Set<string>([
   // (rớt 1 nhịp vô hại); chỉ BẢN RETAINED state của nó trên …/state mới đi QoS 1.
   'FORCE_START_MATCH',
   'QUESTION_START',
+  // Lệnh Tạm dừng / Tiếp tục theo câu: sống còn cho đồng hồ của cả lớp (HS đông
+  // cứng / chạy tiếp theo đúng gói này) — mất gói là lệch trạng thái dừng.
+  'PAUSE_TOGGLE',
   'MATCH_START',
   'FORCE_PULL_TO_WAITING',
   'GAME_SWITCHED',
