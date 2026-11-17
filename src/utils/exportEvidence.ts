@@ -265,10 +265,10 @@ export function printEvidenceColorfulPDF(quizList: QuizItem[], subjectTitle: str
   }
 }
 
-export function exportHonorCertificateHTML(matchState: MatchState, roomId: string, totalQuestions: number = 12) {
+export function exportHonorCertificateHTML(matchState: MatchState, roomId: string, totalQuestions: number) {
   const nowStr = new Date().toLocaleDateString('vi-VN');
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
-  const safeTotalQ = Math.max(1, totalQuestions || 12);
+  const safeTotalQ = Math.max(1, totalQuestions || 1);
 
   // BXH 1: Trò chơi (giữ nguyên cấu trúc)
   const rankedByScore = [...allPlayers].sort((a, b) => {
@@ -283,8 +283,8 @@ export function exportHonorCertificateHTML(matchState: MatchState, roomId: strin
 
   // BXH 2: Sổ điểm GV (chuẩn Thông tư 22/BGDĐT - thang điểm 10, làm tròn 1 số lẻ, xếp từ cao xuống thấp)
   const rankedByCorrect = [...allPlayers].sort((a, b) => {
-    const scoreA = Number((((a.correct || 0) / safeTotalQ) * 10).toFixed(1));
-    const scoreB = Number((((b.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    const scoreA = getTeacherGradebookScore(a.correct || 0, safeTotalQ).grade;
+    const scoreB = getTeacherGradebookScore(b.correct || 0, safeTotalQ).grade;
     if (scoreB !== scoreA) return scoreB - scoreA;
     if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
     return (a.wrongTotal || 0) - (b.wrongTotal || 0);
