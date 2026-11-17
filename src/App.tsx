@@ -38,6 +38,7 @@ import {
   computeMatchId,
   flushMatchXp
 } from './utils/studentLevel';
+import { applyPointsPenalty, computeWrongPenalty } from './utils/wagerPenalty';
 import { defaultFetch } from './utils/license';
 import {
   createPresencePatchQueue,
@@ -466,7 +467,10 @@ export const App: React.FC = () => {
         eliminated: false,
         fastScore: 0,
         lastDelta: 0,
-        lastTimeSec: null
+        lastTimeSec: null,
+        // Trận mới: lượt cược đặc biệt + lá chắn An Toàn làm mới (luật 17/11/2026).
+        hasUsedSpecialWager: false,
+        safeShieldUsed: false
       });
       const nextMS: MatchState = {
         ...prev,
@@ -714,7 +718,10 @@ export const App: React.FC = () => {
         eliminated: false,
         fastScore: 0,
         lastDelta: 0,
-        lastTimeSec: null
+        lastTimeSec: null,
+        // Trận mới: lượt cược đặc biệt + lá chắn An Toàn làm mới (luật 17/11/2026).
+        hasUsedSpecialWager: false,
+        safeShieldUsed: false
       });
       const nextMS: MatchState = {
         ...prev,
@@ -1770,6 +1777,10 @@ export const App: React.FC = () => {
 
         const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
         const wager = d.wagerLevel || 1;
+        // Luật cược mới (17/11/2026): host theo dõi lượt cược đặc biệt theo
+        // từng người chơi — đáp án (đúng hoặc sai) ở mức x1.5/x2.5 là đã dùng
+        // lượt duy nhất của trận; ma trận phạt kẹp wager về 1 từ đó về sau.
+        if (wager > 1) pObj.hasUsedSpecialWager = true;
         const firstBloodBonus = isFirstBlood ? 500 : 0;
         const worldEventMultiplier = prev.activeWorldEvent === 'GOLDEN_X2' ? 2 : 1;
         const baseGained = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
@@ -2066,17 +2077,35 @@ export const App: React.FC = () => {
           ? [...prev.blueAnsweredIds, pObj.id]
           : prev.blueAnsweredIds;
 
-        // Mức phạt chuẩn cược bản lĩnh:
-        // • An Toàn (x1): 0đ (không trừ)
-        // • Liều Lĩnh (x1.5): trừ 300đ
-        // • Tất Tay (x2.5): trừ 800đ
-        const penalty = wager === 2.5 ? 800 : wager === 1.5 ? 300 : 0;
+        // LUẬT CƯỢC MỚI (thầy chốt 17/11/2026) — tính qua ma trận dùng chung
+        // utils/wagerPenalty.ts, ĐÚNG hàm phía HS dùng để tự tính hiển thị:
+        // • Lá chắn An Toàn 1 lần/trận: câu sai đầu tiên ở x1 miễn phạt ĐIỂM
+        //   (BELL vẫn mất mạng — lá chắn chỉ che điểm), tiêu hao ngay.
+        // • Từ câu sai thứ hai ở x1: phạt chuẩn 1000đ mọi mode; BELL thêm
+        //   −1 mạng. TUG KHÔNG còn đóng băng khi trả lời sai.
+        // • Liều Lĩnh x1.5 −300đ / Tất Tay x2.5 −800đ, khoá 1 lần/trận: host
+        //   theo dõi pObj.hasUsedSpecialWager và ma trận tự kẹp wager về 1
+        //   nếu đã dùng (chặn tin trùng/cũ áp lại mức đặc biệt).
+        // • d.shieldProtected: câu sai được Khiên Bất Tử/Khiên Bảo Vệ phía HS
+        //   che → 0 điểm 0 mạng, lá chắn An Toàn không bị tiêu hao.
+        const pen = computeWrongPenalty({
+          gameType: prev.gameType,
+          wagerLevel: wager,
+          specialWagerUsed: pObj.hasUsedSpecialWager === true,
+          safeShieldUsed: pObj.safeShieldUsed === true,
+          shieldProtected: d.shieldProtected === true
+        });
+        if (pen.usesSpecialWager) pObj.hasUsedSpecialWager = true;
+        if (pen.consumeSafeShield) pObj.safeShieldUsed = true;
+        const penalty = pen.pointsPenalty;
 
         if (prev.gameType === 'BELL') {
           AudioFX.freezeCrack();
-          pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - 1);
+          // Mạng: ưu tiên d.lives phía HS gửi (đã áp cùng ma trận, gồm cả
+          // hồi sinh từ rương); thiếu thì host tự trừ theo ma trận.
+          pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - pen.livesLoss);
           // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
-          pObj.fastScore = Math.max(0, (pObj.fastScore || 0) - penalty);
+          pObj.fastScore = applyPointsPenalty(pObj.fastScore || 0, penalty, 'BELL');
           pObj.lastDelta = -penalty;
           if (pObj.lives <= 0) {
             pObj.eliminated = true;
@@ -2097,7 +2126,7 @@ export const App: React.FC = () => {
           pObj.lives = 3;
           pObj.eliminated = false;
           // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
-          pObj.fastScore = (pObj.fastScore || 0) - penalty;
+          pObj.fastScore = applyPointsPenalty(pObj.fastScore || 0, penalty, prev.gameType);
           pObj.lastDelta = -penalty;
 
           CloudNetwork.sendMessage({
@@ -2110,17 +2139,14 @@ export const App: React.FC = () => {
             bonusAwarded: false
           });
         } else {
-          // Trò Kéo Co (TUG)
+          // Trò Kéo Co (TUG): chỉ trừ điểm theo ma trận — luật đóng băng khi
+          // trả lời sai đã BỎ HOÀN TOÀN (thầy chốt 17/11/2026); đóng băng chỉ
+          // còn đến từ thẻ kỹ năng Đóng Băng đối thủ (USE_POWERUP).
           pObj.lives = 3;
           pObj.eliminated = false;
           // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
-          pObj.fastScore = (pObj.fastScore || 0) - penalty;
+          pObj.fastScore = applyPointsPenalty(pObj.fastScore || 0, penalty, 'TUG');
           pObj.lastDelta = -penalty;
-          if (prev.gameType === 'TUG') {
-            AudioFX.freezeCrack();
-            const freezeMs = wager === 2.5 ? 4000 : wager === 1.5 ? 3000 : 2000;
-            pObj.freeze = Date.now() + freezeMs;
-          }
         }
 
         return {
