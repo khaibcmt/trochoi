@@ -25,3 +25,5 @@ Hệ thống thi đấu và học tập tương tác 3D đa người chơi theo 
    - **Đồ họa 3D:** Three.js với các hiệu ứng đổ bóng, ánh sáng sân vận động, bối cảnh bầu trời linh hoạt, nhân vật Chibi 3D, cúp vàng rơi tự do và hiệu ứng hạt confetti.
    - **Mạng thời gian thực:** Kết nối đám mây đa máy chủ MQTT (HiveMQ, Mosquitto, EMQX) qua WebSocket WSS cổng 443 kết hợp BroadcastChannel nội bộ, hỗ trợ học sinh quét mã QR hoặc nhập mã phòng 5 chữ số từ điện thoại di động qua 4G/Wi-Fi.
    - **Âm thanh:** Web Audio API synthesizer tự sinh âm thanh còi, kéo thừng, tiếng chuông hồi sinh, đóng băng và khúc nhạc khải hoàn chiến thắng.
+
+<!-- kich hoat lai ban dung Pages 17/11: run truoc loi npm install nhat thoi -->
