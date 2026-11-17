@@ -34,6 +34,12 @@ import {
 } from './utils/presence';
 import { questionDurationFor } from './utils/questionTiming';
 import {
+  buildXpUpdates,
+  computeMatchId,
+  flushMatchXp
+} from './utils/studentLevel';
+import { defaultFetch } from './utils/license';
+import {
   createPresencePatchQueue,
   applyPresencePatches,
   PRESENCE_FLUSH_INTERVAL_MS,
@@ -854,6 +860,50 @@ export const App: React.FC = () => {
     };
   }, [activeRoomId, isDirectStudent]);
 
+  // Hệ CẤP ĐỘ — GHI XP CUỐI TRẬN (phía HOST, zero-tải trong lúc thi):
+  // chỉ chạy khi trạng thái vừa vào ENDED. Chờ 2s cho các tin vào phòng trễ
+  // kịp gắn deviceId vào bản ghi, rồi tính delta từ SỔ ĐIỂM HOST (correct /
+  // BXH cuối trận) và xả ghi rải theo lô lên kc3d_students — fire-and-forget,
+  // lỗi không bao giờ ảnh hưởng màn kết. Chống ghi đúp 2 lớp: mã trận tất
+  // định (F5 ở màn kết khôi phục đúng dữ liệu → cùng mã) + cờ tại máy host
+  // (localStorage) + lastMatchId trên từng bản ghi Firebase.
+  const xpFlushedMatchesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (isDirectStudent || !activeRoomId) return;
+    if (matchState.status !== 'ENDED') return;
+    const timer = setTimeout(() => {
+      try {
+        const ms = matchStateRef.current;
+        if (!ms || ms.status !== 'ENDED') return;
+        const players = [...ms.redPlayers, ...ms.bluePlayers];
+        const totalQ = quizListRef.current.length;
+        if (players.length === 0 || totalQ <= 0) return;
+        const matchId = computeMatchId(activeRoomId, players, totalQ, ms.gameType);
+        if (xpFlushedMatchesRef.current.has(matchId)) return;
+        const markerKey = 'kc3d_xp_written_' + activeRoomId;
+        try {
+          if (localStorage.getItem(markerKey) === matchId) {
+            xpFlushedMatchesRef.current.add(matchId);
+            return;
+          }
+        } catch { /* bỏ qua */ }
+        xpFlushedMatchesRef.current.add(matchId);
+        const updates = buildXpUpdates(players, ms.gameType, totalQ);
+        if (updates.length === 0) {
+          try { localStorage.setItem(markerKey, matchId); } catch { /* bỏ qua */ }
+          return;
+        }
+        void flushMatchXp({ fetchFn: defaultFetch, now: () => Date.now() }, updates, matchId)
+          .then(() => {
+            try { localStorage.setItem(markerKey, matchId); } catch { /* bỏ qua */ }
+          })
+          .catch(() => { /* ghi XP là phụ — nuốt mọi lỗi */ });
+      } catch { /* tuyệt đối không để việc ghi XP làm lỗi màn kết */ }
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchState.status, activeRoomId, isDirectStudent]);
+
   // Nếu là phiên phục hồi sau F5, đối soát danh sách học sinh với server để không bỏ sót bạn nào
   useEffect(() => {
     if (!isHostReloadSession || isDirectStudent || !activeRoomId) return;
@@ -959,6 +1009,9 @@ export const App: React.FC = () => {
         score: p.fastScore || 0,
         fastScore: p.fastScore || 0,
         correct: p.correct || 0,
+        // Hệ CẤP ĐỘ: XP trước trận của HS để phía HS hiện icon cấp trên BXH —
+        // vẫn là tin HOST_HEARTBEAT sẵn có, chỉ thêm 1 trường nhỏ.
+        xp: p.xp || 0,
         lives: p.lives ?? 3,
         eliminated: Boolean(p.eliminated),
         rank: idx + 1
@@ -994,7 +1047,7 @@ export const App: React.FC = () => {
     // không kèm full quiz → gửi bản RÚT GỌN: bỏ top10/playerIds, đặt top10Unchanged.
     // Phía HS giữ nguyên top10/danh sách cũ khi thấy cờ này (xem StudentMobileView).
     const rosterSig =
-      top10List.map(p => `${p.id}:${p.score}:${p.correct}:${p.lives}:${p.eliminated ? 1 : 0}`).join(',') +
+      top10List.map(p => `${p.id}:${p.score}:${p.correct}:${p.lives}:${p.eliminated ? 1 : 0}:${p.xp || 0}`).join(',') +
       '|' +
       playerIds.join(',');
     const rosterUnchanged = !shouldIncludeFullQuiz && rosterSig === lastHeartbeatRosterSigRef.current;
@@ -1381,7 +1434,11 @@ export const App: React.FC = () => {
               savedScore: d.savedScore,
               savedCorrect: d.savedCorrect,
               avatar: d.avatar,
-              ready: isReady
+              ready: isReady,
+              // Hệ CẤP ĐỘ: mã máy + XP đi kèm tin vào phòng (chỉ hiển thị/ghi
+              // cuối trận — không đụng điểm trận).
+              deviceId: d.deviceId,
+              xp: d.xp
             },
             Date.now()
           );
@@ -1411,6 +1468,8 @@ export const App: React.FC = () => {
             avatarChanged ||
             existing.offline !== updatedPlayer.offline ||
             existing.studentId !== updatedPlayer.studentId ||
+            existing.deviceId !== updatedPlayer.deviceId ||
+            existing.xp !== updatedPlayer.xp ||
             (existingRedIdx !== -1 && existingBlueIdx !== -1);
 
           // Chỉ phản hồi ENTER_CONFIRMED nhẹ (< 1KB, không đính kèm cả mảng quiz nặng) khi có thay đổi hoặc cách nhau > 8 giây để không làm nghẽn mạng khi 50+ HS cùng kết nối
@@ -1543,6 +1602,9 @@ export const App: React.FC = () => {
             id: d.playerId || 'hs_' + Math.random(),
             // Đợt 5 (4B.1/4B.2): gắn định danh bền + lastSeen ngay từ bản ghi đầu tiên.
             studentId: d.studentId || d.playerId,
+            // Hệ CẤP ĐỘ: mã máy toàn cục + XP HS tự đọc từ kc3d_students.
+            deviceId: d.deviceId,
+            xp: typeof d.xp === 'number' ? d.xp : undefined,
             lastSeen: Date.now(),
             offline: false,
             label: finalName,
