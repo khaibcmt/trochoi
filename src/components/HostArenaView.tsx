@@ -1968,6 +1968,9 @@ export const HostArenaView: React.FC<Props> = ({
           if (curQ) curQ.wrongCount = (curQ.wrongCount || 0) + 1;
           const updateLoser = (p: Player): Player => {
             if (p.id !== chosen.id) return p;
+            // Luật phạt mới (17/11/2026) áp cả cho bot mô phỏng: sai = phạt
+            // chuẩn −1000đ mọi mode; BELL thêm −1 mạng (sàn điểm 0); TUG
+            // KHÔNG còn đóng băng khi trả lời sai.
             if (prev.gameType === 'BELL') {
               const nextL = Math.max(0, (p.lives ?? 3) - 1);
               return {
@@ -1976,14 +1979,7 @@ export const HostArenaView: React.FC<Props> = ({
                 eliminated: nextL <= 0,
                 role: nextL <= 0 ? 'SPECTATOR' : p.role,
                 streak: 0,
-                wrongTotal: (p.wrongTotal || 0) + 1
-              };
-            }
-            if (prev.gameType === 'FAST' || prev.gameType === 'BOSS') {
-              return {
-                ...p,
-                streak: 0,
-                fastScore: (p.fastScore || 0) - 1000,
+                fastScore: Math.max(0, (p.fastScore || 0) - 1000),
                 lastDelta: -1000,
                 wrongTotal: (p.wrongTotal || 0) + 1
               };
@@ -1991,8 +1987,9 @@ export const HostArenaView: React.FC<Props> = ({
             return {
               ...p,
               streak: 0,
-              wrongTotal: (p.wrongTotal || 0) + 1,
-              freeze: prev.gameType === 'TUG' ? Date.now() + 2500 : 0
+              fastScore: (p.fastScore || 0) - 1000,
+              lastDelta: -1000,
+              wrongTotal: (p.wrongTotal || 0) + 1
             };
           };
 
@@ -2025,8 +2022,8 @@ export const HostArenaView: React.FC<Props> = ({
       blueAnsweredIds: [],
       bossHP: prev.settings?.bossMaxHP || 1000,
       maxBossHP: prev.settings?.bossMaxHP || 1000,
-      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 })),
-      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 }))
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false }))
     }));
     setQrVisible(true);
     setQrMinimizedLeft(false);
@@ -2302,8 +2299,8 @@ export const HostArenaView: React.FC<Props> = ({
       blueAnsweredIds: [],
       bossHP: prev.settings?.bossMaxHP || 1000,
       maxBossHP: prev.settings?.bossMaxHP || 1000,
-      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 })),
-      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0 }))
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false }))
     }));
     setIsReviewMode(false);
   };
@@ -3190,7 +3187,16 @@ export const HostArenaView: React.FC<Props> = ({
                   <div key={p.id} className={`flb-row rank-${rank}`} style={isOfflineHeld ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-level" title={`${levelFromXp(p.xp || 0).name} • ${p.xp || 0} XP`}>
-                      {levelFromXp(p.xp || 0).icon}
+                      <span className="flb-level-icon">{levelFromXp(p.xp || 0).icon}</span>
+                      <span
+                        className="flb-level-name"
+                        style={{
+                          color: levelFromXp(p.xp || 0).color,
+                          textShadow: levelFromXp(p.xp || 0).glow ? '0 0 7px rgba(251, 191, 36, 0.9)' : undefined
+                        }}
+                      >
+                        {levelFromXp(p.xp || 0).name}
+                      </span>
                     </div>
                     <div className="flb-name" title={p.label}>
                       {matchState.gameType === 'TUG' && (
@@ -3345,6 +3351,15 @@ export const HostArenaView: React.FC<Props> = ({
                   >
                     <span>{(p.offline && !p.holdReleased) ? '📴' : p.ready ? '✅' : '🟢'}</span>
                     <span title={`${levelFromXp(p.xp || 0).name} • ${p.xp || 0} XP`}>{levelFromXp(p.xp || 0).icon}</span>
+                    {/* Tên cấp CÓ MÀU theo cấp, ngay sau icon (thầy chốt 17/11/2026) */}
+                    <span
+                      style={{
+                        color: levelFromXp(p.xp || 0).color,
+                        textShadow: levelFromXp(p.xp || 0).glow ? '0 0 7px rgba(251, 191, 36, 0.9)' : undefined
+                      }}
+                    >
+                      {levelFromXp(p.xp || 0).name}
+                    </span>
                     <span>{p.label}{(p.offline && !p.holdReleased) ? ' (mất kết nối)' : ''}</span>
                   </span>
                 ))}
