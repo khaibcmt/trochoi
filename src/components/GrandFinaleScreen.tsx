@@ -365,7 +365,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                 {levelFromXp(top2.xp || 0).icon} {top2.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng • {levelFromXp(top2.xp || 0).name} ({top2.xp || 0} XP)
+                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng • <span style={{ color: levelFromXp(top2.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top2.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top2.xp || 0).name}</span> ({top2.xp || 0} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -394,7 +394,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
               {levelFromXp(top1.xp || 0).icon} {top1.label}
             </div>
             <div style={{ fontSize: '13px', color: '#4ade80', marginBottom: '6px', fontWeight: 900 }}>
-              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng • {levelFromXp(top1.xp || 0).name} ({top1.xp || 0} XP)
+              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng • <span style={{ color: levelFromXp(top1.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top1.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top1.xp || 0).name}</span> ({top1.xp || 0} XP)
             </div>
             <div style={{
               width: '100%',
@@ -422,7 +422,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                 {levelFromXp(top3.xp || 0).icon} {top3.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng • {levelFromXp(top3.xp || 0).name} ({top3.xp || 0} XP)
+                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng • <span style={{ color: levelFromXp(top3.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top3.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top3.xp || 0).name}</span> ({top3.xp || 0} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -557,7 +557,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                   🎮 BẢNG 1: BXH TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC ĐIỂM SỐ)
                 </h3>
                 <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700, marginTop: '2px' }}>
-                  Tính theo tốc độ, combo chuỗi, cược bản lĩnh • Đua tốc độ & Diệt Boss chọn sai <b style={{ color: '#f87171' }}>trừ -1000đ</b>
+                  Tính theo tốc độ, combo chuỗi, cược bản lĩnh • Chọn sai <b style={{ color: '#f87171' }}>trừ -1000đ</b> (câu sai đầu tiên ở An Toàn được lá chắn che điểm 1 lần/trận; Rung Chuông Vàng sai còn mất 1 mạng)
                 </div>
               </div>
               <span style={{
@@ -612,7 +612,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
                             {player.label}
                             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
-                              {levelFromXp(player.xp || 0).name} • {player.xp || 0} XP
+                              <span style={{ color: levelFromXp(player.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(player.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(player.xp || 0).name}</span> • {player.xp || 0} XP
                             </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 800, fontSize: '12.5px' }}>
@@ -731,7 +731,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
                             {player.label}
                             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
-                              {levelFromXp(player.xp || 0).name} • {player.xp || 0} XP
+                              <span style={{ color: levelFromXp(player.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(player.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(player.xp || 0).name}</span> • {player.xp || 0} XP
                             </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
