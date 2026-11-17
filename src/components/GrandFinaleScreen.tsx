@@ -18,6 +18,9 @@ interface Props {
   onReturnToSetup: () => void;
   onNewSession?: () => void;
   onResetClass?: () => void;
+  /** XP SAU TRẬN theo deviceId (host tính chung nguồn với đường ghi Firebase).
+   *  Có thì màn kết hiện icon/tên cấp + số XP MỚI; không có thì giữ XP vào phòng. */
+  postMatchXpByDeviceId?: Record<string, number>;
 }
 
 export const GrandFinaleScreen: React.FC<Props> = ({
@@ -30,7 +33,8 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   onRestartMatch,
   onReturnToSetup,
   onNewSession,
-  onResetClass
+  onResetClass,
+  postMatchXpByDeviceId
 }) => {
   const [activeTab, setActiveTab] = useState<'DUAL' | 'SCORE' | 'CORRECT'>('DUAL');
   // Mặc định hiển thị Top 10 trên màn hình theo yêu cầu 4, có nút bấm mở rộng để xem toàn bộ cả lớp
@@ -58,6 +62,16 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   }, []);
 
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
+
+  // XP hiển thị ở màn kết: ưu tiên XP SAU TRẬN trong bảng host gửi xuống —
+  // HS không có deviceId (client cũ) hoặc không có trong bảng thì giữ XP lúc
+  // vào phòng như cũ, không lỗi màn kết.
+  const dispXp = (p: Player): number => {
+    if (p.deviceId && postMatchXpByDeviceId && typeof postMatchXpByDeviceId[p.deviceId] === 'number') {
+      return postMatchXpByDeviceId[p.deviceId];
+    }
+    return p.xp || 0;
+  };
   const safeTotalQ = Math.max(1, totalQuestions || 1);
 
   // 1. BẢNG XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU (BXH TRÒ CHƠI - GIỮ NGUYÊN CẤU TRÚC)
@@ -362,10 +376,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ fontSize: '26px', marginBottom: '2px' }}>🥈</div>
               <div style={{ fontSize: '15px', fontWeight: 900, color: '#e2e8f0', textAlign: 'center' }}>
-                {levelFromXp(top2.xp || 0).icon} {top2.label}
+                {levelFromXp(dispXp(top2)).icon} {top2.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng • <span style={{ color: levelFromXp(top2.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top2.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top2.xp || 0).name}</span> ({top2.xp || 0} XP)
+                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng • <span style={{ color: levelFromXp(dispXp(top2)).color, fontWeight: 900, textShadow: levelFromXp(dispXp(top2)).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(dispXp(top2)).name}</span> ({dispXp(top2)} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -391,10 +405,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
               👑
             </div>
             <div style={{ fontSize: '18px', fontWeight: 900, color: '#fde047', textAlign: 'center' }}>
-              {levelFromXp(top1.xp || 0).icon} {top1.label}
+              {levelFromXp(dispXp(top1)).icon} {top1.label}
             </div>
             <div style={{ fontSize: '13px', color: '#4ade80', marginBottom: '6px', fontWeight: 900 }}>
-              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng • <span style={{ color: levelFromXp(top1.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top1.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top1.xp || 0).name}</span> ({top1.xp || 0} XP)
+              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng • <span style={{ color: levelFromXp(dispXp(top1)).color, fontWeight: 900, textShadow: levelFromXp(dispXp(top1)).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(dispXp(top1)).name}</span> ({dispXp(top1)} XP)
             </div>
             <div style={{
               width: '100%',
@@ -419,10 +433,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ fontSize: '26px', marginBottom: '2px' }}>🥉</div>
               <div style={{ fontSize: '15px', fontWeight: 900, color: '#fdba74', textAlign: 'center' }}>
-                {levelFromXp(top3.xp || 0).icon} {top3.label}
+                {levelFromXp(dispXp(top3)).icon} {top3.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng • <span style={{ color: levelFromXp(top3.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(top3.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(top3.xp || 0).name}</span> ({top3.xp || 0} XP)
+                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng • <span style={{ color: levelFromXp(dispXp(top3)).color, fontWeight: 900, textShadow: levelFromXp(dispXp(top3)).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(dispXp(top3)).name}</span> ({dispXp(top3)} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -609,10 +623,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             {rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`}
                           </td>
                           <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rank), fontSize: '14.5px' }}>
-                            <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
+                            <span style={{ marginRight: '6px' }}>{levelFromXp(dispXp(player)).icon}</span>
                             {player.label}
                             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
-                              <span style={{ color: levelFromXp(player.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(player.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(player.xp || 0).name}</span> • {player.xp || 0} XP
+                              <span style={{ color: levelFromXp(dispXp(player)).color, fontWeight: 900, textShadow: levelFromXp(dispXp(player)).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(dispXp(player)).name}</span> • {dispXp(player)} XP
                             </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 800, fontSize: '12.5px' }}>
@@ -728,10 +742,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             {rankByCorrect === 1 ? '🥇 Hạng 1' : rankByCorrect === 2 ? '🥈 Hạng 2' : rankByCorrect === 3 ? '🥉 Hạng 3' : `#${rankByCorrect}`}
                           </td>
                           <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rankByCorrect), fontSize: '14.5px' }}>
-                            <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
+                            <span style={{ marginRight: '6px' }}>{levelFromXp(dispXp(player)).icon}</span>
                             {player.label}
                             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
-                              <span style={{ color: levelFromXp(player.xp || 0).color, fontWeight: 900, textShadow: levelFromXp(player.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(player.xp || 0).name}</span> • {player.xp || 0} XP
+                              <span style={{ color: levelFromXp(dispXp(player)).color, fontWeight: 900, textShadow: levelFromXp(dispXp(player)).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined }}>{levelFromXp(dispXp(player)).name}</span> • {dispXp(player)} XP
                             </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
