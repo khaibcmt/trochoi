@@ -75,6 +75,12 @@ export const QOS1_MESSAGE_TYPES = new Set<string>([
   // HOST_HEARTBEAT cố ý KHÔNG nằm trong danh sách này: nhịp tim phát 1,2s/lần giữ QoS 0
   // (rớt 1 nhịp vô hại); chỉ BẢN RETAINED state của nó trên …/state mới đi QoS 1.
   'FORCE_START_MATCH',
+  // Lệnh LÀM MỚI PHÒNG / ĐỔI LỚP của thầy (chiêu xoá HS cũ để phòng nhận lại từ
+  // đầu): mất gói này là hai phía lệch nhau — host đã xoá trắng còn HS không hề
+  // biết để thoát ra — nên phải đi QoS 1 + hàng đợi như mọi tin sống còn khác
+  // (sửa 17/11/2026; trước đây bị bỏ sót khỏi cả hai danh sách, đi QoS 0 trần).
+  'CLEAR_ALL_STUDENTS',
+  'RESET_ROOM_SESSION',
   'QUESTION_START',
   // Lệnh Tạm dừng / Tiếp tục theo câu: sống còn cho đồng hồ của cả lớp (HS đông
   // cứng / chạy tiếp theo đúng gói này) — mất gói là lệch trạng thái dừng.
@@ -441,10 +447,16 @@ class NetworkService {
   private retainedChunkCountByTopic = new Map<string, number>();
 
   // Đợt 5 (4B.2): Last-Will của phía HS — khi máy HS rớt hẳn (hết pin, đóng tab cưỡng
-  // bức, mất sóng), broker tự publish PLAYER_OFFLINE (QoS 1, retained) vào topic
-  // …/players/<id> để host đóng băng lastSeen và bắt đầu đếm 90s giữ chỗ ngay,
-  // thay vì phải chờ quá 15s không ping mới biết. Chỉ client CHÍNH mang will
+  // bức, mất sóng), broker tự publish PLAYER_OFFLINE (QoS 1) vào topic
+  // …/players/<id> để host bật cờ mất kết nối sớm thay vì chờ quá ngưỡng không
+  // ping mới biết. Chỉ client CHÍNH mang will
   // (client phụ không đặt will để tránh will bắn 2 lần cho cùng 1 sự kiện rớt).
+  // SỬA 17/11/2026: will KHÔNG retained nữa — bản retained làm will cũ nằm lại
+  // trên broker, bị phát lại mỗi lần host đăng ký lại players/+ (failover/mesh
+  // tự nối lại) và GHI ĐÈ hồ sơ retained của chính HS đó trên cùng topic; hai
+  // broker có kho retained riêng nên will "ma" ở một broker có thể sống dai hơn
+  // cả phiên. Bỏ retained: will chỉ tới host đang nghe trực tiếp, host vào sau/
+  // nghe lại vẫn còn cơ chế tuổi lastSeen để kết luận như thường.
   private playerWill: { playerId: string; studentId?: string } | null = null;
 
   // Đợt 8 (4C): vai trò của phía đang dùng service này — 'HOST' là phía duy nhất quyết
@@ -664,7 +676,7 @@ class NetworkService {
       topic: `${this.currentRoomTopic}/players/${this.playerWill.playerId}`,
       payload,
       qos: 1,
-      retain: true
+      retain: false
     };
   }
 
@@ -1449,7 +1461,7 @@ class NetworkService {
         connectTimeout: 3500, // 3.5s timeout theo yêu cầu
         reconnectPeriod: 0,   // Không tự động reconnect ngầm để sequential failover chủ động kiểm soát
         keepalive: 30,
-        // Đợt 5 (4B.2): Last-Will PLAYER_OFFLINE (QoS 1, retained) — chỉ phía HS có will.
+        // Đợt 5 (4B.2): Last-Will PLAYER_OFFLINE (QoS 1, không retained — sửa 17/11/2026) — chỉ phía HS có will.
         ...(willOption ? { will: willOption } : {})
       });
       this.client = client;
@@ -1599,7 +1611,15 @@ class NetworkService {
       try {
         old.removeAllListeners();
         old.on('error', () => {});
-        old.end(true);
+        // SỬA SỰ CỐ 17/11/2026: đóng KÍN bằng end() (mqtt gửi DISCONNECT trước khi
+        // đóng socket) thay cho end(true) cưỡng bức. Đóng cưỡng bức làm socket rớt
+        // KHÔNG có DISCONNECT → broker tưởng HS sập mạng và bắn Last-Will
+        // PLAYER_OFFLINE OAN — mà hàm này được gọi trong mọi lần HS TỰ chuyển
+        // broker/nối lại (failover, nhận epoch mới, probe-return): mỗi lần tự nối
+        // lại là một will oan, cả lớp cùng chuyển là cả lớp cùng "mất kết nối".
+        // Rớt THẬT (mất sóng, sập nguồn, đóng tab cưỡng bức) thì socket tự chết
+        // không qua hàm này — broker vẫn bắn will đúng lúc cần.
+        old.end();
       } catch {}
     }
   }
@@ -1834,6 +1854,8 @@ class NetworkService {
       'RESYNC_STATE',
       'FORCE_PULL_TO_WAITING',
       'FORCE_START_MATCH',
+      'CLEAR_ALL_STUDENTS',
+      'RESET_ROOM_SESSION',
       'ENTER_CONFIRMED',
       'QUESTION_START',
       'MATCH_START',
@@ -2104,6 +2126,16 @@ class NetworkService {
     // máy HS. Trước gia cố, ở 200 HS: 40 ping/s × phát kép 2 client × ~402
     // subscription ≈ 32.000 lượt giao/s chỉ riêng ping — nghẽn wifi lớp +
     // broker công cộng trước mọi điểm nghẽn khác. Sau gia cố: ~13 lượt/s.
+    // SỬA SỰ CỐ 17/11/2026: phát KÈM một bản lên topic phòng (cùng _mid, host
+    // khử trùng tuyệt đối). Đường host-only lệ thuộc subscription players/+ của
+    // host phải sống đúng trên broker mà ping hạ cánh — một điểm gãy mà đáp án
+    // (đi topic phòng) không có; trong cả 3 lần test thật, đáp án đi topic phòng
+    // về đều trong khi tín hiệu sống bị kẹt. Topic phòng là đường đã được chứng
+    // minh thông suốt nên cho ping đi ké làm đường dự phòng: chi phí fan-out ở
+    // 200 HS ≈ 13 ping/s × ~200 máy ≈ 2,6k lượt/s, nằm trong dư địa test tải
+    // đã đo (đỉnh bùng nổ ~22k lượt/s vẫn gánh được); phía HS nhận ping của bạn
+    // khác trên topic phòng thì bỏ qua hoàn toàn (không có handler cho
+    // PLAYER_PING ở phía HS).
     if (effectivePayload.type === 'PLAYER_PING' && effectivePayload.playerId) {
       const pingTopic = `${this.currentRoomTopic}/players/${effectivePayload.playerId}`;
       activeClients.forEach(c => {
@@ -2113,6 +2145,13 @@ class NetworkService {
           mqttLivePayload,
           { qos: liveQos },
           'MQTT live PLAYER_PING (host-only)'
+        );
+        this.publishWithErrorReport(
+          c,
+          this.currentRoomTopic,
+          mqttLivePayload,
+          { qos: liveQos },
+          'MQTT live PLAYER_PING (room-topic backup)'
         );
       });
       return;
