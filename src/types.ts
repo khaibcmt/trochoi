@@ -71,6 +71,12 @@ export interface Player {
   // studentId là khoá GỘP bản ghi: HS quay lại với playerId mới nhưng studentId cũ
   // vẫn được host gộp vào đúng bản ghi này, không tạo "người ma".
   studentId?: string;
+  // Hệ CẤP ĐỘ (17/11): mã máy TOÀN CỤC của điện thoại HS (STU-…, khác studentId
+  // theo phòng) + tổng XP em tự đọc từ kc3d_students và gắn kèm tin vào phòng.
+  // Host chỉ dùng để HIỂN THỊ cấp (suy từ xp) và GHI XP cuối trận theo deviceId —
+  // tuyệt đối không dùng 2 trường này cho điểm trận (sổ host là nguồn sự thật).
+  deviceId?: string;
+  xp?: number;
   // Đợt 5 (4B.2): mốc host nhìn thấy HS lần cuối (ping/enter/đáp án — giờ phía HOST).
   // Quá 90s im lặng hoàn toàn → offline=true (xám "mất kết nối", giữ nguyên chỗ/điểm/mạng);
   // quá 300s (5 phút) → giải phóng chỗ theo luật từng chế độ (xem utils/presence.ts).
@@ -187,6 +193,11 @@ export interface CloudMessage {
   // Đợt 5 (4B.1): định danh bền đi kèm MỌI tin vào phòng / ping / đáp án của HS để
   // host gộp bản ghi theo studentId thay vì chỉ theo playerId của phiên tab.
   studentId?: string;
+  // Hệ CẤP ĐỘ (17/11): CHỈ tin vào phòng (PLAYER_READY_ROPE / PLAYER_FINISH_QUIZ)
+  // mới mang 2 trường này — mã máy toàn cục của HS + XP em tự đọc được từ
+  // kc3d_students trước trận. Không tin nào khác mang, không thêm loại tin mới.
+  deviceId?: string;
+  xp?: number;
   tabSessionId?: string;
   // Đợt 5 (4B.2): mốc thời gian phía HS khi gửi PLAYER_PING / PLAYER_OFFLINE (chỉ tham
   // khảo — host luôn tính lastSeen bằng đồng hồ của chính host lúc nhận tin).
