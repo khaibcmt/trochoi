@@ -3521,7 +3521,7 @@ export const HostArenaView: React.FC<Props> = ({
             }}
             aria-label="Khung câu hỏi và đáp án chuẩn THPT 2018"
           >
-            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
+            {/* Khung Câu Hỏi Nổi Bật — chỉ còn chữ câu hỏi, thanh công cụ đã dời xuống đáy màn hình */}
             <div
               style={{
                 background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
@@ -3534,156 +3534,10 @@ export const HostArenaView: React.FC<Props> = ({
                 flexDirection: 'column',
                 gap: '6px',
                 flexShrink: 0,
-                maxHeight: currentQItem.format === 'TRUE_FALSE' ? '23vh' : '22vh',
+                maxHeight: currentQItem.format === 'TRUE_FALSE' ? '26vh' : '25vh',
                 overflowY: 'auto'
               }}
             >
-              {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
-                  <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
-                    CÂU {currentQIndex + 1}/{quizList.length || 1}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span style={{ color: '#38bdf8' }}>
-                    {currentQItem.format === 'TRUE_FALSE'
-                      ? 'Dạng thức II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)'
-                      : currentQItem.format === 'SHORT_ANSWER'
-                      ? 'Dạng thức III: Trắc nghiệm Trả lời ngắn'
-                      : 'Dạng thức I: Trắc nghiệm 4 phương án lựa chọn'}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span style={{ color: '#cbd5e1' }}>
-                    Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
-                  </span>
-                  {matchState.firstBloodPlayerName && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span style={{ color: '#facc15', fontWeight: 900 }}>
-                        ⚡ Tia chớp: {matchState.firstBloodPlayerName}
-                      </span>
-                    </>
-                  )}
-                  {matchState.activeWorldEvent === 'GOLDEN_X2' && (
-                    <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', padding: '1px 8px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 900 }}>
-                      🌟 X2 ĐIỂM &amp; SỨC MẠNH
-                    </span>
-                  )}
-                  {isAutoRevealed && (
-                    <span style={{
-                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                      color: '#ffffff',
-                      padding: '2px 9px',
-                      borderRadius: '999px',
-                      fontSize: '11.5px',
-                      fontWeight: 900,
-                      boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)',
-                      animation: 'pulse 1s infinite'
-                    }}>
-                      ⚡ CÒN 2S: TỰ ĐỘNG HIỆN ĐÁP ÁN ĐÚNG!
-                    </span>
-                  )}
-                </div>
-
-                {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{
-                    fontSize: '13.5px',
-                    fontWeight: 900,
-                    color: remainingSec > 10 ? '#34d399' : remainingSec > 5 ? '#fbbf24' : '#f87171',
-                    marginRight: '4px'
-                  }}>
-                    ⏱️ {remainingSec.toFixed(1)}s
-                  </span>
-                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(-1)}>
-                    ◀ Trước
-                  </button>
-                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
-                    Tiếp ▶
-                  </button>
-                  <button
-                    className="hq-nav-btn"
-                    style={{
-                      padding: '3px 10px',
-                      fontSize: '12px',
-                      background: isSpeakingTTS ? '#dc2626' : '#0284c7',
-                      borderColor: '#7dd3fc',
-                      color: '#fff',
-                      fontWeight: 800
-                    }}
-                    onClick={handleReadQuestionAloud}
-                    title={
-                      hasViVoice === false
-                        ? 'Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành, nếu không giọng đọc sẽ sai dấu'
-                        : 'Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt'
-                    }
-                  >
-                    {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
-                  </button>
-                  {/* Đợt 4 (GĐ3.2 + 3.3): tốc độ đọc, tự động đọc câu mới, công tắc TTS phía học sinh */}
-                  <select
-                    value={ttsRate}
-                    onChange={(e) => setTtsRate(parseFloat(e.target.value))}
-                    title="Tốc độ đọc đề"
-                    style={{ padding: '3px 4px', fontSize: '12px', borderRadius: '6px', background: '#0f172a', color: '#e2e8f0', border: '1px solid #475569' }}
-                  >
-                    <option value={0.9}>0.9×</option>
-                    <option value={1.0}>1.0×</option>
-                    <option value={1.1}>1.1×</option>
-                  </select>
-                  <label
-                    title="Tự động đọc đề mỗi khi sang câu mới"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={ttsAutoRead}
-                      onChange={(e) => setTtsAutoRead(e.target.checked)}
-                    />
-                    Tự đọc câu mới
-                  </label>
-                  <label
-                    title="Bật: máy học sinh hiện nút 🔊 và tự đọc đồng bộ khi thầy bấm Đọc Đề. Tắt (mặc định): học sinh không nghe đọc đề."
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={matchState.settings?.ttsStudentEnabled === true}
-                      onChange={(e) =>
-                        onUpdateMatchState((prev) => ({
-                          ...prev,
-                          settings: { ...prev.settings, ttsStudentEnabled: e.target.checked }
-                        }))
-                      }
-                    />
-                    Đọc đề trên máy học sinh
-                  </label>
-                  {hasViVoice === false && (
-                    <span
-                      style={{ fontSize: '11.5px', fontWeight: 800, color: '#fbbf24' }}
-                      title="Máy tính này chưa cài giọng đọc tiếng Việt nên TTS sẽ đọc sai dấu. Hãy cài giọng tiếng Việt trong Cài đặt hệ điều hành (Windows: Settings → Time & language → Speech; Android: Cài đặt → Văn bản thành giọng nói)."
-                    >
-                      ⚠️ Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành
-                    </span>
-                  )}
-                  <button
-                    className="hq-nav-btn"
-                    id="hq-reveal-btn"
-                    style={{ padding: '3px 10px', fontSize: '12px', background: isReviewMode ? '#d97706' : '#059669', borderColor: '#6ee7b7', color: '#fff' }}
-                    onClick={handleToggleReviewMode}
-                  >
-                    {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Đáp Án'}
-                  </button>
-                  <button
-                    className="hq-nav-btn"
-                    style={{ padding: '3px 10px', fontSize: '12px', background: '#4f46e5', borderColor: '#a5b4fc', color: '#fff', fontWeight: 800 }}
-                    onClick={handleRequestAIExplanation}
-                  >
-                    💡 Giải Thích
-                  </button>
-                </div>
-              </div>
-
               {/* Nội dung câu hỏi chữ lớn rõ nét */}
               <div
                 id="hq-q-text"
@@ -3898,31 +3752,163 @@ export const HostArenaView: React.FC<Props> = ({
               )}
             </div>
 
-            {/* Thanh tiến trình thời gian gọn đẹp sát đáy màn hình */}
+            {/* Thanh công cụ điều khiển — dời xuống ĐÁY màn hình thi đấu (lệnh thầy 17/11/2026) */}
             <div
-              id="fast-timer-bar-wrap"
+              id="host-bottom-toolbar"
               style={{
-                height: '8px',
-                background: '#1e293b',
-                borderRadius: '4px',
-                overflow: 'hidden',
-                position: 'relative',
-                flexShrink: 0
+                flexShrink: 0,
+                marginTop: '8px',
+                background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
+                border: '1.5px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '12px',
+                padding: '6px 12px'
               }}
             >
-              <div
-                id="fast-timer-fill"
-                style={{
-                  height: '100%',
-                  width: `${(remainingSec / durationSec) * 100}%`,
-                  background: remainingSec > 12
-                    ? 'linear-gradient(90deg, #10b981, #34d399)'
-                    : remainingSec > 6
-                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                    : 'linear-gradient(90deg, #ef4444, #f87171)',
-                  transition: 'width 0.1s linear'
-                }}
-              />
+              {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
+                  <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
+                    CÂU {currentQIndex + 1}/{quizList.length || 1}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span style={{ color: '#38bdf8' }}>
+                    {currentQItem.format === 'TRUE_FALSE'
+                      ? 'Dạng thức II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)'
+                      : currentQItem.format === 'SHORT_ANSWER'
+                      ? 'Dạng thức III: Trắc nghiệm Trả lời ngắn'
+                      : 'Dạng thức I: Trắc nghiệm 4 phương án lựa chọn'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span style={{ color: '#cbd5e1' }}>
+                    Đã trả lời: <b style={{ color: '#4ade80' }}>{matchState.redAnsweredIds.length + matchState.blueAnsweredIds.length}</b>/{matchState.gameType === 'BELL' ? bellAliveCount : allPlayers.length} HS
+                  </span>
+                  {matchState.firstBloodPlayerName && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span style={{ color: '#facc15', fontWeight: 900 }}>
+                        ⚡ Tia chớp: {matchState.firstBloodPlayerName}
+                      </span>
+                    </>
+                  )}
+                  {matchState.activeWorldEvent === 'GOLDEN_X2' && (
+                    <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', padding: '1px 8px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 900 }}>
+                      🌟 X2 ĐIỂM &amp; SỨC MẠNH
+                    </span>
+                  )}
+                  {isAutoRevealed && (
+                    <span style={{
+                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                      color: '#ffffff',
+                      padding: '2px 9px',
+                      borderRadius: '999px',
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)',
+                      animation: 'pulse 1s infinite'
+                    }}>
+                      ⚡ CÒN 2S: TỰ ĐỘNG HIỆN ĐÁP ÁN ĐÚNG!
+                    </span>
+                  )}
+                </div>
+
+                {/* Điều hướng câu hỏi & Đồng hồ đếm ngược */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{
+                    fontSize: '13.5px',
+                    fontWeight: 900,
+                    color: remainingSec > 10 ? '#34d399' : remainingSec > 5 ? '#fbbf24' : '#f87171',
+                    marginRight: '4px'
+                  }}>
+                    ⏱️ {remainingSec.toFixed(1)}s
+                  </span>
+                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(-1)}>
+                    ◀ Trước
+                  </button>
+                  <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
+                    Tiếp ▶
+                  </button>
+                  <button
+                    className="hq-nav-btn"
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: '12px',
+                      background: isSpeakingTTS ? '#dc2626' : '#0284c7',
+                      borderColor: '#7dd3fc',
+                      color: '#fff',
+                      fontWeight: 800
+                    }}
+                    onClick={handleReadQuestionAloud}
+                    title={
+                      hasViVoice === false
+                        ? 'Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành, nếu không giọng đọc sẽ sai dấu'
+                        : 'Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt'
+                    }
+                  >
+                    {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
+                  </button>
+                  {/* Đợt 4 (GĐ3.2 + 3.3): tốc độ đọc, tự động đọc câu mới, công tắc TTS phía học sinh */}
+                  <select
+                    value={ttsRate}
+                    onChange={(e) => setTtsRate(parseFloat(e.target.value))}
+                    title="Tốc độ đọc đề"
+                    style={{ padding: '3px 4px', fontSize: '12px', borderRadius: '6px', background: '#0f172a', color: '#e2e8f0', border: '1px solid #475569' }}
+                  >
+                    <option value={0.9}>0.9×</option>
+                    <option value={1.0}>1.0×</option>
+                    <option value={1.1}>1.1×</option>
+                  </select>
+                  <label
+                    title="Tự động đọc đề mỗi khi sang câu mới"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ttsAutoRead}
+                      onChange={(e) => setTtsAutoRead(e.target.checked)}
+                    />
+                    Tự đọc câu mới
+                  </label>
+                  <label
+                    title="Bật: máy học sinh hiện nút 🔊 và tự đọc đồng bộ khi thầy bấm Đọc Đề. Tắt (mặc định): học sinh không nghe đọc đề."
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={matchState.settings?.ttsStudentEnabled === true}
+                      onChange={(e) =>
+                        onUpdateMatchState((prev) => ({
+                          ...prev,
+                          settings: { ...prev.settings, ttsStudentEnabled: e.target.checked }
+                        }))
+                      }
+                    />
+                    Đọc đề trên máy học sinh
+                  </label>
+                  {hasViVoice === false && (
+                    <span
+                      style={{ fontSize: '11.5px', fontWeight: 800, color: '#fbbf24' }}
+                      title="Máy tính này chưa cài giọng đọc tiếng Việt nên TTS sẽ đọc sai dấu. Hãy cài giọng tiếng Việt trong Cài đặt hệ điều hành (Windows: Settings → Time & language → Speech; Android: Cài đặt → Văn bản thành giọng nói)."
+                    >
+                      ⚠️ Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành
+                    </span>
+                  )}
+                  <button
+                    className="hq-nav-btn"
+                    id="hq-reveal-btn"
+                    style={{ padding: '3px 10px', fontSize: '12px', background: isReviewMode ? '#d97706' : '#059669', borderColor: '#6ee7b7', color: '#fff' }}
+                    onClick={handleToggleReviewMode}
+                  >
+                    {isReviewMode ? '🙈 Ẩn Đáp Án' : '👁️ Đáp Án'}
+                  </button>
+                  <button
+                    className="hq-nav-btn"
+                    style={{ padding: '3px 10px', fontSize: '12px', background: '#4f46e5', borderColor: '#a5b4fc', color: '#fff', fontWeight: 800 }}
+                    onClick={handleRequestAIExplanation}
+                  >
+                    💡 Giải Thích
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         );
