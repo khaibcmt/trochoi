@@ -579,7 +579,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     • <b>🚀 Bấm Bắt Đầu kéo 100% học sinh đồng loạt:</b> Ngay khi Giáo viên nhấn nút <b>&ldquo;🚀 BẮT ĐẦU TRẬN ĐẤU&rdquo;</b>, hệ thống tự động kéo 100% học sinh từ Sảnh và Phòng chờ vào phòng thi, mở khóa đáp án và đồng bộ cùng 1 câu hỏi tại cùng 1 thời điểm.<br />
                     • <b>🔄 Đồng bộ câu hỏi tuyệt đối giữa Giáo viên &amp; Học sinh:</b> Học sinh sau khi chốt đáp án sẽ đợi Thầy/Cô chuyển câu để cả lớp luôn làm cùng 1 câu hỏi với màn hình máy chiếu, không bao giờ xảy ra lệch câu hỏi.<br />
                     • <b>🧲 Nút &ldquo;Kéo HS Vào Chờ&rdquo; (1-Click):</b> Nằm ngay trên thanh điều khiển phòng đấu giúp kéo toàn bộ học sinh vào phòng chờ chuẩn bị sẵn sàng trước giờ G.<br />
-                    • <b>🔊 Đọc Đề Tự Động &amp; 💡 AI Giải Thích:</b> Giọng MC đọc to câu hỏi và AI giải thích bản chất kiến thức kèm mẹo nhớ nhanh sau mỗi câu.
+                    • <b>💡 AI Giải Thích:</b> AI giải thích bản chất kiến thức kèm mẹo nhớ nhanh sau mỗi câu.
                   </div>
                 </div>
 
