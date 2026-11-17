@@ -364,41 +364,477 @@ export function normalizeWordMathUnicode(raw: string): string {
   return out;
 }
 
-// Chuyển đổi các thẻ phương trình Toán học của Microsoft Word (<m:oMath>, <m:f>, <m:rad>, <m:sSub>, <m:sSup>) sang LaTeX chuẩn
-function convertWordOMMLToLatex(html: string): string {
+// ============================================================================
+// Chuyển đổi phương trình Word (OMML) sang LaTeX — ĐỆ QUY trên cây OMML.
+// Hỗ trợ: m:f (phân số, lồng nhau), m:rad (căn thường + căn bậc n qua m:deg),
+// m:sSup / m:sSub / m:sSubSup / m:sPre, m:nary (∑/∏/∫… kèm cận dưới/trên),
+// m:d (ngoặc phân cách \left…\right theo ký tự ngoặc thật; ma trận trong ngoặc
+// -> pmatrix/bmatrix…), m:acc (dấu trên đầu: \vec, \hat, \tilde, \overline,
+// \dot, \ddot), m:eqArr (hệ phương trình -> \begin{cases}), m:matrix
+// (-> \begin{matrix}), m:limLow / m:limUpp (giới hạn), m:bar (\overline /
+// \underline), m:groupChr (\overbrace / \underbrace / \overrightarrow…),
+// m:func (sin/cos/log/lim…). Các thẻ *Pr (thuộc tính) bị bỏ qua; thẻ lạ thì
+// đệ quy vào con để không bao giờ làm mất chữ.
+// Đầu ra là LaTeX trần ($...$ cho m:oMath inline, $$...$$ cho m:oMathPara)
+// để dùng chung cho extractNormalizedLines và đường dán trong TeacherSetupView.
+// ============================================================================
+
+interface OmmlNode {
+  tag: string;
+  attrs: Record<string, string>;
+  children: Array<OmmlNode | string>;
+}
+
+const OMML_PROP_TAGS = new Set([
+  'm:fpr', 'm:radpr', 'm:ssuppr', 'm:ssubpr', 'm:ssubsuppr', 'm:sprepr',
+  'm:narypr', 'm:dpr', 'm:accpr', 'm:eqarrpr', 'm:mpr', 'm:limlowpr',
+  'm:limupppr', 'm:barpr', 'm:groupchrpr', 'm:funcpr', 'm:boxpr',
+  'm:borderboxpr', 'm:ctrlpr', 'm:rpr', 'w:rpr', 'm:phantpr'
+]);
+
+function decodeOmmlAttrEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function parseOmmlAttrs(attrRaw: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const re = /([A-Za-z0-9_:.\-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(attrRaw)) !== null) {
+    attrs[m[1].toLowerCase()] = decodeOmmlAttrEntities(m[2] !== undefined ? m[2] : m[3] || '');
+  }
+  return attrs;
+}
+
+// Parser XML/HTML nhẹ, không cần DOM (chạy được cả trong Node khi kiểm chứng):
+// dựng cây từ một đoạn OMML; text giữa các thẻ được giữ nguyên (kể cả entity
+// HTML như &lt; để các pipeline HTML phía sau tự giải mã đúng ngữ cảnh).
+function parseOmmlFragment(fragment: string): Array<OmmlNode | string> {
+  const root: OmmlNode = { tag: '#root', attrs: {}, children: [] };
+  const stack: OmmlNode[] = [root];
+  const tagRe = /<(\/?)([A-Za-z][A-Za-z0-9_:.\-]*)((?:\s[^<>]*?)?)(\/?)>/g;
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  const pushText = (txt: string) => {
+    if (txt) stack[stack.length - 1].children.push(txt);
+  };
+  while ((m = tagRe.exec(fragment)) !== null) {
+    pushText(fragment.slice(lastIdx, m.index));
+    lastIdx = tagRe.lastIndex;
+    const isClose = m[1] === '/';
+    const tag = m[2].toLowerCase();
+    const selfClose = m[4] === '/';
+    if (isClose) {
+      // Đóng thẻ: lui stack tới thẻ khớp (bỏ qua thẻ lạc không khớp)
+      for (let i = stack.length - 1; i >= 1; i--) {
+        if (stack[i].tag === tag) {
+          stack.length = i;
+          break;
+        }
+      }
+      continue;
+    }
+    const node: OmmlNode = { tag, attrs: parseOmmlAttrs(m[3] || ''), children: [] };
+    stack[stack.length - 1].children.push(node);
+    if (!selfClose) stack.push(node);
+  }
+  pushText(fragment.slice(lastIdx));
+  return root.children;
+}
+
+const OMML_SYMBOL_MAP: Record<string, string> = {
+  'α': '\\alpha ', 'β': '\\beta ', 'γ': '\\gamma ', 'δ': '\\delta ',
+  'ε': '\\epsilon ', 'ζ': '\\zeta ', 'η': '\\eta ', 'θ': '\\theta ',
+  'ι': '\\iota ', 'κ': '\\kappa ', 'λ': '\\lambda ', 'μ': '\\mu ',
+  'ν': '\\nu ', 'ξ': '\\xi ', 'π': '\\pi ', 'ρ': '\\rho ',
+  'σ': '\\sigma ', 'τ': '\\tau ', 'υ': '\\upsilon ', 'φ': '\\phi ',
+  'χ': '\\chi ', 'ψ': '\\psi ', 'ω': '\\omega ',
+  'Γ': '\\Gamma ', 'Δ': '\\Delta ', 'Θ': '\\Theta ', 'Λ': '\\Lambda ',
+  'Ξ': '\\Xi ', 'Π': '\\Pi ', 'Σ': '\\Sigma ', 'Φ': '\\Phi ',
+  'Ψ': '\\Psi ', 'Ω': '\\Omega ',
+  '∞': '\\infty ', '→': '\\to ', '←': '\\leftarrow ', '↔': '\\leftrightarrow ',
+  '⇒': '\\Rightarrow ', '⇐': '\\Leftarrow ', '⇔': '\\Leftrightarrow ',
+  '≤': '\\le ', '≥': '\\ge ', '≠': '\\ne ', '≈': '\\approx ',
+  '≡': '\\equiv ', '±': '\\pm ', '∓': '\\mp ', '×': '\\times ',
+  '÷': '\\div ', '·': '\\cdot ', '∘': '\\circ ', '∈': '\\in ',
+  '∉': '\\notin ', '⊂': '\\subset ', '⊆': '\\subseteq ', '∪': '\\cup ',
+  '∩': '\\cap ', '∅': '\\emptyset ', '∀': '\\forall ', '∃': '\\exists ',
+  '∑': '\\sum ', '∏': '\\prod ', '∫': '\\int ', '∮': '\\oint ',
+  '∂': '\\partial ', '∇': '\\nabla ', '√': '\\sqrt ', '−': '-',
+  '′': "'", '″': "''", '…': '\\ldots ', '⋯': '\\cdots '
+};
+
+function ommlTextToLatex(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    out += OMML_SYMBOL_MAP[ch] !== undefined ? OMML_SYMBOL_MAP[ch] : ch;
+  }
+  return out;
+}
+
+function ommlChild(node: OmmlNode, tag: string): OmmlNode | null {
+  for (const c of node.children) {
+    if (typeof c !== 'string' && c.tag === tag) return c;
+  }
+  return null;
+}
+
+function ommlChildren(node: OmmlNode, tag: string): OmmlNode[] {
+  return node.children.filter((c): c is OmmlNode => typeof c !== 'string' && c.tag === tag);
+}
+
+// Đọc thuộc tính kiểu <m:xxxPr><m:chr m:val="…"/></m:xxxPr> hoặc m:val trực tiếp
+function ommlPropVal(node: OmmlNode, propTag: string, innerTag: string): string | null {
+  const prop = ommlChild(node, propTag);
+  if (!prop) return null;
+  const inner = ommlChild(prop, innerTag);
+  if (!inner) return null;
+  const v = inner.attrs['m:val'] !== undefined ? inner.attrs['m:val'] : inner.attrs['val'];
+  return v !== undefined ? v : null;
+}
+
+function ommlConvertChildren(node: OmmlNode): string {
+  return node.children.map(c => (typeof c === 'string' ? ommlTextToLatex(c) : ommlConvertNode(c))).join('');
+}
+
+function ommlConvertChild(node: OmmlNode, tag: string): string {
+  const child = ommlChild(node, tag);
+  return child ? ommlConvertChildren(child).trim() : '';
+}
+
+function ommlBrace(content: string): string {
+  return `{${content}}`;
+}
+
+// Ký tự ngoặc của m:d -> dạng LaTeX dùng sau \left / \right ('' = không có ngoặc)
+function ommlDelimToLatex(ch: string | null, fallback: string): string {
+  const c = ch === null ? fallback : ch;
+  switch (c) {
+    case '': return '.';
+    case '(': return '(';
+    case ')': return ')';
+    case '[': return '[';
+    case ']': return ']';
+    case '{': return '\\{';
+    case '}': return '\\}';
+    case '|': return '|';
+    case '‖': return '\\|';
+    case '⟨': case '〈': return '\\langle ';
+    case '⟩': case '〉': return '\\rangle ';
+    case '⌊': return '\\lfloor ';
+    case '⌋': return '\\rfloor ';
+    case '⌈': return '\\lceil ';
+    case '⌉': return '\\rceil ';
+    default: return c;
+  }
+}
+
+function ommlMatrixRows(matrixNode: OmmlNode): string {
+  return ommlChildren(matrixNode, 'm:mr')
+    .map(row => ommlChildren(row, 'm:e').map(cell => ommlConvertChildren(cell).trim()).join(' & '))
+    .join(' \\\\ ');
+}
+
+function ommlFindMatrix(node: OmmlNode): OmmlNode | null {
+  if (node.tag === 'm:matrix') return node;
+  for (const c of node.children) {
+    if (typeof c !== 'string') {
+      const found = ommlFindMatrix(c);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function ommlConvertNode(node: OmmlNode): string {
+  const tag = node.tag;
+  if (OMML_PROP_TAGS.has(tag)) return '';
+
+  switch (tag) {
+    case 'm:t':
+      return ommlConvertChildren(node);
+    case 'm:r':
+    case 'm:omath':
+    case 'm:omathpara':
+      return ommlConvertChildren(node);
+    // Các thẻ "hộp chứa" một thành phần: bóc vỏ, đệ quy vào trong
+    case 'm:e':
+    case 'm:num':
+    case 'm:den':
+    case 'm:sub':
+    case 'm:sup':
+    case 'm:deg':
+    case 'm:lim':
+    case 'm:fname':
+      return ommlConvertChildren(node);
+
+    case 'm:f': {
+      const num = ommlConvertChild(node, 'm:num');
+      const den = ommlConvertChild(node, 'm:den');
+      const type = (ommlPropVal(node, 'm:fpr', 'm:type') || '').toLowerCase();
+      const cmd = type === 'lin' ? '\\tfrac' : '\\frac';
+      return `${cmd}${ommlBrace(num)}${ommlBrace(den)}`;
+    }
+
+    case 'm:rad': {
+      const deg = ommlConvertChild(node, 'm:deg');
+      const expr = ommlConvertChild(node, 'm:e');
+      return deg ? `\\sqrt[${deg}]${ommlBrace(expr)}` : `\\sqrt${ommlBrace(expr)}`;
+    }
+
+    case 'm:ssup': {
+      const base = ommlConvertChild(node, 'm:e');
+      const sup = ommlConvertChild(node, 'm:sup');
+      return sup ? `${base}^{${sup}}` : base;
+    }
+    case 'm:ssub': {
+      const base = ommlConvertChild(node, 'm:e');
+      const sub = ommlConvertChild(node, 'm:sub');
+      return sub ? `${base}_{${sub}}` : base;
+    }
+    case 'm:ssubsup': {
+      const base = ommlConvertChild(node, 'm:e');
+      const sub = ommlConvertChild(node, 'm:sub');
+      const sup = ommlConvertChild(node, 'm:sup');
+      return `${base}${sub ? `_{${sub}}` : ''}${sup ? `^{${sup}}` : ''}`;
+    }
+    case 'm:spre': {
+      const base = ommlConvertChild(node, 'm:e');
+      const sub = ommlConvertChild(node, 'm:sub');
+      const sup = ommlConvertChild(node, 'm:sup');
+      return `${sub || sup ? `{}_{${sub}}^{${sup}}` : ''}${base}`;
+    }
+
+    case 'm:nary': {
+      const chr = ommlPropVal(node, 'm:narypr', 'm:chr');
+      const opMap: Record<string, string> = {
+        '∑': '\\sum', '∏': '\\prod', '∫': '\\int', '∮': '\\oint',
+        '∐': '\\coprod', '⋃': '\\bigcup', '⋂': '\\bigcap',
+        '⋁': '\\bigvee', '⋀': '\\bigwedge', '⨁': '\\bigoplus', '⨂': '\\bigotimes'
+      };
+      const op = chr === null || chr === '' ? '\\int' : opMap[chr] || ommlTextToLatex(chr).trim();
+      const sub = ommlConvertChild(node, 'm:sub');
+      const sup = ommlConvertChild(node, 'm:sup');
+      const body = ommlConvertChild(node, 'm:e');
+      return `${op}${sub ? `_{${sub}}` : ''}${sup ? `^{${sup}}` : ''}${body ? ` ${body}` : ''}`;
+    }
+
+    case 'm:d': {
+      const begChr = ommlPropVal(node, 'm:dpr', 'm:begchr');
+      const endChr = ommlPropVal(node, 'm:dpr', 'm:endchr');
+      const sepChr = ommlPropVal(node, 'm:dpr', 'm:sepchr');
+      const eChildren = ommlChildren(node, 'm:e');
+
+      // Hệ phương trình bên trong ngoặc: \begin{cases} đã tự mang ngoặc, không bọc thêm
+      if (eChildren.length === 1) {
+        const only = ommlConvertChildren(eChildren[0]).trim();
+        if (/^\\begin\{cases\}/.test(only)) return only;
+      }
+
+      // Ma trận trong ngoặc -> môi trường ma trận có ngoặc tương ứng
+      const matrix = eChildren.length === 1 ? ommlFindMatrix(eChildren[0]) : null;
+      if (matrix && eChildren[0].children.length === 1) {
+        const rows = ommlMatrixRows(matrix);
+        const pair = `${begChr === null ? '(' : begChr}|${endChr === null ? ')' : endChr}`;
+        const envMap: Record<string, string> = {
+          '(|)': 'pmatrix', '[|]': 'bmatrix', '{|}': 'Bmatrix',
+          '||': 'vmatrix', '‖|‖': 'Vmatrix'
+        };
+        const env = envMap[pair];
+        if (env) return `\\begin{${env}}${rows}\\end{${env}}`;
+        if (pair === '|') return `\\begin{matrix}${rows}\\end{matrix}`;
+      }
+
+      const sep = sepChr === null ? '' : ommlDelimToLatex(sepChr, '');
+      const inner = eChildren
+        .map(e => ommlConvertChildren(e).trim())
+        .join(sep && sep !== '.' ? sep : ' ');
+      const beg = ommlDelimToLatex(begChr, '(');
+      const end = ommlDelimToLatex(endChr, ')');
+      return `\\left${beg}${inner}\\right${end}`;
+    }
+
+    case 'm:acc': {
+      const chr = ommlPropVal(node, 'm:accpr', 'm:chr');
+      const base = ommlConvertChild(node, 'm:e');
+      const accMap: Record<string, string> = {
+        '⃗': '\\vec', '→': '\\vec',
+        '^': '\\hat', 'ˆ': '\\hat', '\u0302': '\\hat',
+        '~': '\\tilde', '˜': '\\tilde', '\u0303': '\\tilde',
+        '¯': '\\overline', 'ˉ': '\\overline', '\u0305': '\\overline', '\u0304': '\\overline',
+        '˙': '\\dot', '\u0307': '\\dot',
+        '¨': '\\ddot', '\u0308': '\\ddot',
+        '´': '\\acute', '`': '\\grave', '˘': '\\breve', 'ˇ': '\\check'
+      };
+      const cmd = chr === null || chr === '' ? '\\hat' : accMap[chr];
+      if (cmd) return `${cmd}${ommlBrace(base)}`;
+      return `\\overset{${ommlTextToLatex(chr || '')}}{${base}}`;
+    }
+
+    case 'm:eqarr': {
+      const rows = ommlChildren(node, 'm:e').map(e => ommlConvertChildren(e).trim());
+      return `\\begin{cases}${rows.join(' \\\\ ')}\\end{cases}`;
+    }
+
+    case 'm:matrix': {
+      return `\\begin{matrix}${ommlMatrixRows(node)}\\end{matrix}`;
+    }
+    case 'm:mr': {
+      return ommlChildren(node, 'm:e').map(cell => ommlConvertChildren(cell).trim()).join(' & ');
+    }
+
+    case 'm:limlow': {
+      const base = ommlConvertChild(node, 'm:e');
+      const lim = ommlConvertChild(node, 'm:lim');
+      const namedOps: Record<string, string> = {
+        lim: '\\lim', max: '\\max', min: '\\min', sup: '\\sup',
+        inf: '\\inf', limsup: '\\limsup', liminf: '\\liminf'
+      };
+      const op = namedOps[base.toLowerCase()] || base;
+      return lim ? `${op}_{${lim}}` : op;
+    }
+    case 'm:limupp': {
+      const base = ommlConvertChild(node, 'm:e');
+      const lim = ommlConvertChild(node, 'm:lim');
+      const namedOps: Record<string, string> = { lim: '\\lim', max: '\\max', min: '\\min', sup: '\\sup', inf: '\\inf' };
+      const op = namedOps[base.toLowerCase()] || base;
+      return lim ? `${op}^{${lim}}` : op;
+    }
+
+    case 'm:bar': {
+      const base = ommlConvertChild(node, 'm:e');
+      const pos = (ommlPropVal(node, 'm:barpr', 'm:pos') || 'top').toLowerCase();
+      return pos === 'bot' || pos === 'bottom' ? `\\underline${ommlBrace(base)}` : `\\overline${ommlBrace(base)}`;
+    }
+
+    case 'm:groupchr': {
+      const chr = ommlPropVal(node, 'm:groupchrpr', 'm:chr') || '';
+      const pos = (ommlPropVal(node, 'm:groupchrpr', 'm:pos') || 'top').toLowerCase();
+      const base = ommlConvertChild(node, 'm:e');
+      const isTop = pos !== 'bot' && pos !== 'bottom';
+      if (chr === '⏞' || chr === '\u23de') return isTop ? `\\overbrace${ommlBrace(base)}` : `\\underbrace${ommlBrace(base)}`;
+      if (chr === '⏟' || chr === '\u23df') return `\\underbrace${ommlBrace(base)}`;
+      if (chr === '¯' || chr === '‾' || chr === '\u0305') return `\\overline${ommlBrace(base)}`;
+      if (chr === '_' || chr === '‗') return `\\underline${ommlBrace(base)}`;
+      if (chr === '→' || chr === '⃗') return isTop ? `\\overrightarrow${ommlBrace(base)}` : `\\underrightarrow${ommlBrace(base)}`;
+      if (chr === '←') return isTop ? `\\overleftarrow${ommlBrace(base)}` : `\\underleftarrow${ommlBrace(base)}`;
+      if (chr === '^' || chr === 'ˆ') return `\\hat${ommlBrace(base)}`;
+      if (!chr) return base;
+      const chrLatex = ommlTextToLatex(chr).trim();
+      return isTop ? `\\overset{${chrLatex}}{${base}}` : `\\underset{${chrLatex}}{${base}}`;
+    }
+
+    case 'm:func': {
+      const fname = ommlConvertChild(node, 'm:fname');
+      const arg = ommlConvertChild(node, 'm:e');
+      const known = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'lg', 'exp', 'lim', 'max', 'min', 'sup', 'inf', 'det', 'gcd', 'arg', 'deg'];
+      const cmd = known.includes(fname.toLowerCase()) ? `\\${fname.toLowerCase()}` : fname;
+      return arg ? `${cmd} ${arg}` : cmd;
+    }
+
+    case 'm:borderbox':
+    case 'm:box':
+      return ommlConvertChildren(node);
+
+    default:
+      // Thẻ lạ (kể cả w:r / w:t lọt vào vùng toán): đệ quy vào con, không mất chữ
+      return ommlConvertChildren(node);
+  }
+}
+
+// Tìm một phần tử theo tên thẻ trong chuỗi (có đếm lồng cùng thẻ) và trả về
+// [vị trí bắt đầu, vị trí kết thúc (sau thẻ đóng), đoạn con bên trong]
+function findOmmlElementRange(s: string, tagName: string, fromIdx: number): [number, number, string] | null {
+  const openRe = new RegExp(`<${tagName}\\b[^>]*?(/?)>`, 'i');
+  const rest = s.slice(fromIdx);
+  const openMatch = openRe.exec(rest);
+  if (!openMatch) return null;
+  const start = fromIdx + openMatch.index;
+  const openEnd = start + openMatch[0].length;
+  if (openMatch[1] === '/') return [start, openEnd, ''];
+  const scanRe = new RegExp(`<(/?)${tagName}\\b[^>]*?(/?)>`, 'gi');
+  scanRe.lastIndex = openEnd;
+  let depth = 1;
+  let sm: RegExpExecArray | null;
+  while ((sm = scanRe.exec(s)) !== null) {
+    if (sm[1] === '/') {
+      depth--;
+      if (depth === 0) {
+        return [start, scanRe.lastIndex, s.slice(openEnd, sm.index)];
+      }
+    } else if (sm[2] !== '/') {
+      depth++;
+    }
+  }
+  return null;
+}
+
+function ommlFragmentToLatex(fragment: string): string {
+  const nodes = parseOmmlFragment(fragment);
+  return nodes
+    .map(n => (typeof n === 'string' ? ommlTextToLatex(n) : ommlConvertNode(n)))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const OMML_STRAY_TAGS = [
+  'm:eqArr', 'm:nary', 'm:sSubSup', 'm:sSub', 'm:sSup', 'm:sPre',
+  'm:rad', 'm:groupChr', 'm:limLow', 'm:limUpp', 'm:matrix',
+  'm:func', 'm:acc', 'm:bar', 'm:d', 'm:f'
+];
+
+export function convertWordOMMLToLatex(html: string): string {
   if (!html || !/<m:/i.test(html)) return html;
   let s = html;
-  // Phân số <m:f>...<m:num>A</m:num><m:den>B</m:den></m:f>
-  s = s.replace(/<m:f\b[^>]*>[\s\S]*?<m:num\b[^>]*>([\s\S]*?)<\/m:num>[\s\S]*?<m:den\b[^>]*>([\s\S]*?)<\/m:den>[\s\S]*?<\/m:f>/gi, (_m, num, den) => {
-    const cleanNum = num.replace(/<[^>]+>/g, '').trim();
-    const cleanDen = den.replace(/<[^>]+>/g, '').trim();
-    return ` $\\frac{${cleanNum}}{${cleanDen}}$ `;
-  });
-  // Căn thức <m:rad>...<m:deg>n</m:deg><m:e>X</m:e></m:rad>
-  s = s.replace(/<m:rad\b[^>]*>[\s\S]*?<m:deg\b[^>]*>([\s\S]*?)<\/m:deg>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<\/m:rad>/gi, (_m, deg, expr) => {
-    const cleanDeg = deg.replace(/<[^>]+>/g, '').trim();
-    const cleanExpr = expr.replace(/<[^>]+>/g, '').trim();
-    return cleanDeg ? ` $\\sqrt[${cleanDeg}]{${cleanExpr}}$ ` : ` $\\sqrt{${cleanExpr}}$ `;
-  });
-  // Chỉ số trên & dưới <m:sSubSup>
-  s = s.replace(/<m:sSubSup\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub\b[^>]*>([\s\S]*?)<\/m:sub>[\s\S]*?<m:sup\b[^>]*>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSubSup>/gi, (_m, base, sub, sup) => {
-    const b = base.replace(/<[^>]+>/g, '').trim();
-    const sb = sub.replace(/<[^>]+>/g, '').trim();
-    const sp = sup.replace(/<[^>]+>/g, '').trim();
-    return `${b}<sub>${sb}</sub><sup>${sp}</sup>`;
-  });
-  // Chỉ số dưới <m:sSub>
-  s = s.replace(/<m:sSub\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sub\b[^>]*>([\s\S]*?)<\/m:sub>[\s\S]*?<\/m:sSub>/gi, (_m, base, sub) => {
-    const b = base.replace(/<[^>]+>/g, '').trim();
-    const sb = sub.replace(/<[^>]+>/g, '').trim();
-    return `${b}<sub>${sb}</sub>`;
-  });
-  // Chỉ số trên <m:sSup>
-  s = s.replace(/<m:sSup\b[^>]*>[\s\S]*?<m:e\b[^>]*>([\s\S]*?)<\/m:e>[\s\S]*?<m:sup\b[^>]*>([\s\S]*?)<\/m:sup>[\s\S]*?<\/m:sSup>/gi, (_m, base, sup) => {
-    const b = base.replace(/<[^>]+>/g, '').trim();
-    const sp = sup.replace(/<[^>]+>/g, '').trim();
-    return `${b}<sup>${sp}</sup>`;
-  });
+
+  // 1. Khối hiển thị riêng đoạn <m:oMathPara> -> $$...$$
+  let guard = 0;
+  while (guard++ < 200) {
+    const range = findOmmlElementRange(s, 'm:oMathPara', 0);
+    if (!range) break;
+    const [start, end, inner] = range;
+    const latex = ommlFragmentToLatex(inner);
+    s = s.slice(0, start) + (latex ? ` $$${latex}$$ ` : '') + s.slice(end);
+  }
+
+  // 2. Công thức inline <m:oMath> -> $...$
+  guard = 0;
+  while (guard++ < 500) {
+    const range = findOmmlElementRange(s, 'm:oMath', 0);
+    if (!range) break;
+    const [start, end, inner] = range;
+    const latex = ommlFragmentToLatex(inner);
+    s = s.slice(0, start) + (latex ? ` $${latex}$ ` : '') + s.slice(end);
+  }
+
+  // 3. Cấu trúc OMML lạc ngoài oMath (bản cũ từng xử lý m:f / m:rad / m:sSub /
+  //    m:sSup rời): chuyển nốt thành $...$ để tương thích ngược.
+  guard = 0;
+  while (guard++ < 500 && /<m:/i.test(s)) {
+    let replaced = false;
+    for (const strayTag of OMML_STRAY_TAGS) {
+      const range = findOmmlElementRange(s, strayTag, 0);
+      if (range) {
+        const [start, end, inner] = range;
+        const openTagEnd = s.indexOf('>', start) + 1;
+        const fragment = s.slice(start, openTagEnd) + inner + `</${strayTag}>`;
+        const latex = ommlFragmentToLatex(fragment);
+        s = s.slice(0, start) + (latex ? ` $${latex}$ ` : '') + s.slice(end);
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) break;
+  }
+
   return s;
 }
 
@@ -2236,7 +2672,19 @@ export function parseHTMLToQuiz(
     .filter(item => !isBogusWordGarbageQuestion(item) && item.q.length > 0 && item.opts.length >= 1)
     .map((item, idx) => ({
       ...item,
-      qid: idx
+      qid: idx,
+      // Đợt 4 (GĐ3.4): chuẩn hoá NFC tại điểm ra của parser để MỌI đường nạp
+      // (dán / file / JSON) đều cho chữ tiếng Việt dựng sẵn, hết lệch NFD khi
+      // tìm kiếm / đối sánh / hiển thị.
+      q: (item.q || '').normalize('NFC'),
+      opts: (item.opts || []).map(o => String(o || '').normalize('NFC')),
+      tfItems: item.tfItems
+        ? item.tfItems.map(tf => ({ ...tf, text: (tf.text || '').normalize('NFC') }))
+        : item.tfItems,
+      shortAnswer:
+        typeof item.shortAnswer === 'string' ? item.shortAnswer.normalize('NFC') : item.shortAnswer,
+      explanation:
+        typeof item.explanation === 'string' ? item.explanation.normalize('NFC') : item.explanation
     }));
 }
 
