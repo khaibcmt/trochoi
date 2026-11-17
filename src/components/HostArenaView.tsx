@@ -18,6 +18,12 @@ import {
 } from '../data/defaultSubjects';
 import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
+import { getOrCreateRoomKey } from '../utils/commandSign';
+import {
+  buildSpeechText,
+  speakVietnameseText,
+  subscribeVietnameseVoice
+} from '../utils/speechText';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
@@ -105,6 +111,35 @@ export const HostArenaView: React.FC<Props> = ({
   const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
   const demoBotIntervalRef = useRef<any>(null);
 
+  // Đợt 4 (GĐ3.2): tốc độ đọc + tự động đọc câu mới (mặc định tắt) + trạng thái giọng Việt.
+  // hasViVoice = null nghĩa là trình duyệt chưa nạp xong danh sách giọng (chưa kết luận).
+  const [ttsRate, setTtsRate] = useState<number>(1.0);
+  const [ttsAutoRead, setTtsAutoRead] = useState<boolean>(false);
+  const [hasViVoice, setHasViVoice] = useState<boolean | null>(null);
+  const ttsRateRef = useRef<number>(1.0);
+  const ttsAutoReadRef = useRef<boolean>(false);
+  const lastAutoReadQIndexRef = useRef<number>(-1);
+  useEffect(() => {
+    ttsRateRef.current = ttsRate;
+  }, [ttsRate]);
+  useEffect(() => {
+    ttsAutoReadRef.current = ttsAutoRead;
+    if (ttsAutoRead) {
+      // Vừa bật: không đọc lại câu đang hiển thị, chỉ đọc từ câu MỚI tiếp theo.
+      lastAutoReadQIndexRef.current = matchState.globalQIndex;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsAutoRead]);
+  useEffect(() => {
+    return subscribeVietnameseVoice((voice) => {
+      const voicesLoaded =
+        typeof window !== 'undefined' &&
+        'speechSynthesis' in window &&
+        window.speechSynthesis.getVoices().length > 0;
+      setHasViVoice(voicesLoaded ? !!voice : null);
+    });
+  }, []);
+
   // Floating cheers & Multi-Server Network Telemetry
   const [floatingCheers, setFloatingCheers] = useState<{ id: string; emoji: string; left: number }[]>([]);
   const [netTelemetry, setNetTelemetry] = useState<NetworkTelemetry>(() => CloudNetwork.getTelemetry());
@@ -155,14 +190,36 @@ export const HostArenaView: React.FC<Props> = ({
 
   // 3D Tag coordinates projected onto 2D screen
   const [labelCoords, setLabelCoords] = useState<Record<string, { x: number; y: number }>>({});
+  // Đợt 8 (4D): mốc + bản nhãn gần nhất đã đẩy lên React state (phục vụ throttle ở animate()).
+  const lastLabelUpdateRef = useRef(0);
+  const lastLabelCoordsRef = useRef<Record<string, { x: number; y: number }>>({});
+  // Đợt 8 (4D): POOL nhân vật 3D theo id học sinh — điểm đổi không còn dựng lại toàn bộ
+  // nhân vật; nhân vật rời sàn mới bị dispose geometry/material và loại khỏi pool.
+  const charPoolRef = useRef<Map<string, THREE.Group>>(new Map());
+  const disposeCharacterGroup = (g: THREE.Group) => {
+    g.traverse((obj: any) => {
+      if (obj.geometry && typeof obj.geometry.dispose === 'function') {
+        obj.geometry.dispose();
+      }
+      if (obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m: any) => {
+          if (m && typeof m.dispose === 'function') m.dispose();
+        });
+      }
+    });
+  };
 
   // Generate QR URLs
   useEffect(() => {
     const base = getStudentShareBaseUrl();
     const gmFlag = matchState.gameType === 'FAST' ? '&gm=F' : (matchState.gameType === 'BELL' ? '&gm=B' : (matchState.gameType === 'BOSS' ? '&gm=BOSS' : '&gm=TUG'));
     const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
-    const rUrl = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
-    const bUrl = `${base}?r=${activeRoomId}&role=player&t=B${gmFlag}&bk=${bkIdx}`;
+    // Đợt 8 (4C.2): nhúng KHOÁ PHÒNG vào link QR (tham số k) — HS dùng khoá này kiểm
+    // tra chữ ký HMAC của lệnh điều khiển do host ký, chặn lệnh giả trên broker công cộng.
+    const roomKey = getOrCreateRoomKey(activeRoomId);
+    const rUrl = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}&k=${roomKey}`;
+    const bUrl = `${base}?r=${activeRoomId}&role=player&t=B${gmFlag}&bk=${bkIdx}&k=${roomKey}`;
     setQrRedUrl(rUrl);
     setQrBlueUrl(bUrl);
 
@@ -928,7 +985,30 @@ export const HostArenaView: React.FC<Props> = ({
       updatePullerAnim(redPullers3D, true);
       updatePullerAnim(bluePullers3D, false);
 
-      setLabelCoords(newCoords);
+      // Đợt 8 (4D): THROTTLE nhãn tên — trước đây setLabelCoords chạy MỖI frame (~60
+      // lần/giây) làm React re-render liên tục. Nay tối đa 10 lần/giây VÀ chỉ khi có
+      // nhãn thật sự đổi đáng kể (>2px) hoặc tập nhãn thay đổi (HS vào/ra sàn).
+      const nowMs = performance.now();
+      if (nowMs - lastLabelUpdateRef.current >= 100) {
+        const prevCoords = lastLabelCoordsRef.current;
+        const newKeys = Object.keys(newCoords);
+        let coordsChanged = newKeys.length !== Object.keys(prevCoords).length;
+        if (!coordsChanged) {
+          for (const k of newKeys) {
+            const a = prevCoords[k];
+            const b = newCoords[k];
+            if (!a || Math.abs(a.x - b.x) > 2 || Math.abs(a.y - b.y) > 2) {
+              coordsChanged = true;
+              break;
+            }
+          }
+        }
+        if (coordsChanged) {
+          lastLabelUpdateRef.current = nowMs;
+          lastLabelCoordsRef.current = newCoords;
+          setLabelCoords(newCoords);
+        }
+      }
       renderer.render(scene, camera);
       threeRef.current.animFrameId = requestAnimationFrame(animate);
     };
@@ -941,6 +1021,10 @@ export const HostArenaView: React.FC<Props> = ({
       if (threeRef.current?.animFrameId) {
         cancelAnimationFrame(threeRef.current.animFrameId);
       }
+      // Đợt 8 (4D): dọn sạch pool nhân vật 3D khi huỷ scene — dispose mọi
+      // geometry/material đã cấp phát cho nhân vật, không rò bộ nhớ GPU.
+      charPoolRef.current.forEach(g => disposeCharacterGroup(g));
+      charPoolRef.current.clear();
       renderer.dispose();
     };
   }, []);
@@ -993,8 +1077,14 @@ export const HostArenaView: React.FC<Props> = ({
     const isFast = matchState.gameType === 'FAST';
     const isBoss = matchState.gameType === 'BOSS';
 
-    let redToRender: Player[] = [];
-    let blueToRender: Player[] = [];
+    // Đợt 8 (4D): POOL nhân vật — effect này chạy lại mỗi khi điểm/DS học sinh đổi,
+    // trước đây MỖI lần đều huỷ toàn bộ và dựng mới mọi nhân vật 3D (không dispose →
+    // rò geometry/material). Nay effect chỉ tính DANH SÁCH + VỊ TRÍ mong muốn
+    // (layout entries), phần đối chiếu pool ở cuối effect tái dùng nhân vật theo id:
+    // nhân vật còn trên sàn được giữ nguyên group (chỉ cập nhật playerData + vị trí),
+    // nhân vật rời sàn mới bị scene.remove + dispose và loại khỏi pool.
+    type LayoutEntry = { p: Player; apply: (g: THREE.Group) => void };
+    const layoutEntries: LayoutEntry[] = [];
 
     if (isBell || isFast || isBoss) {
       // Trong trò Rung Chuông Vàng (BELL): Khi học sinh bị loại thì KHÔNG hiển thị nhân vật ở màn hình chính của giáo viên
@@ -1014,68 +1104,57 @@ export const HostArenaView: React.FC<Props> = ({
       });
 
       const topRender = sortedOverall.slice(0, max3D);
-      redToRender = topRender.filter(p => p.team === 'RED');
-      blueToRender = topRender.filter(p => p.team === 'BLUE');
-
-      // Clear old 3D groups
-      redPullers3D.forEach(g => scene.remove(g));
-      bluePullers3D.forEach(g => scene.remove(g));
-      redPullers3D.length = 0;
-      bluePullers3D.length = 0;
 
       // Position active players systematically on the main screen
       topRender.forEach((p, idx) => {
-        const isRed = p.team === 'RED';
-        const g = createCartoonCharacter(isRed ? 'RED' : 'BLUE', p);
-        g.userData.playerData = p;
-
-        if (isBoss) {
-          // Semi-circle combat formation facing the Boss
-          const ringIdx = Math.floor(idx / 10);
-          const posInRing = idx % 10;
-          const countInRing = Math.min(10, topRender.length - ringIdx * 10);
-          const angle = -Math.PI * 0.68 + (posInRing / Math.max(1, countInRing - 1)) * Math.PI * 1.36;
-          const rad = 5.8 + ringIdx * 1.6;
-          g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
-          g.lookAt(0, 2.5, -2.5);
-        } else if (isBell) {
-          // Golden Bell: Seated on stage in concentric rings
-          let rad = 2.6;
-          let tierY = 0.88;
-          let angle = 0;
-          if (idx < 4) {
-            const count = Math.min(4, topRender.length);
-            rad = 2.5;
-            tierY = 0.88;
-            angle = (idx / Math.max(1, count)) * Math.PI * 2;
-          } else if (idx < 12) {
-            const count = Math.min(8, Math.max(1, topRender.length - 4));
-            rad = 4.6;
-            tierY = 0.53;
-            angle = ((idx - 4) / count) * Math.PI * 2;
-          } else {
-            const count = Math.max(1, topRender.length - 12);
-            rad = 6.3;
-            tierY = 0.22;
-            angle = ((idx - 12) / count) * Math.PI * 2;
+        layoutEntries.push({
+          p,
+          apply: (g) => {
+            if (isBoss) {
+              // Semi-circle combat formation facing the Boss
+              const ringIdx = Math.floor(idx / 10);
+              const posInRing = idx % 10;
+              const countInRing = Math.min(10, topRender.length - ringIdx * 10);
+              const angle = -Math.PI * 0.68 + (posInRing / Math.max(1, countInRing - 1)) * Math.PI * 1.36;
+              const rad = 5.8 + ringIdx * 1.6;
+              g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
+              g.lookAt(0, 2.5, -2.5);
+            } else if (isBell) {
+              // Golden Bell: Seated on stage in concentric rings
+              let rad = 2.6;
+              let tierY = 0.88;
+              let angle = 0;
+              if (idx < 4) {
+                const count = Math.min(4, topRender.length);
+                rad = 2.5;
+                tierY = 0.88;
+                angle = (idx / Math.max(1, count)) * Math.PI * 2;
+              } else if (idx < 12) {
+                const count = Math.min(8, Math.max(1, topRender.length - 4));
+                rad = 4.6;
+                tierY = 0.53;
+                angle = ((idx - 4) / count) * Math.PI * 2;
+              } else {
+                const count = Math.max(1, topRender.length - 12);
+                rad = 6.3;
+                tierY = 0.22;
+                angle = ((idx - 12) / count) * Math.PI * 2;
+              }
+              g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.8);
+              g.userData.baseBellY = tierY;
+              g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
+            } else {
+              // Speed racing: rows of 6 racers
+              const cols = 6;
+              const spacingX = 1.95;
+              const startX = -((cols - 1) * spacingX) / 2;
+              const row = Math.floor(idx / cols);
+              const col = idx % cols;
+              g.position.set(startX + col * spacingX, 0, 1.8 - row * 1.9);
+              g.lookAt(0, 1.5, -6);
+            }
           }
-          g.position.set(Math.cos(angle) * rad, tierY, Math.sin(angle) * rad - 1.8);
-          g.userData.baseBellY = tierY;
-          g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
-        } else {
-          // Speed racing: rows of 6 racers
-          const cols = 6;
-          const spacingX = 1.95;
-          const startX = -((cols - 1) * spacingX) / 2;
-          const row = Math.floor(idx / cols);
-          const col = idx % cols;
-          g.position.set(startX + col * spacingX, 0, 1.8 - row * 1.9);
-          g.lookAt(0, 1.5, -6);
-        }
-
-        scene.add(g);
-        if (isRed) redPullers3D.push(g);
-        else bluePullers3D.push(g);
+        });
       });
     } else {
       // Tug of war: Hiển thị tối đa mỗi đội 12 nhân vật (xếp 2 hàng dọc dây kéo nếu > 5 người)
@@ -1090,49 +1169,83 @@ export const HostArenaView: React.FC<Props> = ({
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
         return sB - sA;
       });
-      redToRender = sortedRed.slice(0, perTeamMax);
-      blueToRender = sortedBlue.slice(0, perTeamMax);
-
-      // Clear old 3D groups
-      redPullers3D.forEach(g => scene.remove(g));
-      bluePullers3D.forEach(g => scene.remove(g));
-      redPullers3D.length = 0;
-      bluePullers3D.length = 0;
+      const redToRender = sortedRed.slice(0, perTeamMax);
+      const blueToRender = sortedBlue.slice(0, perTeamMax);
 
       // Position Red pullers alongside the rope
       redToRender.forEach((p, idx) => {
-        const g = createCartoonCharacter('RED', p);
-        g.userData.playerData = p;
-        const col = idx % 6;
-        const row = Math.floor(idx / 6);
-        const spacing = 1.32;
-        const startX = -1.55 - col * spacing;
-        const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
-        g.position.set(startX, 0, posZ);
-        g.userData.tugBaseX = startX;
-        g.userData.tugBaseZ = posZ;
-        g.rotation.y = Math.PI / 2;
-        scene.add(g);
-        redPullers3D.push(g);
+        layoutEntries.push({
+          p,
+          apply: (g) => {
+            const col = idx % 6;
+            const row = Math.floor(idx / 6);
+            const spacing = 1.32;
+            const startX = -1.55 - col * spacing;
+            const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
+            g.position.set(startX, 0, posZ);
+            g.userData.tugBaseX = startX;
+            g.userData.tugBaseZ = posZ;
+            g.rotation.y = Math.PI / 2;
+          }
+        });
       });
 
       // Position Blue pullers alongside the rope
       blueToRender.forEach((p, idx) => {
-        const g = createCartoonCharacter('BLUE', p);
-        g.userData.playerData = p;
-        const col = idx % 6;
-        const row = Math.floor(idx / 6);
-        const spacing = 1.32;
-        const startX = 1.55 + col * spacing;
-        const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
-        g.position.set(startX, 0, posZ);
-        g.userData.tugBaseX = startX;
-        g.userData.tugBaseZ = posZ;
-        g.rotation.y = -Math.PI / 2;
-        scene.add(g);
-        bluePullers3D.push(g);
+        layoutEntries.push({
+          p,
+          apply: (g) => {
+            const col = idx % 6;
+            const row = Math.floor(idx / 6);
+            const spacing = 1.32;
+            const startX = 1.55 + col * spacing;
+            const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
+            g.position.set(startX, 0, posZ);
+            g.userData.tugBaseX = startX;
+            g.userData.tugBaseZ = posZ;
+            g.rotation.y = -Math.PI / 2;
+          }
+        });
       });
     }
+
+    // Đối chiếu POOL: tái dùng group theo id học sinh (đội/avatar đổi mới dựng lại),
+    // cập nhật playerData + vị trí; group của HS rời khỏi danh sách hiển thị bị gỡ
+    // khỏi scene, DISPOSE geometry/material và loại khỏi pool (pool vì thế không bao
+    // giờ vượt quá số nhân vật đang hiển thị, tối đa max3DRenderCount).
+    const pool = charPoolRef.current;
+    const wantedIds = new Set<string>();
+    redPullers3D.length = 0;
+    bluePullers3D.length = 0;
+    layoutEntries.forEach(({ p, apply }) => {
+      wantedIds.add(p.id);
+      const avatarSig = JSON.stringify(p.avatar || null);
+      let g = pool.get(p.id);
+      if (g && (g.userData.poolTeam !== p.team || g.userData.poolAvatarSig !== avatarSig)) {
+        scene.remove(g);
+        disposeCharacterGroup(g);
+        pool.delete(p.id);
+        g = undefined;
+      }
+      if (!g) {
+        g = createCartoonCharacter(p.team === 'RED' ? 'RED' : 'BLUE', p);
+        g.userData.poolTeam = p.team;
+        g.userData.poolAvatarSig = avatarSig;
+        pool.set(p.id, g);
+      }
+      g.userData.playerData = p;
+      apply(g);
+      if (g.parent !== scene) scene.add(g);
+      if (p.team === 'RED') redPullers3D.push(g);
+      else bluePullers3D.push(g);
+    });
+    Array.from(pool.entries()).forEach(([id, g]) => {
+      if (!wantedIds.has(id)) {
+        scene.remove(g);
+        disposeCharacterGroup(g);
+        pool.delete(id);
+      }
+    });
   }, [matchState.redPlayers, matchState.bluePlayers, matchState.gameType, matchState.settings?.max3DRenderCount]);
 
   // Sync Rope Target Position
@@ -1254,6 +1367,7 @@ export const HostArenaView: React.FC<Props> = ({
       qIndex: safeIdx,
       durationSec: durationSec,
       serverStartTime: timerStartMsRef.current,
+      serverTs: Date.now(),
       worldEvent: nextWorldEv,
       worldEventTitle: nextWorldTitle,
       question: activeQWithMeta,
@@ -1618,6 +1732,27 @@ export const HostArenaView: React.FC<Props> = ({
   };
 
   // MC Voice Read-Aloud (Vietnamese TTS) for National Contest Classroom Presentation
+  // Đợt 4 (GĐ3.1): toàn bộ lời đọc do buildSpeechText (src/utils/speechText.ts) dựng —
+  // bóc HTML/bảng/ảnh, chuyển LaTeX → lời Việt, đọc cả câu dẫn + phương án + mệnh đề Đ-S,
+  // không lộ đáp án. Giọng đọc do getVietnameseVoice() chọn (giọng Việt thật nếu máy có).
+  const speakQuestionAloud = (broadcastToStudents: boolean) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const script = buildSpeechText(currentQItem, currentQIndex + 1);
+    if (!script) return;
+    const started = speakVietnameseText(script, {
+      rate: ttsRateRef.current,
+      onEnd: () => setIsSpeakingTTS(false)
+    });
+    if (started) {
+      setIsSpeakingTTS(true);
+      if (broadcastToStudents) {
+        // Đợt 4 (GĐ3.3): phát lệnh đọc đồng bộ — máy HS nào được host bật TTS sẽ tự đọc câu này.
+        CloudNetwork.sendMessage({ type: 'TTS_READ', qIndex: currentQIndex });
+      }
+    }
+  };
+
   const handleReadQuestionAloud = () => {
     if (!('speechSynthesis' in window)) return;
     if (isSpeakingTTS) {
@@ -1625,32 +1760,18 @@ export const HostArenaView: React.FC<Props> = ({
       setIsSpeakingTTS(false);
       return;
     }
-    window.speechSynthesis.cancel();
-    const cleanQ = cleanQuestionTitleText(currentQItem.q)
-      .replace(/\$+/g, '')
-      .replace(/\\[a-zA-Z]+/g, '');
-    let script = `Câu hỏi số ${(currentQIndex % (quizList.length || 1)) + 1}. ${cleanQ}. `;
-    if (currentQItem.format === 'TRUE_FALSE' && currentQItem.tfItems) {
-      script += 'Hãy xét tính Đúng hoặc Sai của 4 mệnh đề: ';
-      currentQItem.tfItems.forEach(tf => {
-        script += `Ý ${tf.label}: ${tf.text}. `;
-      });
-    } else if (currentQItem.format === 'SHORT_ANSWER') {
-      script += 'Các em hãy tính toán và nhập kết quả trả lời ngắn trên màn hình điện thoại.';
-    } else if (currentQItem.opts) {
-      currentQItem.opts.forEach((opt, idx) => {
-        script += `Phương án ${String.fromCharCode(65 + idx)}: ${opt}. `;
-      });
-    }
-
-    const utter = new SpeechSynthesisUtterance(script);
-    utter.lang = 'vi-VN';
-    utter.rate = 1.02;
-    utter.onend = () => setIsSpeakingTTS(false);
-    utter.onerror = () => setIsSpeakingTTS(false);
-    setIsSpeakingTTS(true);
-    window.speechSynthesis.speak(utter);
+    speakQuestionAloud(true);
   };
+
+  // Đợt 4 (GĐ3.2): tự động đọc khi sang câu mới (chỉ khi GV bật, mặc định tắt)
+  useEffect(() => {
+    if (!ttsAutoReadRef.current) return;
+    if (matchState.status !== 'PLAYING' || isReviewMode) return;
+    if (lastAutoReadQIndexRef.current === currentQIndex) return;
+    lastAutoReadQIndexRef.current = currentQIndex;
+    speakQuestionAloud(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQIndex, matchState.status]);
 
   // Toggle National Jury Classroom Simulation (Spawns 40 realistic 3D students with unique random Vietnamese full names each time)
   const handleToggleDemoBots = () => {
@@ -2317,6 +2438,26 @@ export const HostArenaView: React.FC<Props> = ({
             <span style={{ fontSize: '10px', opacity: 0.9 }}>({netTelemetry.rttMs}ms)</span>
           </button>
 
+          {/* Đợt 3 (2.3): lỗi publish chunk/state gần nhất — phát đề thất bại phải hiện rõ cho host */}
+          {netTelemetry.lastPublishError && (
+            <span
+              title={netTelemetry.lastPublishError}
+              style={{
+                flex: '0 1 auto',
+                maxWidth: '220px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: '#f87171',
+                fontSize: '10.5px',
+                fontWeight: 800,
+                alignSelf: 'center'
+              }}
+            >
+              ⚠️ Lỗi gửi gói: {netTelemetry.lastPublishError}
+            </span>
+          )}
+
           {matchState.status === 'LOBBY' ? (
             <>
               <button
@@ -2657,7 +2798,10 @@ export const HostArenaView: React.FC<Props> = ({
 
             const isFirstBloodWinner = matchState.firstBloodPlayerId === p.id;
             const isOnFire = (p.streak || 0) >= 3;
-            const prefixBadges = `${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
+            // Đợt 5 (4B.2): HS quá 15s không ping (hoặc will PLAYER_OFFLINE đã bắn) →
+            // nhãn xám "mất kết nối" nhưng nhân vật/chỗ/điểm vẫn giữ nguyên (giữ chỗ 90s).
+            const isOfflineHeld = p.offline === true;
+            const prefixBadges = `${isOfflineHeld ? '📴 ' : ''}${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
 
             let labelText = '';
             if (matchState.gameType === 'BELL') {
@@ -2668,14 +2812,17 @@ export const HostArenaView: React.FC<Props> = ({
             } else {
               labelText = `${prefixBadges}${p.label} (${p.fastScore || 0}đ)`;
             }
+            if (isOfflineHeld) labelText += ' • mất kết nối';
 
             return (
               <div
                 key={p.id}
-                className={`tag-3d ${p.ready ? 'ready' : ''} ${hasDoneQ ? 'done-q' : ''} ${p.eliminated ? 'eliminated' : ''}`}
+                className={`tag-3d ${p.ready ? 'ready' : ''} ${hasDoneQ ? 'done-q' : ''} ${p.eliminated ? 'eliminated' : ''} ${isOfflineHeld ? 'offline-held' : ''}`}
                 style={{
                   left: `${coord.x}px`,
                   top: `${coord.y}px`,
+                  opacity: isOfflineHeld ? 0.55 : undefined,
+                  filter: isOfflineHeld ? 'grayscale(1)' : undefined,
                   borderColor: isFirstBloodWinner
                     ? '#facc15'
                     : isOnFire
@@ -3024,13 +3171,13 @@ export const HostArenaView: React.FC<Props> = ({
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
                   : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
                 return (
-                  <div key={p.id} className={`flb-row rank-${rank}`}>
+                  <div key={p.id} className={`flb-row rank-${rank}`} style={p.offline ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
                     <div className="flb-rank">{medal}</div>
                     <div className="flb-name" title={p.label}>
                       {matchState.gameType === 'TUG' && (
                         <span style={{ fontSize: '10px', marginRight: '4px' }}>{p.team === 'RED' ? '🔴' : '🔵'}</span>
                       )}
-                      {p.label}
+                      {p.offline ? '📴 ' : ''}{p.label}{p.offline ? ' (mất kết nối)' : ''}
                     </div>
                     <div className="flb-pts" style={{ color: liveRankMode === 'CORRECT' ? '#4ade80' : undefined }}>
                       {scoreDisplay}
@@ -3167,15 +3314,18 @@ export const HostArenaView: React.FC<Props> = ({
                       borderRadius: '999px',
                       fontSize: '11.5px',
                       fontWeight: 900,
-                      background: matchState.gameType === 'TUG'
+                      background: p.offline
+                        ? 'rgba(100, 116, 139, 0.35)'
+                        : matchState.gameType === 'TUG'
                         ? (p.team === 'RED' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.3)')
                         : 'rgba(16, 185, 129, 0.25)',
-                      border: `1.5px solid ${matchState.gameType === 'TUG' ? (p.team === 'RED' ? '#f87171' : '#38bdf8') : '#34d399'}`,
-                      color: '#ffffff'
+                      border: `1.5px solid ${p.offline ? '#94a3b8' : matchState.gameType === 'TUG' ? (p.team === 'RED' ? '#f87171' : '#38bdf8') : '#34d399'}`,
+                      color: '#ffffff',
+                      opacity: p.offline ? 0.7 : undefined
                     }}
                   >
-                    <span>{p.ready ? '✅' : '🟢'}</span>
-                    <span>{p.label}</span>
+                    <span>{p.offline ? '📴' : p.ready ? '✅' : '🟢'}</span>
+                    <span>{p.label}{p.offline ? ' (mất kết nối)' : ''}</span>
                   </span>
                 ))}
                 {allPlayers.length > 10 && (
@@ -3380,10 +3530,60 @@ export const HostArenaView: React.FC<Props> = ({
                       fontWeight: 800
                     }}
                     onClick={handleReadQuestionAloud}
-                    title="Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt"
+                    title={
+                      hasViVoice === false
+                        ? 'Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành, nếu không giọng đọc sẽ sai dấu'
+                        : 'Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt'
+                    }
                   >
                     {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
                   </button>
+                  {/* Đợt 4 (GĐ3.2 + 3.3): tốc độ đọc, tự động đọc câu mới, công tắc TTS phía học sinh */}
+                  <select
+                    value={ttsRate}
+                    onChange={(e) => setTtsRate(parseFloat(e.target.value))}
+                    title="Tốc độ đọc đề"
+                    style={{ padding: '3px 4px', fontSize: '12px', borderRadius: '6px', background: '#0f172a', color: '#e2e8f0', border: '1px solid #475569' }}
+                  >
+                    <option value={0.9}>0.9×</option>
+                    <option value={1.0}>1.0×</option>
+                    <option value={1.1}>1.1×</option>
+                  </select>
+                  <label
+                    title="Tự động đọc đề mỗi khi sang câu mới"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ttsAutoRead}
+                      onChange={(e) => setTtsAutoRead(e.target.checked)}
+                    />
+                    Tự đọc câu mới
+                  </label>
+                  <label
+                    title="Bật: máy học sinh hiện nút 🔊 và tự đọc đồng bộ khi thầy bấm Đọc Đề. Tắt (mặc định): học sinh không nghe đọc đề."
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={matchState.settings?.ttsStudentEnabled === true}
+                      onChange={(e) =>
+                        onUpdateMatchState((prev) => ({
+                          ...prev,
+                          settings: { ...prev.settings, ttsStudentEnabled: e.target.checked }
+                        }))
+                      }
+                    />
+                    Đọc đề trên máy học sinh
+                  </label>
+                  {hasViVoice === false && (
+                    <span
+                      style={{ fontSize: '11.5px', fontWeight: 800, color: '#fbbf24' }}
+                      title="Máy tính này chưa cài giọng đọc tiếng Việt nên TTS sẽ đọc sai dấu. Hãy cài giọng tiếng Việt trong Cài đặt hệ điều hành (Windows: Settings → Time & language → Speech; Android: Cài đặt → Văn bản thành giọng nói)."
+                    >
+                      ⚠️ Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành
+                    </span>
+                  )}
                   <button
                     className="hq-nav-btn"
                     id="hq-reveal-btn"
@@ -3668,7 +3868,7 @@ export const HostArenaView: React.FC<Props> = ({
                   ⏳ AI đang phân tích dữ liệu câu hỏi và thống kê lớp...
                 </div>
               ) : (
-                aiExplainText
+                <MathRenderer text={aiExplainText} />
               )}
             </div>
 
