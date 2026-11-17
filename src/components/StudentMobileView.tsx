@@ -505,6 +505,31 @@ export const StudentMobileView: React.FC<Props> = ({
     return Math.max(0, questionDurationSecRef.current - (Date.now() - startMsRef.current) / 1000);
   };
 
+  // TẠM DỪNG THEO CÂU (host bấm ⏸ Tạm dừng): đồng hồ HS ĐÔNG CỨNG tại chỗ ở số
+  // giây còn lại host đã chốt, hiện lớp phủ "⏸ Thầy đang tạm dừng" và khoá gửi
+  // đáp án. Host bấm ▶ Tiếp tục → gửi deadline MỚI = mốc tiếp tục + số giây còn
+  // lại, áp qua applyHostQuestionTiming như một đoạn câu mới — không mất giây nào.
+  const [questionPaused, setQuestionPaused] = useState<boolean>(false);
+  const questionPausedRef = useRef<boolean>(false);
+  const pausedRemainingRef = useRef<number>(0);
+
+  const enterQuestionPause = (remaining?: number) => {
+    const rem =
+      typeof remaining === 'number' && Number.isFinite(remaining) && remaining >= 0
+        ? remaining
+        : computeRemainingSec();
+    questionPausedRef.current = true;
+    setQuestionPaused(true);
+    pausedRemainingRef.current = rem;
+    setRemSec(rem);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const exitQuestionPause = () => {
+    questionPausedRef.current = false;
+    setQuestionPaused(false);
+  };
+
   // Stable shuffled options state (Shuffled once per question and frozen in place)
   interface StudentShuffledOption {
     originalIndex: number;
@@ -924,9 +949,16 @@ export const StudentMobileView: React.FC<Props> = ({
       eliminated ||
       hasFinishedAllQuestionsRef.current
     ) {
-      activeStudentTimerQIndexRef.current = -1;
-      if (screen === 'WAITING' || hostMatchStatus !== 'PLAYING') {
-        setRemSec(questionDurationSecRef.current);
+      if (questionPausedRef.current) {
+        // Đang TẠM DỪNG: giữ nguyên chỉ số câu đang chạy (để lúc Tiếp tục không
+        // khởi tạo lại câu — đáp án/phụ trợ giữ nguyên) và ghim hiển thị ở số
+        // giây còn lại đã chốt.
+        setRemSec(pausedRemainingRef.current);
+      } else {
+        activeStudentTimerQIndexRef.current = -1;
+        if (screen === 'WAITING' || hostMatchStatus !== 'PLAYING') {
+          setRemSec(questionDurationSecRef.current);
+        }
       }
       if (timerRef.current) clearInterval(timerRef.current);
       return;
@@ -994,6 +1026,11 @@ export const StudentMobileView: React.FC<Props> = ({
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
+      if (questionPausedRef.current) {
+        // Đông cứng: không đếm xuống, không bao giờ chốt hết giờ trong lúc dừng.
+        setRemSec(pausedRemainingRef.current);
+        return;
+      }
       const left = computeRemainingSec();
       setRemSec(left);
 
@@ -1010,6 +1047,11 @@ export const StudentMobileView: React.FC<Props> = ({
     // còn giờ thì chơi tiếp bình thường, thật sự hết giờ mới chốt đáp án.
     const handleVisibilityReturn = () => {
       if (document.hidden) return;
+      if (questionPausedRef.current) {
+        // Quay lại từ nền trong lúc tạm dừng: vẫn đông cứng ở số giây đã chốt.
+        setRemSec(pausedRemainingRef.current);
+        return;
+      }
       const left = computeRemainingSec();
       setRemSec(left);
       if (left <= 0 && !hasAnsweredCurrentQRef.current) {
@@ -1149,6 +1191,7 @@ export const StudentMobileView: React.FC<Props> = ({
   }, [resolvedQSignature]);
 
   const handleTimeoutFail = () => {
+    if (questionPausedRef.current) return; // Đang tạm dừng: không bao giờ chốt hết giờ
     if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
@@ -1332,6 +1375,13 @@ export const StudentMobileView: React.FC<Props> = ({
           hostMatchStatusRef.current = resyncStatus;
         }
       }
+      // Vào lại GIỮA LÚC TẠM DỪNG: phải thấy đúng trạng thái đang dừng + số giây
+      // còn lại đã chốt — đông cứng ngay, không dựng deadline đang chạy.
+      if (d.questionPaused) {
+        enterQuestionPause(typeof d.remainingSec === 'number' ? d.remainingSec : undefined);
+      } else if (questionPausedRef.current) {
+        exitQuestionPause();
+      }
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
       if (typeof d.lives === 'number') setLives(d.lives);
@@ -1363,9 +1413,12 @@ export const StudentMobileView: React.FC<Props> = ({
         currentGlobalQIndexRef.current = qIdx;
         if (qIdx > maxReachedQIndexRef.current) maxReachedQIndexRef.current = qIdx;
         setCurrentGlobalQIndex(qIdx);
-        // Dựng lại deadline theo đúng cơ chế Đợt 1 từ serverStartTime + durationSec.
-        applyHostQuestionTiming(qIdx, d.serverStartTime, d.durationSec);
-        setRemSec(computeRemainingSec());
+        // Dựng lại deadline theo đúng cơ chế Đợt 1 từ serverStartTime + durationSec
+        // — trừ khi đang TẠM DỪNG: giữ đông cứng ở số giây còn lại đã chốt.
+        if (!d.questionPaused) {
+          applyHostQuestionTiming(qIdx, d.serverStartTime, d.durationSec);
+        }
+        setRemSec(d.questionPaused ? pausedRemainingRef.current : computeRemainingSec());
       }
 
       // Trạng thái đã-trả-lời câu hiện tại: host (answeredQKeys) + bản lưu tại máy HS
@@ -1415,6 +1468,10 @@ export const StudentMobileView: React.FC<Props> = ({
       if (hasFinishedAllQuestionsRef.current) {
         setScreen('ENDED');
       } else if (resyncStatus === 'PLAYING' && !eliminatedRef.current) {
+        waitingRoomLockedRef.current = false;
+        setScreen('QUIZ');
+      } else if (resyncStatus === 'PAUSED' && !eliminatedRef.current) {
+        // Vào lại giữa lúc tạm dừng: đứng ngay màn hình câu hỏi + lớp phủ dừng.
         waitingRoomLockedRef.current = false;
         setScreen('QUIZ');
       }
@@ -1738,6 +1795,8 @@ export const StudentMobileView: React.FC<Props> = ({
       currentGlobalQIndexRef.current = startIdx;
       maxReachedQIndexRef.current = startIdx;
       setCurrentGlobalQIndex(startIdx);
+      // Trận mới bắt đầu: gỡ mọi trạng thái tạm dừng còn sót.
+      exitQuestionPause();
       // Đồng hồ theo host: host đã gửi serverStartTime + durationSec kèm lệnh bắt đầu
       applyHostQuestionTiming(startIdx, d.serverStartTime, d.durationSec);
       setRemSec(computeRemainingSec());
@@ -1764,19 +1823,29 @@ export const StudentMobileView: React.FC<Props> = ({
       }
     }
     else if (d.type === 'PAUSE_TOGGLE') {
-      if (d.status) {
-        setHostMatchStatus(d.status);
-        hostMatchStatusRef.current = d.status;
-        if (d.status === 'PLAYING' && !eliminatedRef.current && !hasFinishedAllQuestionsRef.current && hasJoinedArenaRef.current) {
+      // TẠM DỪNG / TIẾP TỤC theo câu — lệnh nhạy cảm đã được kiểm chữ ký khoá
+      // phòng ở đầu handler (Đợt 8) và đi QoS 1:
+      // - Dừng: ĐÔNG CỨNG đồng hồ tại chỗ ở số giây còn lại host chốt, hiện lớp
+      //   phủ và khoá đáp án — KHÔNG đá về phòng chờ như cơ chế cũ.
+      // - Tiếp tục: dựng deadline MỚI = mốc tiếp tục (serverStartTime) + số giây
+      //   còn lại (durationSec) — học sinh không mất giây nào (cơ chế cũ reset
+      //   đồng hồ về đầy đủ thời gian).
+      if (d.status === 'PAUSED') {
+        setHostMatchStatus('PAUSED');
+        hostMatchStatusRef.current = 'PAUSED';
+        enterQuestionPause(typeof d.remainingSec === 'number' ? d.remainingSec : undefined);
+        triggerBonusToast('⏸️ Thầy đang tạm dừng — đồng hồ đã đông cứng, chờ thầy tiếp tục nhé!');
+      } else if (d.status === 'PLAYING') {
+        setHostMatchStatus('PLAYING');
+        hostMatchStatusRef.current = 'PLAYING';
+        exitQuestionPause();
+        const qIdx = typeof d.qIndex === 'number' ? d.qIndex : currentGlobalQIndexRef.current;
+        applyHostQuestionTiming(qIdx, d.serverStartTime, d.durationSec);
+        setRemSec(computeRemainingSec());
+        if (!eliminatedRef.current && !hasFinishedAllQuestionsRef.current && hasJoinedArenaRef.current) {
           waitingRoomLockedRef.current = false;
-          activeStudentTimerQIndexRef.current = -1;
-          startMsRef.current = Date.now();
           setScreen('QUIZ');
-          triggerBonusToast('▶️ Giáo viên đã mở tiếp tục — Em có thể trả lời ngay!');
-        } else if (d.status === 'PAUSED' && screenRef.current === 'QUIZ') {
-          waitingRoomLockedRef.current = true;
-          setScreen('WAITING');
-          triggerBonusToast('⏸️ Giáo viên đang tạm dừng — Chuyển về Phòng chờ!');
+          triggerBonusToast('▶️ Thầy đã tiếp tục — làm bài tiếp nhé!');
         }
       }
     }
@@ -1903,6 +1972,21 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.durationSec === 'number' && d.durationSec > 0 && d.durationSec !== questionDurationSecRef.current) {
         questionDurationSecRef.current = d.durationSec;
         setQuestionDurationSec(d.durationSec);
+      }
+      // Đồng bộ TẠM DỪNG theo câu qua nhịp tim (phòng khi lỡ gói PAUSE_TOGGLE):
+      // host đang dừng → đông cứng theo số giây còn lại host công bố; host đã
+      // tiếp tục mà máy này chưa nhận lệnh tiếp tục → xin RESYNC lấy deadline mới.
+      if (typeof d.questionPaused === 'boolean') {
+        if (d.questionPaused) {
+          if (!questionPausedRef.current) {
+            enterQuestionPause(typeof d.remainingSec === 'number' ? d.remainingSec : undefined);
+          } else if (typeof d.remainingSec === 'number') {
+            pausedRemainingRef.current = d.remainingSec;
+            setRemSec(d.remainingSec);
+          }
+        } else if (questionPausedRef.current) {
+          sendResyncRequest();
+        }
       }
       // Đợt 4 (GĐ3.3): công tắc "Đọc đề trên máy học sinh" do host quyết, phát kèm nhịp
       // tim. Host TẮT → ẩn nút 🔊, dừng đọc ngay và bỏ qua mọi lệnh TTS_READ.
@@ -2049,6 +2133,8 @@ export const StudentMobileView: React.FC<Props> = ({
       if (hasFinishedAllQuestionsRef.current && (d.qIndex ?? 0) > 0) {
         return;
       }
+      // Câu mới bắt đầu: gỡ trạng thái tạm dừng của câu trước (nếu còn sót).
+      exitQuestionPause();
       lastForceStartTsRef.current = Date.now();
       setHostMatchStatus('PLAYING');
       hostMatchStatusRef.current = 'PLAYING';
@@ -2319,6 +2405,10 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Multiple Choice (Dạng thức I: Chỉ bấm 1 lần duy nhất trên 1 câu)
   const handleSelectMultipleChoice = (origIdx: number) => {
+    if (questionPausedRef.current) {
+      triggerBonusToast('⏸️ Thầy đang tạm dừng — chưa thể trả lời, chờ thầy tiếp tục nhé!');
+      return;
+    }
     const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
     if (
       screen !== 'QUIZ' ||
@@ -2370,6 +2460,10 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for True/False (Dạng thức II: 4 ý a, b, c, d - Chỉ bấm nộp 1 lần duy nhất)
   const handleSubmitTrueFalse = () => {
+    if (questionPausedRef.current) {
+      triggerBonusToast('⏸️ Thầy đang tạm dừng — chưa thể trả lời, chờ thầy tiếp tục nhé!');
+      return;
+    }
     const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
     if (
       screen !== 'QUIZ' ||
@@ -2406,6 +2500,10 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Submit Answer for Short Answer / Fill-in (Dạng thức III: Chỉ bấm gửi 1 lần duy nhất)
   const handleSubmitShortAnswer = () => {
+    if (questionPausedRef.current) {
+      triggerBonusToast('⏸️ Thầy đang tạm dừng — chưa thể gửi, chờ thầy tiếp tục nhé!');
+      return;
+    }
     const isAutoRevealedAt2Sec = remSec <= 2.0 && remSec > 0 && hostMatchStatus === 'PLAYING';
     if (
       screen !== 'QUIZ' ||
@@ -3868,6 +3966,30 @@ export const StudentMobileView: React.FC<Props> = ({
       {/* Screen 3: Quiz Gameplay */}
       {screen === 'QUIZ' && (
         <div style={{ maxWidth: '540px', margin: '0 auto', padding: '10px 12px' }}>
+          {/* Lớp phủ TẠM DỪNG: chặn mọi thao tác trả lời trong lúc thầy tạm dừng */}
+          {questionPaused && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 800,
+                background: 'rgba(2, 6, 23, 0.86)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                padding: '24px',
+                textAlign: 'center'
+              }}
+            >
+              <div style={{ fontSize: '54px', lineHeight: 1 }}>⏸</div>
+              <div style={{ fontSize: '21px', fontWeight: 900, color: '#fde047' }}>⏸ Thầy đang tạm dừng</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0', maxWidth: '420px', lineHeight: 1.5 }}>
+                Đồng hồ đã đông cứng ở {Math.ceil(remSec)} giây còn lại. Thầy bấm ▶ Tiếp tục là em làm tiếp ngay — không mất giây nào đâu!
+              </div>
+            </div>
+          )}
           {/* Header HUD gọn gàng */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '10px 12px', borderRadius: '16px', border: '1.5px solid #334155', marginBottom: '10px', gap: '8px', flexWrap: 'wrap', boxShadow: '0 4px 16px rgba(0,0,0,0.35)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
