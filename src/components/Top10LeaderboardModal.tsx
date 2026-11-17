@@ -50,6 +50,9 @@ interface Props {
   totalQuestions?: number;
   onDownloadCSV: () => void;
   onPrintPDFEvidence?: () => void;
+  /** XP SAU TRẬN theo deviceId — khi modal mở từ màn kết thì cột cấp hiện XP
+   *  MỚI; lúc đang thi không truyền → giữ XP lúc vào phòng. */
+  postMatchXpByDeviceId?: Record<string, number>;
 }
 
 export const Top10LeaderboardModal: React.FC<Props> = ({
@@ -60,12 +63,21 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
   activeRoomId,
   totalQuestions,
   onDownloadCSV,
-  onPrintPDFEvidence
+  onPrintPDFEvidence,
+  postMatchXpByDeviceId
 }) => {
   const [boardViewMode, setBoardViewMode] = useState<'DUAL' | 'SCORE' | 'CORRECT'>('DUAL');
   // Mặc định hiển thị Top 10 trên màn hình theo yêu cầu, có nút mở rộng xem toàn bộ cả lớp
   const [showAllStudents, setShowAllStudents] = useState<boolean>(false);
   const [copiedClipboard, setCopiedClipboard] = useState<boolean>(false);
+
+  // XP cho cột cấp: ưu tiên XP SAU TRẬN (nếu host gửi xuống) — xem GrandFinale.
+  const dispXp = (p: Player): number => {
+    if (p.deviceId && postMatchXpByDeviceId && typeof postMatchXpByDeviceId[p.deviceId] === 'number') {
+      return postMatchXpByDeviceId[p.deviceId];
+    }
+    return p.xp || 0;
+  };
 
   if (!isOpen) return null;
 
@@ -215,7 +227,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   }}>
                     {badge.medal}
                   </div>
-                  <LevelBadgeColumn xp={player.xp} />
+                  <LevelBadgeColumn xp={dispXp(player)} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '15px', fontWeight: 900, color: rankNameColor(rank), whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {player.label}
@@ -356,7 +368,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   }}>
                     {badge.medal}
                   </div>
-                  <LevelBadgeColumn xp={player.xp} />
+                  <LevelBadgeColumn xp={dispXp(player)} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '15px', fontWeight: 900, color: rankNameColor(rankByCorrect), whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {player.label}
