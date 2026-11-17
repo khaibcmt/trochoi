@@ -25,7 +25,16 @@ const LevelBadgeColumn: React.FC<{ xp?: number }> = ({ xp }) => {
       }}
     >
       <span style={{ fontSize: '27px', lineHeight: 1.1 }}>{lv.icon}</span>
-      <span style={{ fontSize: '9.5px', fontWeight: 800, color: '#cbd5e1', textAlign: 'center', lineHeight: 1.15 }}>
+      <span
+        style={{
+          fontSize: '9.5px',
+          fontWeight: 800,
+          color: lv.color,
+          textAlign: 'center',
+          lineHeight: 1.15,
+          textShadow: lv.glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined
+        }}
+      >
         {lv.name}
       </span>
     </div>
@@ -144,7 +153,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
             🎮 BẢNG 1: BXH TRÒ CHƠI (GIỮ NGUYÊN CẤU TRÚC ĐIỂM THI ĐẤU)
           </div>
           <div style={{ fontSize: '11.5px', color: '#cbd5e1', fontWeight: 700 }}>
-            Tính theo tốc độ, combo chuỗi, cược bản lĩnh • Chọn sai ở Đua tốc độ & Diệt Boss <b style={{ color: '#f87171' }}>trừ -1000đ</b>
+            Tính theo tốc độ, combo chuỗi, cược bản lĩnh • Chọn sai <b style={{ color: '#f87171' }}>trừ -1000đ</b> (câu sai đầu tiên ở An Toàn được lá chắn che điểm 1 lần/trận; Rung Chuông Vàng sai còn mất 1 mạng)
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
