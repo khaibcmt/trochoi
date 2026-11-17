@@ -13,6 +13,26 @@ import {
   getPresetQuizBySubject
 } from '../data/defaultSubjects';
 import { MathRenderer } from '../utils/katexHelper';
+import {
+  extractRoomKeyFromUrlParts,
+  isSensitiveCommand,
+  verifyCommandSync
+} from '../utils/commandSign';
+import {
+  PLAYER_PING_INTERVAL_MS,
+  RESYNC_BACKGROUND_THRESHOLD_MS,
+  generateStudentId,
+  parseStudentIdentity,
+  resolveStudentId,
+  serializeStudentIdentity,
+  studentStorageKey
+} from '../utils/presence';
+import {
+  buildSpeechText,
+  speakVietnameseText,
+  stopSpeaking,
+  unlockSpeechSynthesis
+} from '../utils/speechText';
 
 interface Props {
   initialRoomId: string;
@@ -107,6 +127,7 @@ export const StudentMobileView: React.FC<Props> = ({
         sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
       } catch {}
+      clearPersistedAnsweredStates();
       hasJoinedArenaRef.current = false;
       waitingRoomLockedRef.current = false;
       hasFinishedAllQuestionsRef.current = false;
@@ -255,7 +276,12 @@ export const StudentMobileView: React.FC<Props> = ({
 
   // Connection & Screen state (Khôi phục riêng theo từng Tab khi F5, còn mở Tab mới bắt buộc nhập tên ở LOBBY)
   const [connStatus, setConnStatus] = useState('🟢 Đã kết nối thông suốt sân đấu 3D!');
-  const [networkState, setNetworkState] = useState<NetworkConnStatus>('CONNECTED');
+  // Đợt 8 (4C.2): KHOÁ PHÒNG đọc từ link QR (tham số k ở query hoặc hash) để kiểm tra
+  // chữ ký HMAC của lệnh điều khiển. Không có khoá (phòng tạo từ bản cũ) → null →
+  // hành vi như cũ, không chặn lệnh nào. Số lệnh giả đã bị bỏ qua hiện ở banner nhỏ.
+  const roomKeyRef = useRef<string | null>(null);
+  const [rejectedCmdCount, setRejectedCmdCount] = useState(0);
+  const [networkState, setNetworkState] = useState<NetworkConnStatus>(() => CloudNetwork.getStatus());
   const [netTelemetry, setNetTelemetry] = useState<NetworkTelemetry>(() => CloudNetwork.getTelemetry());
   useEffect(() => {
     const unsub = CloudNetwork.subscribeTelemetry((t) => setNetTelemetry(t));
@@ -289,19 +315,36 @@ export const StudentMobileView: React.FC<Props> = ({
   });
   const [hasConfirmedEnter, setHasConfirmedEnter] = useState(false);
 
-  // Gameplay state - Mỗi Tab có 1 mã học sinh (myPlayerId) riêng biệt 100%, không bao giờ bị trùng giữa các Tab ẩn danh
-  const [myPlayerId, setMyPlayerId] = useState(() => {
+  // ĐỢT 5 (4B.1) — ĐỊNH DANH 2 LỚP:
+  // • studentId BỀN: lưu localStorage theo khoá kc3d_student_<room> ({studentId, name, team}).
+  //   Đóng tab / mở lại / F5 quá cửa sổ 120s của phiên tab cũ vẫn là MỘT người — host gộp
+  //   theo studentId nên không còn bản ghi "ma".
+  // • tabSessionId (ở trên): chỉ còn vai trò phụ — giữ riêng trạng thái làm bài theo tab
+  //   (tên/score/session keys cũ), KHÔNG quyết định danh tính nữa.
+  // myPlayerId (mã gửi lên host) chính là studentId bền để mọi tin (enter/ping/đáp án)
+  // tự nhiên tham chiếu đúng một bản ghi phía host.
+  const [studentIdentity, setStudentIdentity] = useState<{ studentId: string; name: string; team: PlayerTeam }>(() => {
     try {
-      const key = `kc3d_pid_${tabSessionId}`;
-      const saved = sessionStorage.getItem(key);
-      if (saved) return saved;
-      const newId = 'hs_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
-      sessionStorage.setItem(key, newId);
-      return newId;
+      const stored = parseStudentIdentity(localStorage.getItem(studentStorageKey(initialRoomId || '12345')));
+      const legacyTabPlayerId = sessionStorage.getItem(`kc3d_pid_${tabSessionId}`);
+      const studentId = resolveStudentId(stored, legacyTabPlayerId, generateStudentId());
+      const identity = {
+        studentId,
+        name: stored?.name || '',
+        team: (stored?.team || initialTeam || 'RED') as PlayerTeam
+      };
+      localStorage.setItem(studentStorageKey(initialRoomId || '12345'), serializeStudentIdentity(identity));
+      sessionStorage.setItem(`kc3d_pid_${tabSessionId}`, studentId);
+      return identity;
     } catch {
-      return 'hs_' + Date.now().toString(36).slice(-4) + '_' + Math.random().toString(36).substring(2, 7);
+      const studentId = generateStudentId();
+      return { studentId, name: '', team: (initialTeam || 'RED') as PlayerTeam };
     }
   });
+  const studentIdRef = useRef<string>(studentIdentity.studentId);
+
+  // Gameplay state - myPlayerId = studentId bền (xem ghi chú ĐỢT 5 ở trên)
+  const [myPlayerId, setMyPlayerId] = useState<string>(() => studentIdentity.studentId);
 
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
@@ -378,13 +421,89 @@ export const StudentMobileView: React.FC<Props> = ({
   // Toast message
   const [bonusToastMsg, setBonusToastMsg] = useState<string | null>(null);
 
-  // 30s Timer state (Bắt đầu đếm ngược ngay khi hiện câu hỏi, không bao giờ reset khi trả lời, hết 30s không chọn coi như sai)
+  // Timer state (Bắt đầu đếm ngược ngay khi hiện câu hỏi, không bao giờ reset khi trả lời, hết giờ không chọn coi như sai)
+  // Thời lượng câu hỏi lấy từ cấu hình host gửi xuống (questionDurationSec / durationSec), mặc định 30s
   const [remSec, setRemSec] = useState<number>(30);
   const timerRef = useRef<any>(null);
   const startMsRef = useRef<number>(Date.now());
   const [hasAnsweredCurrentQ, setHasAnsweredCurrentQ] = useState(false);
+  // Đợt 4 (GĐ3.3): TTS phía học sinh — CHỈ hoạt động khi host bật công tắc chung
+  // "Đọc đề trên máy học sinh" (phát kèm HOST_HEARTBEAT). Mặc định TẮT: không hiện
+  // nút 🔊, bỏ qua mọi lệnh TTS_READ.
+  const [ttsStudentEnabled, setTtsStudentEnabled] = useState<boolean>(false);
+  const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
+  const ttsStudentEnabledRef = useRef<boolean>(false);
+  const currentQItemRef = useRef<QuizItem | null>(null);
+  const isSpeakingTTSRef = useRef<boolean>(false);
   const hasAnsweredCurrentQRef = useRef<boolean>(false);
   const activeStudentTimerQIndexRef = useRef<number>(-1);
+
+  // ĐỒNG HỒ THEO HOST: deadline tuyệt đối = serverStartTime + durationSec (đồng hồ host),
+  // hiệu chỉnh lệch giờ máy HS bằng offset suy từ serverTs trong HOST_HEARTBEAT của host.
+  const [questionDurationSec, setQuestionDurationSec] = useState<number>(30);
+  const questionDurationSecRef = useRef<number>(30);
+  const serverClockOffsetRef = useRef<number>(0); // = serverTs - Date.now() tại thời điểm nhận heartbeat
+  const questionDeadlineRef = useRef<number>(0); // deadline theo đồng hồ host (server time), 0 = chưa có
+  const questionDeadlineQIndexRef = useRef<number>(-1);
+  const roomIdRef = useRef<string>(roomId);
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
+
+  const getAnswerStorageKey = (qIdx: number) => `kc3d_ans_${roomIdRef.current}_${qIdx}`;
+
+  const readPersistedAnswered = (qIdx: number): any | null => {
+    try {
+      const raw = sessionStorage.getItem(getAnswerStorageKey(qIdx));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.hasAnswered) return parsed;
+    } catch {}
+    return null;
+  };
+
+  const clearPersistedAnsweredStates = () => {
+    try {
+      const prefix = `kc3d_ans_${roomIdRef.current}_`;
+      const keys: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k);
+      }
+      keys.forEach(k => sessionStorage.removeItem(k));
+    } catch {}
+  };
+
+  // Áp mốc thời gian host gửi cho 1 câu hỏi: có serverStartTime thì deadline bám đúng host,
+  // không có thì lùi về đếm cục bộ theo đúng thời lượng cấu hình.
+  const applyHostQuestionTiming = (qIdx: number, serverStartTime?: number, durationSec?: number) => {
+    const dur =
+      typeof durationSec === 'number' && durationSec > 0 ? durationSec : questionDurationSecRef.current;
+    if (dur !== questionDurationSecRef.current) {
+      questionDurationSecRef.current = dur;
+      setQuestionDurationSec(dur);
+    }
+    if (typeof serverStartTime === 'number' && serverStartTime > 0) {
+      questionDeadlineRef.current = serverStartTime + dur * 1000;
+      questionDeadlineQIndexRef.current = qIdx;
+      // Quy startMs về đồng hồ máy này (đã trừ lệch giờ) để elapsedSec tính theo đúng mốc host
+      startMsRef.current = serverStartTime - serverClockOffsetRef.current;
+    } else {
+      questionDeadlineRef.current = Date.now() + serverClockOffsetRef.current + dur * 1000;
+      questionDeadlineQIndexRef.current = qIdx;
+      startMsRef.current = Date.now();
+    }
+  };
+
+  const computeRemainingSec = (): number => {
+    if (questionDeadlineRef.current > 0 && questionDeadlineQIndexRef.current === currentGlobalQIndexRef.current) {
+      return Math.max(
+        0,
+        (questionDeadlineRef.current - (Date.now() + serverClockOffsetRef.current)) / 1000
+      );
+    }
+    return Math.max(0, questionDurationSecRef.current - (Date.now() - startMsRef.current) / 1000);
+  };
 
   // Stable shuffled options state (Shuffled once per question and frozen in place)
   interface StudentShuffledOption {
@@ -407,6 +526,28 @@ export const StudentMobileView: React.FC<Props> = ({
     }, durationMs);
   };
   const [lastLockedResult, setLastLockedResult] = useState<{ isCorrect: boolean; text: string } | null>(null);
+
+  // LƯU TRẠNG THÁI ĐÃ-TRẢ-LỜI: hễ câu hiện tại đã khoá đáp án (có lựa chọn + kết quả) thì persist vào
+  // sessionStorage theo khoá kc3d_ans_<room>_<qid> để F5/remount khôi phục, không trả lời trùng được.
+  useEffect(() => {
+    if (!hasAnsweredCurrentQ || !lastLockedResult) return;
+    try {
+      const qIdx = currentGlobalQIndexRef.current;
+      sessionStorage.setItem(
+        getAnswerStorageKey(qIdx),
+        JSON.stringify({
+          qIndex: qIdx,
+          hasAnswered: true,
+          selectedOptionOriginalIdx,
+          tfAnswers,
+          shortAnswerInput,
+          lastLockedResult,
+          isCorrect: lastLockedResult.isCorrect,
+          savedAt: Date.now()
+        })
+      );
+    } catch {}
+  }, [hasAnsweredCurrentQ, lastLockedResult, selectedOptionOriginalIdx, tfAnswers, shortAnswerInput]);
   const lastShuffledKeyRef = useRef<string>('');
   const shuffledCacheRef = useRef<{
     signature: string;
@@ -578,6 +719,49 @@ export const StudentMobileView: React.FC<Props> = ({
     myPlayerIdRef.current = myPlayerId;
   }, [myPlayerId]);
 
+  // Đợt 5 (4B.1): ghi lại định danh bền kèm tên/đội mới nhất vào localStorage theo phòng.
+  const persistStudentIdentity = (name?: string, teamOverride?: PlayerTeam) => {
+    const next = {
+      studentId: studentIdRef.current,
+      name: (name ?? studentNameRef.current ?? '').trim(),
+      team: (teamOverride || teamRef.current || 'RED') as PlayerTeam
+    };
+    setStudentIdentity(next);
+    try {
+      localStorage.setItem(studentStorageKey(roomIdRef.current || '12345'), serializeStudentIdentity(next));
+    } catch {}
+  };
+
+  // Đợt 5 (4B.1): đổi sang phòng khác → định danh bền là của ĐÚNG phòng đó (mỗi phòng
+  // một kc3d_student_<room> riêng); chưa có thì tạo mới và nhận làm myPlayerId luôn.
+  const identityRoomRef = useRef<string>(initialRoomId || '12345');
+  useEffect(() => {
+    if (!roomId || identityRoomRef.current === roomId) return;
+    identityRoomRef.current = roomId;
+    try {
+      const stored = parseStudentIdentity(localStorage.getItem(studentStorageKey(roomId)));
+      const nextId = resolveStudentId(stored, null, generateStudentId());
+      studentIdRef.current = nextId;
+      setStudentIdentity({
+        studentId: nextId,
+        name: stored?.name || '',
+        team: (stored?.team || teamRef.current || 'RED') as PlayerTeam
+      });
+      setMyPlayerId(nextId);
+      myPlayerIdRef.current = nextId;
+      localStorage.setItem(
+        studentStorageKey(roomId),
+        serializeStudentIdentity({
+          studentId: nextId,
+          name: stored?.name || '',
+          team: (stored?.team || teamRef.current || 'RED') as PlayerTeam
+        })
+      );
+      // Đăng ký lại Last-Will theo danh tính của phòng mới cho các client tạo sau.
+      CloudNetwork.setPlayerWill({ playerId: nextId, studentId: nextId });
+    } catch {}
+  }, [roomId]);
+
   // Kiểm tra tên học sinh hợp lệ (Bắt buộc học sinh phải nhập tên mới được vào phòng, tuyệt đối không tự sinh tên ảo SBD)
   const ensureValidStudentNameForMatchStart = (): string => {
     const curSaved = (studentNameRef.current || '').trim();
@@ -609,17 +793,52 @@ export const StudentMobileView: React.FC<Props> = ({
     }
 
     const finalTeam = overrideTeam || teamRef.current;
+    // Đợt 5 (4B.1): luôn đính kèm studentId bền để host gộp bản ghi, kể cả khi
+    // playerId của phiên tab này khác bản ghi cũ phía host.
+    persistStudentIdentity(cleanName, finalTeam);
 
     CloudNetwork.sendMessage({
       type: hasFinishedAllQuestionsRef.current
         ? 'PLAYER_FINISH_QUIZ'
         : 'PLAYER_READY_ROPE',
       playerId: myPlayerIdRef.current,
+      studentId: studentIdRef.current,
+      tabSessionId,
       preferredTeam: finalTeam,
       playerName: cleanName,
       avatar: avatarRef.current,
       savedScore: fastScoreRef.current,
       savedCorrect: myCorrectCountRef.current
+    });
+  };
+
+  // Đợt 5 (4B.2): NHỊP TIM GỌN — PLAYER_PING { playerId, studentId, ts } mỗi 5s, tách
+  // hẳn khỏi tin gửi điểm (sendEnter). Host chỉ dùng ping để ghi lastSeen giữ chỗ 90s;
+  // ping đi QoS 0 và không vào hàng đợi offline (mất 1 ping vô hại, ping sau bù ngay).
+  const lastPingSentRef = useRef<number>(0);
+  const sendPlayerPing = () => {
+    if (!hasJoinedArenaRef.current || isPlaceholderOrEmptyName(studentNameRef.current)) return;
+    const now = Date.now();
+    if (now - lastPingSentRef.current < PLAYER_PING_INTERVAL_MS - 250) return;
+    lastPingSentRef.current = now;
+    CloudNetwork.sendMessage({
+      type: 'PLAYER_PING',
+      playerId: myPlayerIdRef.current,
+      studentId: studentIdRef.current,
+      ts: now
+    });
+  };
+
+  // Đợt 5 (4B.3): XIN RESYNC TƯỜNG MINH — gửi ngay khi MQTT reconnect thành công, khi
+  // F5/remount vào lại phòng, và khi quay lại từ nền sau khi mất kết nối > 5s.
+  // Host trả RESYNC_STATE (trạng thái trận + deadline + đã-trả-lời + hồ sơ của HS).
+  const sendResyncRequest = () => {
+    if (!hasJoinedArenaRef.current || isPlaceholderOrEmptyName(studentNameRef.current)) return;
+    CloudNetwork.sendMessage({
+      type: 'RESYNC_REQUEST',
+      playerId: myPlayerIdRef.current,
+      studentId: studentIdRef.current,
+      lastQIndex: currentGlobalQIndexRef.current
     });
   };
 
@@ -642,6 +861,7 @@ export const StudentMobileView: React.FC<Props> = ({
         CloudNetwork.sendMessage({
           type: 'PLAYER_FINISH_QUIZ',
           playerId: myPlayerId,
+          studentId: studentIdRef.current,
           preferredTeam: teamRef.current,
           playerName: validName,
           avatar: avatarRef.current,
@@ -662,14 +882,17 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   const handleManualReconnect = () => {
-    setConnStatus('🟢 Đang đồng bộ kết nối & bảo lưu điểm số...');
+    setConnStatus('🔄 Đang kết nối lại & bảo lưu điểm số...');
     CloudNetwork.reconnectImmediate();
+    // Phản ánh trạng thái THẬT của mạng ngay sau khi yêu cầu nối lại, không tự nhận đã kết nối
+    setNetworkState(CloudNetwork.getStatus());
     setTimeout(() => {
       const cleanName = (studentNameRef.current || '').trim();
       if (!isPlaceholderOrEmptyName(cleanName) && hasJoinedArenaRef.current) {
         CloudNetwork.sendMessage({
           type: hasFinishedAllQuestionsRef.current ? 'PLAYER_FINISH_QUIZ' : 'PLAYER_READY_ROPE',
           playerId: myPlayerId,
+          studentId: studentIdRef.current,
           preferredTeam: teamRef.current,
           playerName: cleanName,
           avatar: avatarRef.current,
@@ -677,13 +900,22 @@ export const StudentMobileView: React.FC<Props> = ({
           savedCorrect: myCorrectCountRef.current
         });
       }
-      setNetworkState('CONNECTED');
-      setConnStatus(`🟢 Đã kết nối Phòng ${roomId}`);
+      const realStatus = CloudNetwork.getStatus();
+      setNetworkState(realStatus);
+      if (realStatus === 'CONNECTED') {
+        setConnStatus(`🟢 Đã kết nối Phòng ${roomId}`);
+      } else if (realStatus === 'DISCONNECTED') {
+        setConnStatus('🔴 Mất kết nối — hệ thống đang tự thử nối lại...');
+      } else {
+        setConnStatus('🟡 Đang kết nối lại...');
+      }
     }, 100);
   };
 
-  // 30s Local countdown timer per question:
+  // Countdown timer per question THEO ĐỒNG HỒ HOST:
   // Chỉ chạy khi Giáo viên đã bấm Bắt đầu (hostMatchStatus === 'PLAYING') và học sinh đã lưu tên thật.
+  // Thời gian còn lại luôn tính từ deadline tuyệt đối của host (serverStartTime + durationSec,
+  // đã hiệu chỉnh lệch giờ), không đếm theo giờ máy HS nữa.
   useEffect(() => {
     if (
       screen !== 'QUIZ' ||
@@ -694,7 +926,7 @@ export const StudentMobileView: React.FC<Props> = ({
     ) {
       activeStudentTimerQIndexRef.current = -1;
       if (screen === 'WAITING' || hostMatchStatus !== 'PLAYING') {
-        setRemSec(30);
+        setRemSec(questionDurationSecRef.current);
       }
       if (timerRef.current) clearInterval(timerRef.current);
       return;
@@ -706,19 +938,11 @@ export const StudentMobileView: React.FC<Props> = ({
       return;
     }
 
-    // Chỉ khởi tạo lại đồng hồ 30s khi chuyển sang chỉ số câu hỏi mới hoặc vừa mở khóa thi đấu
+    // Chỉ khởi tạo lại đồng hồ khi chuyển sang chỉ số câu hỏi mới hoặc vừa mở khóa thi đấu
     if (activeStudentTimerQIndexRef.current !== currentGlobalQIndex) {
       activeStudentTimerQIndexRef.current = currentGlobalQIndex;
-      setRemSec(30);
       clearFreeze(); // Mở đóng băng khi hiện lên câu hỏi mới
-      hasAnsweredCurrentQRef.current = false;
-      setHasAnsweredCurrentQ(false);
-      setIsAnswerLocked(false);
-      setSelectedOptionOriginalIdx(null);
-      setLastLockedResult(null);
       setEliminatedOptions([]);
-      setShortAnswerInput('');
-      setTfAnswers({ a: true, b: true, c: true, d: true });
       setWagerLevel(1);
       setMysteryChestsAvailable(false);
       setClaimedChestResult(null);
@@ -726,26 +950,77 @@ export const StudentMobileView: React.FC<Props> = ({
         clearInterval(chestTimerRef.current);
         chestTimerRef.current = null;
       }
-      startMsRef.current = Date.now();
+      // Khôi phục trạng thái ĐÃ-TRẢ-LỜI của chính câu này nếu F5/remount (không cho trả lời trùng)
+      const savedAns = readPersistedAnswered(currentGlobalQIndex);
+      if (savedAns) {
+        hasAnsweredCurrentQRef.current = true;
+        setHasAnsweredCurrentQ(true);
+        setIsAnswerLocked(true);
+        setSelectedOptionOriginalIdx(
+          typeof savedAns.selectedOptionOriginalIdx === 'number' ? savedAns.selectedOptionOriginalIdx : null
+        );
+        if (savedAns.tfAnswers && typeof savedAns.tfAnswers === 'object') {
+          setTfAnswers(savedAns.tfAnswers);
+        }
+        if (typeof savedAns.shortAnswerInput === 'string') {
+          setShortAnswerInput(savedAns.shortAnswerInput);
+        }
+        setLastLockedResult(
+          savedAns.lastLockedResult || {
+            isCorrect: Boolean(savedAns.isCorrect),
+            text: '🔒 Đáp án câu này đã được ghi nhận trước đó (đã khôi phục sau khi tải lại trang).'
+          }
+        );
+      } else {
+        hasAnsweredCurrentQRef.current = false;
+        setHasAnsweredCurrentQ(false);
+        setIsAnswerLocked(false);
+        setSelectedOptionOriginalIdx(null);
+        setLastLockedResult(null);
+        setShortAnswerInput('');
+        setTfAnswers({ a: true, b: true, c: true, d: true });
+      }
+      // Chưa có deadline của host cho câu này -> lùi về đếm cục bộ theo thời lượng cấu hình;
+      // đã có (từ QUESTION_START) thì giữ nguyên deadline đó, tuyệt đối không reset về đầy giờ.
+      if (questionDeadlineQIndexRef.current !== currentGlobalQIndex || questionDeadlineRef.current <= 0) {
+        startMsRef.current = Date.now();
+        questionDeadlineRef.current =
+          Date.now() + serverClockOffsetRef.current + questionDurationSecRef.current * 1000;
+        questionDeadlineQIndexRef.current = currentGlobalQIndex;
+      }
+      setRemSec(computeRemainingSec());
     }
 
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
-      const elapsed = (Date.now() - startMsRef.current) / 1000;
-      const left = Math.max(0, 30 - elapsed);
+      const left = computeRemainingSec();
       setRemSec(left);
 
       if (left <= 0) {
         clearInterval(timerRef.current);
-        // Hết 30s mà học sinh không chọn đáp án -> Coi như trả lời SAI
+        // Hết giờ theo deadline host mà học sinh không chọn đáp án -> Coi như trả lời SAI
         if (!hasAnsweredCurrentQRef.current) {
           handleTimeoutFail();
         }
       }
     }, 100);
 
+    // Quay lại từ nền / khoá màn hình: tính lại ngay theo deadline host —
+    // còn giờ thì chơi tiếp bình thường, thật sự hết giờ mới chốt đáp án.
+    const handleVisibilityReturn = () => {
+      if (document.hidden) return;
+      const left = computeRemainingSec();
+      setRemSec(left);
+      if (left <= 0 && !hasAnsweredCurrentQRef.current) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        handleTimeoutFail();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityReturn);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityReturn);
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [screen, hostMatchStatus, studentName, currentGlobalQIndex, eliminated]);
@@ -763,6 +1038,40 @@ export const StudentMobileView: React.FC<Props> = ({
     };
 
   const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
+  currentQItemRef.current = currentQItem;
+
+  // Đợt 4 (GĐ3.3): đọc câu hiện tại ngay trên máy HS (buildSpeechText + giọng Việt của
+  // chính máy HS). Chỉ chạy khi công tắc host đang BẬT. Các hàm chỉ dùng ref để các
+  // callback mạng đăng ký 1 lần không bị stale closure.
+  const startSpeakingCurrentQuestion = () => {
+    if (!ttsStudentEnabledRef.current) return;
+    const item = currentQItemRef.current;
+    if (!item) return;
+    stopSpeaking();
+    const script = buildSpeechText(item, currentGlobalQIndexRef.current + 1);
+    if (!script) return;
+    const started = speakVietnameseText(script, {
+      rate: 1.0,
+      onEnd: () => {
+        isSpeakingTTSRef.current = false;
+        setIsSpeakingTTS(false);
+      }
+    });
+    if (started) {
+      isSpeakingTTSRef.current = true;
+      setIsSpeakingTTS(true);
+    }
+  };
+
+  const handleStudentReadAloud = () => {
+    if (isSpeakingTTSRef.current) {
+      stopSpeaking();
+      isSpeakingTTSRef.current = false;
+      setIsSpeakingTTS(false);
+      return;
+    }
+    startSpeakingCurrentQuestion();
+  };
 
   // Đảo thứ tự các phương án trả lời độc lập trên từng máy Học sinh (Chống nhìn trộm giữa các Học sinh & khác vị trí với màn hình Giáo viên)
   const resolvedQSignature = `${clampedQIndex}::${currentQItem?.q || ''}::${(currentQItem?.opts || []).join('|')}::${(currentQItem?.tfItems || []).map(t => `${t.label}:${t.text}`).join('|')}`;
@@ -860,8 +1169,8 @@ export const StudentMobileView: React.FC<Props> = ({
         setLastLockedResult({
           isCorrect: false,
           text: nextL <= 0
-            ? '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Bạn đã hết 3 ❤️ và chuyển sang làm Khán giả cổ vũ!'
-            : `⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
+            ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI • Bạn đã hết 3 ❤️ và chuyển sang làm Khán giả cổ vũ!`
+            : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
         });
         if (nextL <= 0) {
           setEliminated(true);
@@ -876,21 +1185,22 @@ export const StudentMobileView: React.FC<Props> = ({
       setLastLockedResult({
         isCorrect: false,
         text: isFinalQ
-          ? '⏰ HẾT 30 GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (-1000 điểm) • Đang tổng kết kết quả cuối cùng!'
-          : '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!'
+          ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (-1000 điểm) • Đang tổng kết kết quả cuối cùng!`
+          : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!`
       });
     } else {
       setLastLockedResult({
         isCorrect: false,
         text: isFinalQ
-          ? '⏰ HẾT 30 GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (0 điểm) • Đang tổng kết kết quả cuối cùng!'
-          : '⏰ HẾT 30 GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!'
+          ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (0 điểm) • Đang tổng kết kết quả cuối cùng!`
+          : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!`
       });
     }
 
     CloudNetwork.sendMessage({
       type: 'FREEZE_WRONG',
       playerId: myPlayerId,
+      studentId: studentIdRef.current,
       team: teamRef.current,
       globalQIndex: curIdx,
       totalScore: nextScoreAfterTimeout,
@@ -963,6 +1273,154 @@ export const StudentMobileView: React.FC<Props> = ({
   const handleIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
 
+    // Đợt 8 (4C.2): CHỮ KÝ LỆNH ĐIỀU KHIỂN — khi HS CÓ khoá phòng (link QR có &k=...),
+    // mọi lệnh nhạy cảm (CLEAR_ALL_STUDENTS, MATCH_ENDED, QUESTION_START...) phải có
+    // chữ ký HMAC đúng của host mới được thi hành; sai/thiếu chữ ký → BỎ QUA + ghi
+    // nhận (banner nhỏ + console). HS không có khoá (phòng bản cũ) → không kiểm tra,
+    // hành vi như cũ. Tin tổng hợp nội bộ từ kênh HTTP của chính máy chủ (tiền tố
+    // _mid 'srv_') không đi qua broker công cộng nên được miễn kiểm tra. Các tin
+    // không phải lệnh điều khiển (heartbeat, chunk, RESYNC...) không bị ảnh hưởng.
+    if (isSensitiveCommand(d.type) && !(d._mid || '').startsWith('srv_')) {
+      if (!roomKeyRef.current) {
+        try {
+          roomKeyRef.current = extractRoomKeyFromUrlParts(window.location.search, window.location.hash);
+        } catch {}
+      }
+      const key = roomKeyRef.current;
+      if (key && !verifyCommandSync(key, d as unknown as Record<string, unknown>, d.sig)) {
+        setRejectedCmdCount(prev => prev + 1);
+        try {
+          console.warn(`[KC3D] Bỏ qua lệnh ${d.type} vì chữ ký không hợp lệ (lệnh giả hoặc sai khoá phòng).`);
+        } catch {}
+        return;
+      }
+    }
+
+    // Đợt 5 (4B.2): PLAYER_OFFLINE (Last-Will trên …/players/<id>) là tin cho HOST —
+    // phía HS nhận được qua cùng topic đăng ký thì bỏ qua hoàn toàn.
+    if (d.type === 'PLAYER_OFFLINE') return;
+
+    // Đợt 5 (4B.3): RESYNC_STATE — host trả lời RESYNC_REQUEST của CHÍNH học sinh này.
+    // Khôi phục tường minh: trạng thái trận, câu hiện tại + deadline host, trạng thái
+    // đã-trả-lời câu hiện tại, điểm/mạng/streak/đội/vai trò — thay cho đoán qua heartbeat.
+    if (d.type === 'RESYNC_STATE') {
+      const isMine =
+        d.playerId === myPlayerIdRef.current ||
+        (d.studentId && d.studentId === studentIdRef.current) ||
+        (d.canonicalPlayerId && d.canonicalPlayerId === myPlayerIdRef.current);
+      if (!isMine) return;
+      // Host đã gộp bản ghi sang mã canonical khác mã phiên này → nhận canonical làm
+      // playerId của mình cho mọi tin về sau (đáp án/ping không còn lệch bản ghi).
+      if (d.canonicalPlayerId && d.canonicalPlayerId !== myPlayerIdRef.current) {
+        myPlayerIdRef.current = d.canonicalPlayerId;
+        setMyPlayerId(d.canonicalPlayerId);
+        try {
+          sessionStorage.setItem(`kc3d_pid_${tabSessionId}`, d.canonicalPlayerId);
+        } catch {}
+      }
+      if (d.gameType) {
+        setGameType(d.gameType);
+        gameTypeRef.current = d.gameType;
+      }
+      const resyncStatus = d.matchStatus || d.status;
+      if (resyncStatus) {
+        if (resyncStatus === 'PLAYING') {
+          lastForceStartTsRef.current = Date.now();
+        }
+        if (!(resyncStatus === 'LOBBY' && Date.now() - lastForceStartTsRef.current < 12000)) {
+          setHostMatchStatus(resyncStatus);
+          hostMatchStatusRef.current = resyncStatus;
+        }
+      }
+      if (d.team) setTeam(d.team);
+      if (d.role) setRole(d.role);
+      if (typeof d.lives === 'number') setLives(d.lives);
+      if (typeof d.streak === 'number') setStreak(d.streak);
+      if (typeof d.eliminated === 'boolean' && gameTypeRef.current === 'BELL') {
+        setEliminated(d.eliminated);
+        eliminatedRef.current = d.eliminated;
+      }
+      // Điểm phía host là bản đã gộp (giữ giá trị cao nhất) → lấy làm chuẩn hiển thị.
+      if (typeof d.fastScore === 'number') {
+        fastScoreRef.current = d.fastScore;
+        setFastScore(d.fastScore);
+      }
+      if (typeof d.savedCorrect === 'number') {
+        myCorrectCountRef.current = d.savedCorrect;
+        setMyCorrectCount(d.savedCorrect);
+      }
+      if (typeof d.bossHP === 'number') setBossHP(d.bossHP);
+      if (typeof d.maxBossHP === 'number') setMaxBossHP(d.maxBossHP);
+
+      const qIdx = typeof d.globalQIndex === 'number'
+        ? d.globalQIndex
+        : (typeof d.qIndex === 'number' ? d.qIndex : currentGlobalQIndexRef.current);
+      if (d.question) {
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
+      if (typeof d.globalQIndex === 'number' || typeof d.qIndex === 'number') {
+        currentGlobalQIndexRef.current = qIdx;
+        if (qIdx > maxReachedQIndexRef.current) maxReachedQIndexRef.current = qIdx;
+        setCurrentGlobalQIndex(qIdx);
+        // Dựng lại deadline theo đúng cơ chế Đợt 1 từ serverStartTime + durationSec.
+        applyHostQuestionTiming(qIdx, d.serverStartTime, d.durationSec);
+        setRemSec(computeRemainingSec());
+      }
+
+      // Trạng thái đã-trả-lời câu hiện tại: host (answeredQKeys) + bản lưu tại máy HS
+      // (kc3d_ans_) — hễ MỘT trong hai nguồn nói đã trả lời thì khoá, không trả lời trùng.
+      const localAns = readPersistedAnswered(qIdx);
+      const hostAnswered = d.hasAnsweredCurrentQ === true;
+      if (hostAnswered || localAns) {
+        hasAnsweredCurrentQRef.current = true;
+        setHasAnsweredCurrentQ(true);
+        setIsAnswerLocked(true);
+        const selIdx = typeof d.selectedOptionOriginalIdx === 'number'
+          ? d.selectedOptionOriginalIdx
+          : (localAns && typeof localAns.selectedOptionOriginalIdx === 'number' ? localAns.selectedOptionOriginalIdx : null);
+        setSelectedOptionOriginalIdx(selIdx);
+        const tf = d.tfAnswers || (localAns && localAns.tfAnswers ? localAns.tfAnswers : undefined);
+        if (tf) setTfAnswers(tf);
+        const sa = typeof d.shortAnswerInput === 'string'
+          ? d.shortAnswerInput
+          : (localAns && typeof localAns.shortAnswerInput === 'string' ? localAns.shortAnswerInput : undefined);
+        if (typeof sa === 'string') setShortAnswerInput(sa);
+        setLastLockedResult(
+          (localAns && localAns.lastLockedResult) || {
+            isCorrect: Boolean(d.answeredIsCorrect),
+            text: '🔒 Đáp án câu này đã được ghi nhận (đã đồng bộ lại từ máy chủ sau khi kết nối lại).'
+          }
+        );
+      }
+
+      if (d.holdReleased) {
+        // Chỗ đã bị giải phóng sau 90s ở ván hiện tại: rời ván này, chờ ván sau vào lại.
+        triggerBonusToast('📴 Bạn đã mất kết nối quá 90 giây nên đã rời ván này — đợi ván sau vào lại nhé!');
+        if (!hasFinishedAllQuestionsRef.current) setScreen('WAITING');
+        return;
+      }
+      if (d.hasPlayer === false) {
+        // Host không còn bản ghi (đã giải phóng chỗ / phiên mới): nếu trận đang LOBBY
+        // (ván sau) thì báo danh lại như người chơi quay lại bình thường.
+        if (resyncStatus === 'LOBBY' || resyncStatus === 'ENDED' || !resyncStatus) {
+          sendEnter(studentNameRef.current);
+        } else if (!hasFinishedAllQuestionsRef.current) {
+          setScreen('WAITING');
+        }
+        return;
+      }
+      setHasConfirmedEnter(true);
+      hasConfirmedEnterRef.current = true;
+      if (hasFinishedAllQuestionsRef.current) {
+        setScreen('ENDED');
+      } else if (resyncStatus === 'PLAYING' && !eliminatedRef.current) {
+        waitingRoomLockedRef.current = false;
+        setScreen('QUIZ');
+      }
+      return;
+    }
+
     if (d.gameType) {
       setGameType(d.gameType);
       gameTypeRef.current = d.gameType;
@@ -1007,7 +1465,18 @@ export const StudentMobileView: React.FC<Props> = ({
         sessionStorage.removeItem(`kc3d_qidx_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
+        // Đợt 5 (4B.1): phiên mới = lớp mới — xoá luôn định danh bền của phòng này để
+        // người tiếp theo dùng cùng máy không thừa hưởng danh tính/điểm của HS trước,
+        // và sinh định danh mới cho lần vào phòng kế tiếp.
+        localStorage.removeItem(studentStorageKey(roomIdRef.current || '12345'));
+        const freshStudentId = generateStudentId();
+        studentIdRef.current = freshStudentId;
+        setStudentIdentity({ studentId: freshStudentId, name: '', team: teamRef.current });
+        setMyPlayerId(freshStudentId);
+        myPlayerIdRef.current = freshStudentId;
+        CloudNetwork.setPlayerWill({ playerId: freshStudentId, studentId: freshStudentId });
       } catch {}
+      clearPersistedAnsweredStates();
       hasJoinedArenaRef.current = false;
       waitingRoomLockedRef.current = false;
       hasFinishedAllQuestionsRef.current = false;
@@ -1039,7 +1508,7 @@ export const StudentMobileView: React.FC<Props> = ({
       } else {
         lastForcePullTsRef.current = Date.now();
       }
-      setNetworkState('CONNECTED');
+      setNetworkState(CloudNetwork.getStatus());
       setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
       if (d.question) {
         const qIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current;
@@ -1172,7 +1641,7 @@ export const StudentMobileView: React.FC<Props> = ({
     else if (d.type === 'ENTER_CONFIRMED' && d.playerId === myPlayerId) {
       setHasConfirmedEnter(true);
       hasConfirmedEnterRef.current = true;
-      setNetworkState('CONNECTED');
+      setNetworkState(CloudNetwork.getStatus());
       if (d.team) setTeam(d.team);
       if (d.role) setRole(d.role);
       if (d.matchStatus) {
@@ -1222,6 +1691,17 @@ export const StudentMobileView: React.FC<Props> = ({
         }
       }
     }
+    else if (d.type === 'QUIZ_SINGLE_QUESTION') {
+      // Đợt 3 (2.4): câu hiện tại quá lớn (ảnh base64) được host gửi riêng qua đường chunk —
+      // gắn thẳng vào bản đồ câu phát sóng để hiển thị ngay, kể cả khi bộ đề chưa ghép đủ.
+      if (d.question) {
+        const qIdx = typeof d.qIndex === 'number'
+          ? d.qIndex
+          : (typeof d.globalQIndex === 'number' ? d.globalQIndex : currentGlobalQIndexRef.current);
+        setBroadcastQuestionMap(prev => ({ ...prev, [qIdx]: d.question! }));
+        setCurrentBroadcastQ({ ...d.question, qIndex: qIdx } as any);
+      }
+    }
     else if (d.type === 'QUIZ_SYNC') {
       if (d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
         setQuizDeck(d.quiz);
@@ -1243,8 +1723,10 @@ export const StudentMobileView: React.FC<Props> = ({
       hostMatchStatusRef.current = 'PLAYING';
       waitingRoomLockedRef.current = false;
       activeStudentTimerQIndexRef.current = -1;
+      // Trận mới bắt đầu: xoá mọi trạng thái đã-trả-lời đã lưu của trận trước
+      clearPersistedAnsweredStates();
       startMsRef.current = Date.now();
-      setRemSec(30);
+      setRemSec(questionDurationSecRef.current);
       hasAnsweredCurrentQRef.current = false;
       setHasAnsweredCurrentQ(false);
       setIsAnswerLocked(false);
@@ -1256,6 +1738,9 @@ export const StudentMobileView: React.FC<Props> = ({
       currentGlobalQIndexRef.current = startIdx;
       maxReachedQIndexRef.current = startIdx;
       setCurrentGlobalQIndex(startIdx);
+      // Đồng hồ theo host: host đã gửi serverStartTime + durationSec kèm lệnh bắt đầu
+      applyHostQuestionTiming(startIdx, d.serverStartTime, d.durationSec);
+      setRemSec(computeRemainingSec());
       if (d.question) {
         setBroadcastQuestionMap(prev => ({ ...prev, [startIdx]: d.question! }));
         setCurrentBroadcastQ({ ...d.question, qIndex: startIdx } as any);
@@ -1335,12 +1820,14 @@ export const StudentMobileView: React.FC<Props> = ({
       setIsAnswerLocked(false);
       setSelectedOptionOriginalIdx(null);
       setLastLockedResult(null);
+      // Đổi trò chơi = trận mới: xoá trạng thái đã-trả-lời đã lưu của trận cũ
+      clearPersistedAnsweredStates();
 
       if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(studentNameRef.current)) {
         waitingRoomLockedRef.current = false;
         activeStudentTimerQIndexRef.current = -1;
         startMsRef.current = Date.now();
-        setRemSec(30);
+        setRemSec(questionDurationSecRef.current);
         setScreen('QUIZ');
         if (nextStatus === 'PLAYING') {
           triggerBonusToast('🎮 Đã đồng bộ bộ câu hỏi mới — Bắt đầu thi đấu ngay!');
@@ -1394,8 +1881,40 @@ export const StudentMobileView: React.FC<Props> = ({
         triggerBonusToast('❄️ BẠN BỊ ĐỐI THỦ ĐÓNG BĂNG 3 GIÂY!');
       }
     }
+    else if (d.type === 'TTS_READ') {
+      // Đợt 4 (GĐ3.3): host bấm Đọc Đề → máy HS đang được bật TTS tự đọc đồng bộ,
+      // nhưng chỉ khi lệnh khớp đúng câu HS đang xem. Công tắc TẮT → bỏ qua hoàn toàn.
+      if (
+        ttsStudentEnabledRef.current &&
+        typeof d.qIndex === 'number' &&
+        d.qIndex === currentGlobalQIndexRef.current
+      ) {
+        startSpeakingCurrentQuestion();
+      }
+    }
     else if (d.type === 'HOST_HEARTBEAT') {
-      setNetworkState('CONNECTED');
+      setNetworkState(CloudNetwork.getStatus());
+      // Hiệu chỉnh lệch giờ máy HS theo đồng hồ host: offset = serverTs - giờ máy lúc nhận.
+      // Bỏ qua bản retained phát lại khi vừa subscribe (đánh dấu _mid 'ret_...') vì serverTs của nó đã cũ.
+      if (typeof d.serverTs === 'number' && d.serverTs > 0 && !(d._mid || '').startsWith('ret_')) {
+        serverClockOffsetRef.current = d.serverTs - Date.now();
+      }
+      // Thời lượng câu hỏi theo cấu hình host gửi kèm nhịp tim
+      if (typeof d.durationSec === 'number' && d.durationSec > 0 && d.durationSec !== questionDurationSecRef.current) {
+        questionDurationSecRef.current = d.durationSec;
+        setQuestionDurationSec(d.durationSec);
+      }
+      // Đợt 4 (GĐ3.3): công tắc "Đọc đề trên máy học sinh" do host quyết, phát kèm nhịp
+      // tim. Host TẮT → ẩn nút 🔊, dừng đọc ngay và bỏ qua mọi lệnh TTS_READ.
+      if (typeof d.ttsStudentEnabled === 'boolean' && d.ttsStudentEnabled !== ttsStudentEnabledRef.current) {
+        ttsStudentEnabledRef.current = d.ttsStudentEnabled;
+        setTtsStudentEnabled(d.ttsStudentEnabled);
+        if (!d.ttsStudentEnabled && isSpeakingTTSRef.current) {
+          stopSpeaking();
+          isSpeakingTTSRef.current = false;
+          setIsSpeakingTTS(false);
+        }
+      }
       // Chống gói nhịp tim cũ (trễ mạng) mang status 'LOBBY' ghi đè làm khóa đáp án sau khi Giáo viên vừa bấm Bắt đầu
       const isStaleLobbyHeartbeat =
         d.status === 'LOBBY' &&
@@ -1473,7 +1992,7 @@ export const StudentMobileView: React.FC<Props> = ({
         setLastLockedResult(null);
         setEliminatedOptions([]);
         setWagerLevel(1);
-        setRemSec(30);
+        setRemSec(questionDurationSecRef.current);
         startMsRef.current = Date.now();
       }
 
@@ -1505,8 +2024,11 @@ export const StudentMobileView: React.FC<Props> = ({
       }
 
       // Nếu Học sinh đã vào phòng mà trên danh sách playerIds của Giáo viên chưa có ID của học sinh này -> lập tức gửi báo danh lại ngay!
+      // Đợt 8 (4D): heartbeat RÚT GỌN (top10Unchanged) KHÔNG mang playerIds — vắng mặt
+      // nghĩa là "giữ nguyên trạng thái cũ", KHÔNG được hiểu là "không có tên mình"
+      // (tránh bão sendEnter mỗi 1,2s). Chỉ kiểm tra khi playerIds thật sự có mặt.
       if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(studentNameRef.current)) {
-        if (!Array.isArray(d.playerIds) || !d.playerIds.includes(myPlayerIdRef.current)) {
+        if (Array.isArray(d.playerIds) && !d.playerIds.includes(myPlayerIdRef.current)) {
           sendEnter(studentNameRef.current);
         }
       }
@@ -1543,6 +2065,13 @@ export const StudentMobileView: React.FC<Props> = ({
         currentGlobalQIndexRef.current = d.qIndex;
         maxReachedQIndexRef.current = d.qIndex;
         setCurrentGlobalQIndex(d.qIndex);
+        // ĐỒNG HỒ THEO HOST: deadline = serverStartTime + durationSec mà host đã gửi kèm câu hỏi.
+        // Có serverStartTime thì áp mọi lần (cùng 1 deadline, áp lại không đổi); chưa có thì chỉ áp khi sang câu mới.
+        if (typeof d.serverStartTime === 'number' && d.serverStartTime > 0) {
+          applyHostQuestionTiming(d.qIndex, d.serverStartTime, d.durationSec);
+        } else if (isNewQuestion || questionDeadlineQIndexRef.current !== d.qIndex) {
+          applyHostQuestionTiming(d.qIndex, undefined, d.durationSec);
+        }
         if (isNewQuestion || d.qIndex === 0) {
           // HOTFIX 1.3: Khóa tạm thời nút bấm khi chuyển sang câu hỏi mới đồng bộ từ giáo viên
           triggerSyncStateLock(260);
@@ -1556,8 +2085,7 @@ export const StudentMobileView: React.FC<Props> = ({
           setLastLockedResult(null);
           setEliminatedOptions([]);
           setWagerLevel(1);
-          setRemSec(30);
-          startMsRef.current = Date.now();
+          setRemSec(computeRemainingSec());
         }
         if (d.question) {
           setBroadcastQuestionMap(prev => ({ ...prev, [d.qIndex!]: d.question! }));
@@ -1594,22 +2122,58 @@ export const StudentMobileView: React.FC<Props> = ({
   // Connect to room with network status tracking (Luôn dùng ref mới nhất, giữ kết nối xuyên suốt 100%)
   useEffect(() => {
     let pinnedBroker: number | undefined = undefined;
+    let effectiveRoomId = roomId;
     try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const bkVal = urlParams.get('bk') || urlParams.get('b');
-      if (bkVal !== null && !isNaN(Number(bkVal))) {
+      // Đọc tham số từ CẢ query (?...) lẫn hash (#r=...&bk=...): link chia sẻ qua Zalo
+      // thường nằm trong hash, chỉ đọc location.search sẽ làm rơi ghim broker (bk) và mã phòng.
+      const combinedParams = new URLSearchParams(window.location.search);
+      const hashStr = window.location.hash || '';
+      if (hashStr.length > 1) {
+        const qIdx = hashStr.indexOf('?');
+        const hashQuery = qIdx !== -1 ? hashStr.substring(qIdx + 1) : hashStr.replace(/^#\/?/, '');
+        const hashParams = new URLSearchParams(hashQuery);
+        hashParams.forEach((val, key) => {
+          if (!combinedParams.has(key)) {
+            combinedParams.set(key, val);
+          }
+        });
+      }
+      const bkVal = combinedParams.get('bk') || combinedParams.get('b');
+      if (bkVal !== null && bkVal !== '' && !isNaN(Number(bkVal))) {
         pinnedBroker = Number(bkVal);
+      }
+      const roomFromUrl = combinedParams.get('r') || combinedParams.get('room');
+      if (roomFromUrl && /^\d{5}$/.test(roomFromUrl) && roomFromUrl !== roomId) {
+        effectiveRoomId = roomFromUrl;
+        setRoomId(roomFromUrl);
       }
     } catch {}
 
+    // Đợt 8 (4C.2): đọc KHOÁ PHÒNG (tham số k) từ CẢ query lẫn hash — cùng cơ chế đọc
+    // bk ở Đợt 1. Có khoá → bật kiểm tra chữ ký lệnh điều khiển trong handleIncomingMessage.
+    try {
+      roomKeyRef.current = extractRoomKeyFromUrlParts(window.location.search, window.location.hash);
+    } catch {}
+
+    // Đợt 8 (4C.1): khai báo vai trò HỌC SINH — tầng mạng sẽ đi theo broker epoch của
+    // host (không tự failover độc lập sau khi đã vào phòng có host).
+    CloudNetwork.setBrokerRole('STUDENT');
+
+    // Đợt 5 (4B.2): đăng ký Last-Will PLAYER_OFFLINE theo định danh bền TRƯỚC khi nối
+    // để client MQTT chính tạo ra mang sẵn will (rớt hẳn → broker báo host ngay).
+    CloudNetwork.setPlayerWill({ playerId: myPlayerIdRef.current, studentId: studentIdRef.current });
+
     CloudNetwork.connect(
-      roomId,
+      effectiveRoomId,
       (msg) => handleIncomingMessageRef.current(msg),
       () => {
         setConnStatus(`🟢 Đã kết nối Phòng ${roomId}!`);
-        setNetworkState('CONNECTED');
+        setNetworkState(CloudNetwork.getStatus());
         // Gửi ngay thông tin nhân vật lên Server/Host ngay cả khi học sinh đang ở Sảnh (LOBBY) để hiện nhân vật 3D tức thì!
         sendEnter();
+        // Đợt 5 (4B.3): (re)connect thành công / F5-remount vào lại phòng → xin RESYNC
+        // tường minh để host trả đúng trạng thái thật, không đoán mò qua heartbeat.
+        sendResyncRequest();
       },
       (newStatus) => {
         setNetworkState(newStatus);
@@ -1621,7 +2185,10 @@ export const StudentMobileView: React.FC<Props> = ({
       pinnedBroker
     );
 
-    // Đồng bộ định kỳ chống rớt mạng / chống văng và đảm bảo nhân vật 3D luôn xuất hiện trên màn hình Giáo viên
+    // Đồng bộ định kỳ chống rớt mạng / chống văng và đảm bảo nhân vật 3D luôn xuất hiện trên màn hình Giáo viên.
+    // Đợt 5 (4B.2): khi KHÔNG có gì thay đổi và host đã xác nhận vào phòng, vòng này chỉ
+    // gửi PLAYER_PING gọn mỗi 5s (giữ lastSeen phía host) thay cho bản PLAYER_READY_ROPE
+    // đầy đủ như trước; điểm/tên/đội đổi hoặc chưa được xác nhận mới gửi bản đầy đủ.
     let lastSyncTs = Date.now();
     let lastSyncedScore = fastScoreRef.current;
     const interval = setInterval(() => {
@@ -1629,6 +2196,16 @@ export const StudentMobileView: React.FC<Props> = ({
       const scoreChanged = fastScoreRef.current !== lastSyncedScore;
       const neededDelay = hasConfirmedEnterRef.current ? 4500 : 2000;
       if (scoreChanged || now - lastSyncTs >= neededDelay) {
+        if (hasConfirmedEnterRef.current && !scoreChanged && now - lastSyncTs < 20000) {
+          // Đã yên vị trong phòng và điểm không đổi: nhịp tim gọn là đủ giữ chỗ.
+          sendPlayerPing();
+          // Vẫn làm mới mốc để bản đầy đủ kế tiếp cách nhau tối đa ~20s (bù retained).
+          if (now - lastSyncTs >= 20000) {
+            lastSyncTs = now;
+            sendEnter();
+          }
+          return;
+        }
         lastSyncTs = now;
         lastSyncedScore = fastScoreRef.current;
         sendEnter();
@@ -1646,6 +2223,30 @@ export const StudentMobileView: React.FC<Props> = ({
       CloudNetwork.disconnect();
     };
   }, [roomId]);
+
+  // Đợt 5 (4B.3): quay lại từ nền / mở khoá màn hình — nếu đã ẩn trang quá 5s (đủ lâu
+  // để bị coi là mất kết nối) thì xin RESYNC tường minh ngay khi hiện lại; ẩn chớp
+  // nhoáng < 5s chỉ cần ping làm mới lastSeen là đủ.
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAt > 0 ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (!hasJoinedArenaRef.current) return;
+      if (hiddenFor > RESYNC_BACKGROUND_THRESHOLD_MS) {
+        CloudNetwork.reconnectImmediate();
+        sendResyncRequest();
+      } else {
+        sendPlayerPing();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   const awardRandomPowerUp = () => {
     const list: PowerUpType[] = ['SHIELD', 'FREEZE_OPPONENT', 'FIFTY_FIFTY', 'DOUBLE_POWER'];
@@ -2027,6 +2628,7 @@ export const StudentMobileView: React.FC<Props> = ({
       CloudNetwork.sendMessage({
         type: 'PULL_CORRECT',
         playerId: myPlayerId,
+        studentId: studentIdRef.current,
         playerName: studentNameRef.current,
         avatar: avatarRef.current,
         team,
@@ -2037,7 +2639,12 @@ export const StudentMobileView: React.FC<Props> = ({
         gainedPts,
         totalScore: nextTotalScore,
         savedCorrect: nextCorrectCount,
-        hasUsedSpecialWager: activeWager > 1
+        hasUsedSpecialWager: activeWager > 1,
+        // Đợt 5 (4B.3): đính kèm LỰA CHỌN của HS để host lưu lại và trả đúng trong
+        // RESYNC_STATE khi HS mất kết nối rồi xin đồng bộ lại giữa câu.
+        selectedOptionOriginalIdx,
+        tfAnswers,
+        shortAnswerInput
       });
 
       syncTop10State(undefined, {
@@ -2154,6 +2761,7 @@ export const StudentMobileView: React.FC<Props> = ({
       CloudNetwork.sendMessage({
         type: 'FREEZE_WRONG',
         playerId: myPlayerId,
+        studentId: studentIdRef.current,
         playerName: studentNameRef.current,
         avatar: avatarRef.current,
         team,
@@ -2162,7 +2770,11 @@ export const StudentMobileView: React.FC<Props> = ({
         lives: nextLivesVal,
         totalScore: nextTotalScore,
         savedCorrect: myCorrectCountRef.current,
-        hasUsedSpecialWager: activeWager > 1
+        hasUsedSpecialWager: activeWager > 1,
+        // Đợt 5 (4B.3): lựa chọn của HS để host trả lại trong RESYNC_STATE (như PULL_CORRECT).
+        selectedOptionOriginalIdx,
+        tfAnswers,
+        shortAnswerInput
       });
 
       syncTop10State(undefined, {
@@ -2208,6 +2820,7 @@ export const StudentMobileView: React.FC<Props> = ({
     CloudNetwork.sendMessage({
       type: 'PLAYER_UPDATE_NAME',
       playerId: myPlayerId,
+      studentId: studentIdRef.current,
       playerName: finalName,
       preferredTeam: teamRef.current,
       avatar: avatarRef.current,
@@ -2257,16 +2870,23 @@ export const StudentMobileView: React.FC<Props> = ({
     const effectiveScreen: 'QUIZ' | 'WAITING' = targetScreen === 'WAITING' && hostMatchStatusRef.current !== 'PLAYING' ? 'QUIZ' : targetScreen;
     waitingRoomLockedRef.current = false;
     AudioFX.stepInRope();
+    // Đợt 4 (GĐ3.3): trình duyệt di động chặn phát tiếng trước thao tác chạm đầu tiên —
+    // dùng chính cú chạm "Vào phòng" này để mở khoá speechSynthesis + nạp sẵn giọng Việt.
+    unlockSpeechSynthesis();
 
     const joinPayload: CloudMessage = {
       type: 'PLAYER_READY_ROPE',
       playerId: myPlayerId,
+      studentId: studentIdRef.current,
+      tabSessionId,
       preferredTeam: finalTm,
       playerName: cleanName,
       avatar: finalAv,
       savedScore: fastScoreRef.current,
       savedCorrect: myCorrectCountRef.current
     };
+    // Đợt 5 (4B.1): vào phòng bằng tên/đội này → ghi vào định danh bền của phòng.
+    persistStudentIdentity(cleanName, finalTm);
 
     // Cập nhật ngay chính học sinh vào Bảng Top 10 trên màn hình của mình và phát tín hiệu báo danh đa luồng
     syncTop10State(undefined, {
@@ -2284,7 +2904,7 @@ export const StudentMobileView: React.FC<Props> = ({
     if (effectiveScreen === 'QUIZ') {
       activeStudentTimerQIndexRef.current = -1;
       startMsRef.current = Date.now();
-      setRemSec(30);
+      setRemSec(questionDurationSecRef.current);
     }
     setScreen(effectiveScreen);
   };
@@ -2339,6 +2959,14 @@ export const StudentMobileView: React.FC<Props> = ({
     try {
       sessionStorage.setItem('kc3d_tab_session_id', freshTabId);
       sessionStorage.setItem(`kc3d_pid_${freshTabId}`, freshPlayerId);
+      // Đợt 5 (4B.1): nhân vật mới = định danh bền MỚI cho phòng này (ghi đè kc3d_student_<room>).
+      studentIdRef.current = freshPlayerId;
+      setStudentIdentity({ studentId: freshPlayerId, name: '', team: teamRef.current });
+      localStorage.setItem(
+        studentStorageKey(roomIdRef.current || '12345'),
+        serializeStudentIdentity({ studentId: freshPlayerId, name: '', team: teamRef.current })
+      );
+      CloudNetwork.setPlayerWill({ playerId: freshPlayerId, studentId: freshPlayerId });
     } catch {}
     setTabSessionId(freshTabId);
     setMyPlayerId(freshPlayerId);
@@ -2909,6 +3537,55 @@ export const StudentMobileView: React.FC<Props> = ({
         </div>
       </header>
 
+      {/* Đợt 3 (2.3): Tiến độ ghép đề — hiện khi đang nhận dở các gói chunk của bộ đề;
+          gói thiếu sẽ được máy HS tự xin host phát lại (QUIZ_CHUNK_REQUEST). */}
+      {netTelemetry.quizChunksTotal > 0 && netTelemetry.quizChunksReceived < netTelemetry.quizChunksTotal && (
+        <div
+          style={{
+            margin: '10px 12px 0 12px',
+            padding: '9px 12px',
+            borderRadius: '12px',
+            background: 'rgba(2, 132, 199, 0.16)',
+            border: '1.5px solid #38bdf8',
+            color: '#bae6fd',
+            fontSize: '13px',
+            fontWeight: 800,
+            textAlign: 'center'
+          }}
+        >
+          📥 Đã nhận {netTelemetry.quizChunksReceived}/{netTelemetry.quizChunksTotal} gói đề — đang ghép đề, gói thiếu sẽ tự xin phát lại…
+          <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginTop: '6px' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${Math.max(0, Math.min(100, (netTelemetry.quizChunksReceived / Math.max(1, netTelemetry.quizChunksTotal)) * 100))}%`,
+                background: '#38bdf8'
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Đợt 8 (4C.2): ghi nhận lệnh điều khiển GIẢ đã bị bỏ qua vì sai chữ ký —
+          chỉ hiện khi thật sự có lệnh bị chặn, để thầy/HS biết phòng đang bị phá. */}
+      {rejectedCmdCount > 0 && (
+        <div
+          style={{
+            margin: '10px 12px 0 12px',
+            padding: '7px 12px',
+            borderRadius: '12px',
+            background: 'rgba(225, 29, 72, 0.16)',
+            border: '1.5px solid #f43f5e',
+            color: '#fda4af',
+            fontSize: '12.5px',
+            fontWeight: 800,
+            textAlign: 'center'
+          }}
+        >
+          🛡️ Đã chặn {rejectedCmdCount} lệnh lạ không đúng chữ ký của giáo viên (phòng đang bị người ngoài phá — lệnh giả bị bỏ qua, em cứ thi bình thường).
+        </div>
+      )}
+
       {/* Screen 1: LOBBY — Nhập tên & Mã phòng để vào thẳng Phòng Thi */}
       {screen === 'LOBBY' && (
         <div style={{ maxWidth: '480px', margin: '0 auto', padding: '16px 14px 24px 14px' }}>
@@ -3258,12 +3935,12 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           )}
 
-          {/* 30s Countdown Bar */}
+          {/* Countdown Bar theo thời lượng câu hỏi cấu hình */}
           <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
             <div
               style={{
                 height: '100%',
-                width: `${(remSec / 30) * 100}%`,
+                width: `${Math.max(0, Math.min(100, (remSec / Math.max(1, questionDurationSec)) * 100))}%`,
                 background: remSec > 10 ? '#10b981' : remSec > 5 ? '#f59e0b' : '#ef4444',
                 transition: 'width 0.1s linear'
               }}
@@ -3341,6 +4018,28 @@ export const StudentMobileView: React.FC<Props> = ({
                 </span>
               )}
             </div>
+            {/* Đợt 4 (GĐ3.3): nút nghe đọc đề — CHỈ hiện khi host bật công tắc TTS cho HS */}
+            {ttsStudentEnabled && (
+              <button
+                onClick={handleStudentReadAloud}
+                title="Nghe đọc câu hỏi hiện tại bằng giọng tiếng Việt trên máy của em"
+                style={{
+                  alignSelf: 'flex-start',
+                  marginBottom: '8px',
+                  padding: '8px 14px',
+                  minHeight: '40px',
+                  borderRadius: '999px',
+                  border: '2px solid #7dd3fc',
+                  background: isSpeakingTTS ? '#dc2626' : '#0284c7',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: 800,
+                  cursor: 'pointer'
+                }}
+              >
+                {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Nghe Đọc Đề'}
+              </button>
+            )}
             <div style={{ fontSize: '17.5px', fontWeight: 900, lineHeight: 1.42, color: '#ffffff' }}>
               <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
             </div>
@@ -3538,7 +4237,7 @@ export const StudentMobileView: React.FC<Props> = ({
                       setHostMatchStatus('PLAYING');
                       hostMatchStatusRef.current = 'PLAYING';
                       startMsRef.current = Date.now();
-                      setRemSec(30);
+                      setRemSec(questionDurationSecRef.current);
                     }}
                     style={{
                       padding: '10px 16px',
@@ -3905,7 +4604,7 @@ export const StudentMobileView: React.FC<Props> = ({
                       marginBottom: '10px',
                       boxShadow: '0 0 16px rgba(16, 185, 129, 0.6)'
                     }}>
-                      ⚡ ĐÁP ÁN ĐÚNG: <span style={{ color: '#fef08a', fontSize: '18px' }}>{currentQItem.shortAnswer || currentQItem.opts[0] || ''}</span>
+                      ⚡ ĐÁP ÁN ĐÚNG: <span style={{ color: '#fef08a', fontSize: '18px' }}><MathRenderer text={currentQItem.shortAnswer || currentQItem.opts[0] || ''} /></span>
                     </div>
                   )}
                   <input
