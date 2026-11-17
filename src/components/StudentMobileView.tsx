@@ -29,12 +29,6 @@ import {
   serializeStudentIdentity,
   studentStorageKey
 } from '../utils/presence';
-import {
-  buildSpeechText,
-  speakVietnameseText,
-  stopSpeaking,
-  unlockSpeechSynthesis
-} from '../utils/speechText';
 
 interface Props {
   initialRoomId: string;
@@ -429,14 +423,6 @@ export const StudentMobileView: React.FC<Props> = ({
   const timerRef = useRef<any>(null);
   const startMsRef = useRef<number>(Date.now());
   const [hasAnsweredCurrentQ, setHasAnsweredCurrentQ] = useState(false);
-  // Đợt 4 (GĐ3.3): TTS phía học sinh — CHỈ hoạt động khi host bật công tắc chung
-  // "Đọc đề trên máy học sinh" (phát kèm HOST_HEARTBEAT). Mặc định TẮT: không hiện
-  // nút 🔊, bỏ qua mọi lệnh TTS_READ.
-  const [ttsStudentEnabled, setTtsStudentEnabled] = useState<boolean>(false);
-  const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
-  const ttsStudentEnabledRef = useRef<boolean>(false);
-  const currentQItemRef = useRef<QuizItem | null>(null);
-  const isSpeakingTTSRef = useRef<boolean>(false);
   const hasAnsweredCurrentQRef = useRef<boolean>(false);
   const activeStudentTimerQIndexRef = useRef<number>(-1);
 
@@ -1092,40 +1078,6 @@ export const StudentMobileView: React.FC<Props> = ({
     };
 
   const currentQItem = repairQuizItemIfCorrupted(resolvedCurrentQ);
-  currentQItemRef.current = currentQItem;
-
-  // Đợt 4 (GĐ3.3): đọc câu hiện tại ngay trên máy HS (buildSpeechText + giọng Việt của
-  // chính máy HS). Chỉ chạy khi công tắc host đang BẬT. Các hàm chỉ dùng ref để các
-  // callback mạng đăng ký 1 lần không bị stale closure.
-  const startSpeakingCurrentQuestion = () => {
-    if (!ttsStudentEnabledRef.current) return;
-    const item = currentQItemRef.current;
-    if (!item) return;
-    stopSpeaking();
-    const script = buildSpeechText(item, currentGlobalQIndexRef.current + 1);
-    if (!script) return;
-    const started = speakVietnameseText(script, {
-      rate: 1.0,
-      onEnd: () => {
-        isSpeakingTTSRef.current = false;
-        setIsSpeakingTTS(false);
-      }
-    });
-    if (started) {
-      isSpeakingTTSRef.current = true;
-      setIsSpeakingTTS(true);
-    }
-  };
-
-  const handleStudentReadAloud = () => {
-    if (isSpeakingTTSRef.current) {
-      stopSpeaking();
-      isSpeakingTTSRef.current = false;
-      setIsSpeakingTTS(false);
-      return;
-    }
-    startSpeakingCurrentQuestion();
-  };
 
   // Đảo thứ tự các phương án trả lời độc lập trên từng máy Học sinh (Chống nhìn trộm giữa các Học sinh & khác vị trí với màn hình Giáo viên)
   const resolvedQSignature = `${clampedQIndex}::${currentQItem?.q || ''}::${(currentQItem?.opts || []).join('|')}::${(currentQItem?.tfItems || []).map(t => `${t.label}:${t.text}`).join('|')}`;
@@ -1971,17 +1923,6 @@ export const StudentMobileView: React.FC<Props> = ({
         triggerBonusToast('❄️ BẠN BỊ ĐỐI THỦ ĐÓNG BĂNG 3 GIÂY!');
       }
     }
-    else if (d.type === 'TTS_READ') {
-      // Đợt 4 (GĐ3.3): host bấm Đọc Đề → máy HS đang được bật TTS tự đọc đồng bộ,
-      // nhưng chỉ khi lệnh khớp đúng câu HS đang xem. Công tắc TẮT → bỏ qua hoàn toàn.
-      if (
-        ttsStudentEnabledRef.current &&
-        typeof d.qIndex === 'number' &&
-        d.qIndex === currentGlobalQIndexRef.current
-      ) {
-        startSpeakingCurrentQuestion();
-      }
-    }
     else if (d.type === 'HOST_HEARTBEAT') {
       setNetworkState(CloudNetwork.getStatus());
       // Đợt GIA CỐ TẢI: ước lượng quy mô phòng từ chính nhịp tim (danh sách
@@ -2012,17 +1953,6 @@ export const StudentMobileView: React.FC<Props> = ({
           }
         } else if (questionPausedRef.current) {
           sendResyncRequest();
-        }
-      }
-      // Đợt 4 (GĐ3.3): công tắc "Đọc đề trên máy học sinh" do host quyết, phát kèm nhịp
-      // tim. Host TẮT → ẩn nút 🔊, dừng đọc ngay và bỏ qua mọi lệnh TTS_READ.
-      if (typeof d.ttsStudentEnabled === 'boolean' && d.ttsStudentEnabled !== ttsStudentEnabledRef.current) {
-        ttsStudentEnabledRef.current = d.ttsStudentEnabled;
-        setTtsStudentEnabled(d.ttsStudentEnabled);
-        if (!d.ttsStudentEnabled && isSpeakingTTSRef.current) {
-          stopSpeaking();
-          isSpeakingTTSRef.current = false;
-          setIsSpeakingTTS(false);
         }
       }
       // Chống gói nhịp tim cũ (trễ mạng) mang status 'LOBBY' ghi đè làm khóa đáp án sau khi Giáo viên vừa bấm Bắt đầu
@@ -3018,9 +2948,6 @@ export const StudentMobileView: React.FC<Props> = ({
     const effectiveScreen: 'QUIZ' | 'WAITING' = targetScreen === 'WAITING' && hostMatchStatusRef.current !== 'PLAYING' ? 'QUIZ' : targetScreen;
     waitingRoomLockedRef.current = false;
     AudioFX.stepInRope();
-    // Đợt 4 (GĐ3.3): trình duyệt di động chặn phát tiếng trước thao tác chạm đầu tiên —
-    // dùng chính cú chạm "Vào phòng" này để mở khoá speechSynthesis + nạp sẵn giọng Việt.
-    unlockSpeechSynthesis();
 
     const joinPayload: CloudMessage = {
       type: 'PLAYER_READY_ROPE',
@@ -4178,28 +4105,6 @@ export const StudentMobileView: React.FC<Props> = ({
                 </span>
               )}
             </div>
-            {/* Đợt 4 (GĐ3.3): nút nghe đọc đề — CHỈ hiện khi host bật công tắc TTS cho HS */}
-            {ttsStudentEnabled && (
-              <button
-                onClick={handleStudentReadAloud}
-                title="Nghe đọc câu hỏi hiện tại bằng giọng tiếng Việt trên máy của em"
-                style={{
-                  alignSelf: 'flex-start',
-                  marginBottom: '8px',
-                  padding: '8px 14px',
-                  minHeight: '40px',
-                  borderRadius: '999px',
-                  border: '2px solid #7dd3fc',
-                  background: isSpeakingTTS ? '#dc2626' : '#0284c7',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Nghe Đọc Đề'}
-              </button>
-            )}
             <div style={{ fontSize: '17.5px', fontWeight: 900, lineHeight: 1.42, color: '#ffffff' }}>
               <MathRenderer text={cleanQuestionTitleText(currentQItem.q)} />
             </div>
