@@ -3521,25 +3521,24 @@ export const HostArenaView: React.FC<Props> = ({
             }}
             aria-label="Khung câu hỏi và đáp án chuẩn THPT 2018"
           >
-            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
+            {/* Thanh điều khiển câu hỏi — thanh RIÊNG nằm trên khung câu hỏi (lệnh thầy 12:32, 17/11/2026) */}
             <div
+              id="host-control-bar"
               style={{
-                background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
-                border: isAutoRevealed ? '1.5px solid #facc15' : '1.5px solid rgba(56, 189, 248, 0.4)',
-                borderRadius: '16px',
-                padding: '10px 18px',
-                marginBottom: '10px',
-                boxShadow: isAutoRevealed ? '0 0 20px rgba(250, 204, 21, 0.35)' : '0 6px 20px rgba(0, 0, 0, 0.45)',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-                flexShrink: 0,
-                maxHeight: currentQItem.format === 'TRUE_FALSE' ? '26vh' : '25vh',
-                overflowY: 'auto'
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+                background: 'linear-gradient(180deg, #1a2947 0%, #111c33 100%)',
+                border: isAutoRevealed ? '1.5px solid #facc15' : '1.5px solid rgba(56, 189, 248, 0.55)',
+                borderRadius: '12px',
+                padding: '6px 14px',
+                marginBottom: '10px',
+                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+                flexShrink: 0
               }}
             >
-              {/* Hàng thông tin câu hỏi tinh gọn (Unboxed metadata theo chuẩn thiết kế) */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800, color: '#94a3b8' }}>
                   <span style={{ color: '#fde047', fontWeight: 900, fontSize: '14px' }}>
                     CÂU {currentQIndex + 1}/{quizList.length || 1}
@@ -3684,6 +3683,23 @@ export const HostArenaView: React.FC<Props> = ({
                 </div>
               </div>
 
+            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
+            <div
+              style={{
+                background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
+                border: isAutoRevealed ? '1.5px solid #facc15' : '1.5px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '16px',
+                padding: '10px 18px',
+                marginBottom: '10px',
+                boxShadow: isAutoRevealed ? '0 0 20px rgba(250, 204, 21, 0.35)' : '0 6px 20px rgba(0, 0, 0, 0.45)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                flexShrink: 0,
+                maxHeight: currentQItem.format === 'TRUE_FALSE' ? '26vh' : '25vh',
+                overflowY: 'auto'
+              }}
+            >
               {/* Nội dung câu hỏi chữ lớn rõ nét */}
               <div
                 id="hq-q-text"
