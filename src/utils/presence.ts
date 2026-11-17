@@ -310,6 +310,10 @@ export interface ResyncContext {
   /** Mốc host bắt đầu câu hiện tại + thời lượng câu (cơ chế deadline Đợt 1). */
   serverStartTime?: number;
   durationSec?: number;
+  /** Đang TẠM DỪNG theo câu tại thời điểm resync + số giây còn lại đã chốt lúc
+   * dừng — HS vào lại giữa lúc dừng phải thấy đúng trạng thái đông cứng này. */
+  questionPaused?: boolean;
+  remainingSec?: number;
   serverTs: number;
   answer: ResyncAnswerInfo;
   holdReleased: boolean;
@@ -345,6 +349,8 @@ export function buildResyncStateMessage(
     qIndex,
     serverStartTime: ctx.serverStartTime,
     durationSec: ctx.durationSec,
+    questionPaused: ctx.questionPaused === true,
+    remainingSec: ctx.questionPaused ? ctx.remainingSec : undefined,
     serverTs: ctx.serverTs,
     question: ctx.question,
     hasAnsweredCurrentQ: ctx.answer.hasAnswered,
