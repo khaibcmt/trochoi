@@ -1418,12 +1418,10 @@ export const TeacherSetupView: React.FC<Props> = ({
             <span style={{ fontSize: '15px', fontWeight: 900, color: '#fef08a', textShadow: '0 0 10px rgba(254, 240, 138, 0.55)' }}>⚙️ Cấu Hình Thông Số:</span>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'stretch' }}>
-            {/* Hàng gộp 1: XANH DƯƠNG (sĩ số + tối đa 3D + chẩn đoán) + CAM/VÀNG (Admin + Quản lý máy) — một hàng ngang duy nhất */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'stretch' }}>
-            {/* Cụm XANH DƯƠNG: sĩ số + tối đa 3D + chẩn đoán tải máy chủ */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.16)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+            {/* HÀNG 1: Sĩ số + Tối đa 3D + Admin + Quản lý máy — một hàng ngang duy nhất (nowrap trên máy tính, wrap khi màn hẹp) */}
+            <div className="kc-settings-row">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800, whiteSpace: 'nowrap', padding: '8px 10px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.16)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
               👥 Sĩ số phòng:
               <input
                 type="number"
@@ -1435,7 +1433,7 @@ export const TeacherSetupView: React.FC<Props> = ({
               />
             </label>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800, whiteSpace: 'nowrap', padding: '8px 10px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.16)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
               🎮 Tối đa 3D trên sân:
               <input
                 type="number"
@@ -1447,25 +1445,12 @@ export const TeacherSetupView: React.FC<Props> = ({
               />
             </label>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
-              <input
-                type="checkbox"
-                checked={matchSettings.showHostDiag !== false}
-                onChange={e => onUpdateSettings({ ...matchSettings, showHostDiag: e.target.checked })}
-              />
-              📡 Hiện dòng chẩn đoán tải máy chủ
-              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>(tin/s, số lần vẽ lại danh sách — tắt khi lớp đông nếu thấy vướng)</span>
-            </label>
-            </div>
-
-            {/* Cụm CAM/VÀNG: Admin + Quản lý máy */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.14)', border: '1.5px solid rgba(245, 158, 11, 0.6)' }}>
             <button
               type="button"
               onClick={license.openAdmin}
               title={license.isAdmin ? 'Đang ở chế độ Admin — bấm để thoát' : 'Mở chế độ Admin (2 khoá: mã chủ + mã Admin của thầy)'}
               style={{
-                padding: '10px 18px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer',
+                padding: '10px 14px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer', whiteSpace: 'nowrap',
                 border: '1.5px solid #f59e0b', background: license.isAdmin ? '#f59e0b' : '#090d16',
                 color: license.isAdmin ? '#1c1440' : '#fbbf24', fontWeight: 900, fontSize: '14.5px'
               }}
@@ -1479,75 +1464,79 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={license.openMachines}
                 title="Xem danh sách máy đã đăng ký kích hoạt, khoá lại / mở lại từng máy"
                 style={{
-                  padding: '10px 18px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer',
-                  border: '1.5px solid #818cf8', background: '#090d16',
-                  color: '#a5b4fc', fontWeight: 900, fontSize: '14.5px'
+                  padding: '10px 14px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  border: '1.5px solid rgba(245, 158, 11, 0.6)', background: 'rgba(245, 158, 11, 0.14)',
+                  color: '#fcd34d', fontWeight: 900, fontSize: '14.5px'
                 }}
               >
                 🔐 Quản lý máy
               </button>
             )}
             </div>
-            </div>
 
-            {/* Cụm XANH LÁ: thời gian 3 phần */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(22, 163, 74, 0.14)', border: '1.5px solid rgba(74, 222, 128, 0.5)' }}>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
-              ⏱️ Phần 1 – Trắc nghiệm:
-              <input
-                type="number"
-                min={5}
-                max={300}
-                value={matchSettings.questionDurationSec}
-                onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSec: Math.max(5, parseInt(e.target.value) || 30) })}
-                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f59e0b', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
-              />
-              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
+            {/* HÀNG 2: Phần 1 + Phần 2 + Phần 3 (mỗi phần một cụm màu riêng, nhãn + ô giây phóng to) + Máu Boss */}
+            <div className="kc-settings-row">
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.14)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
+              <span style={{ fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>⏱️ Phần 1 – Trắc nghiệm:</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={matchSettings.questionDurationSec}
+                  onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSec: Math.max(5, parseInt(e.target.value) || 30) })}
+                  style={{ width: '76px', height: '42px', padding: '0 6px', borderRadius: '8px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, fontSize: '15px', textAlign: 'center' }}
+                />
+                <span style={{ color: '#94a3b8', fontSize: '12.5px' }}>giây/câu</span>
+              </span>
             </label>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
-              ⏱️ Phần 2 – Đúng/Sai:
-              <input
-                type="number"
-                min={5}
-                max={300}
-                value={matchSettings.questionDurationTfSec ?? 60}
-                onChange={e => onUpdateSettings({ ...matchSettings, questionDurationTfSec: Math.max(5, parseInt(e.target.value) || 60) })}
-                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#c4b5fd', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
-              />
-              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(22, 163, 74, 0.14)', border: '1.5px solid rgba(74, 222, 128, 0.5)' }}>
+              <span style={{ fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>⏱️ Phần 2 – Đúng/Sai:</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={matchSettings.questionDurationTfSec ?? 60}
+                  onChange={e => onUpdateSettings({ ...matchSettings, questionDurationTfSec: Math.max(5, parseInt(e.target.value) || 60) })}
+                  style={{ width: '76px', height: '42px', padding: '0 6px', borderRadius: '8px', border: '1px solid #94a3b8', background: '#090d16', color: '#4ade80', fontWeight: 900, fontSize: '15px', textAlign: 'center' }}
+                />
+                <span style={{ color: '#94a3b8', fontSize: '12.5px' }}>giây/câu</span>
+              </span>
             </label>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
-              ⏱️ Phần 3 – Trả lời ngắn:
-              <input
-                type="number"
-                min={5}
-                max={300}
-                value={matchSettings.questionDurationSaSec ?? 60}
-                onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSaSec: Math.max(5, parseInt(e.target.value) || 60) })}
-                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#6ee7b7', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
-              />
-              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(124, 58, 237, 0.16)', border: '1.5px solid rgba(167, 139, 250, 0.55)' }}>
+              <span style={{ fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>⏱️ Phần 3 – Trả lời ngắn:</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={matchSettings.questionDurationSaSec ?? 60}
+                  onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSaSec: Math.max(5, parseInt(e.target.value) || 60) })}
+                  style={{ width: '76px', height: '42px', padding: '0 6px', borderRadius: '8px', border: '1px solid #94a3b8', background: '#090d16', color: '#c4b5fd', fontWeight: 900, fontSize: '15px', textAlign: 'center' }}
+                />
+                <span style={{ color: '#94a3b8', fontSize: '12.5px' }}>giây/câu</span>
+              </span>
             </label>
-            </div>
 
-            {/* Cụm ĐỎ/HỒNG: máu Boss */}
+            {/* Cụm ĐỎ/HỒNG: máu Boss (giữ nguyên như trước, chỉ nới max + bề rộng ô cho mặc định mới 10.000) */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(225, 29, 72, 0.14)', border: '1.5px solid rgba(251, 113, 133, 0.55)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               🐉 Máu Quái vật Boss:
               <input
                 type="number"
                 min={200}
-                max={5000}
+                max={100000}
                 step={100}
                 value={matchSettings.bossMaxHP}
-                onChange={e => onUpdateSettings({ ...matchSettings, bossMaxHP: Math.max(200, parseInt(e.target.value) || 1000) })}
-                style={{ width: '70px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f87171', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
+                onChange={e => onUpdateSettings({ ...matchSettings, bossMaxHP: Math.max(200, parseInt(e.target.value) || 10000) })}
+                style={{ width: '84px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f87171', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>HP</span>
             </label>
+            </div>
             </div>
           </div>
         </section>
