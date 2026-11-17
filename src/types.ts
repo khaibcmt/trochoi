@@ -109,6 +109,11 @@ export interface Player {
   firstBloodCount?: number;
   hasUsedSpecialWager?: boolean;
   hasOpenedMysteryChest?: boolean;
+  // Lá chắn An Toàn 1 lần/trận (luật cược mới 17/11/2026): host giữ trên bản
+  // ghi người chơi — câu sai đầu tiên ở x1 được miễn phạt điểm, tiêu hao lá
+  // chắn này. Nằm trong bản ghi nên tự đi theo snapshot host (F5 không hồi)
+  // và được trả lại cho HS qua RESYNC_STATE. Xem utils/wagerPenalty.ts.
+  safeShieldUsed?: boolean;
 }
 
 export interface MatchSettings {
@@ -305,6 +310,12 @@ export interface CloudMessage {
   hasUsedSpecialWager?: boolean;
   hasOpenedMysteryChest?: boolean;
   hasImmunityShield?: boolean;
+  // Luật cược mới (17/11/2026): FREEZE_WRONG mang cờ này khi câu sai được
+  // Khiên Bất Tử / Khiên Bảo Vệ phía HS che (host tính phạt qua cùng ma trận
+  // utils/wagerPenalty.ts); RESYNC_STATE mang safeShieldUsed để HS đồng bộ
+  // lại trạng thái lá chắn An Toàn từ sổ host.
+  shieldProtected?: boolean;
+  safeShieldUsed?: boolean;
   victimPlayerId?: string;
   victimScoreDeduction?: number;
 }
