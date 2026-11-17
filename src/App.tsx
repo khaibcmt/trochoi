@@ -33,6 +33,17 @@ import {
   sweepPlayerPresence
 } from './utils/presence';
 import { questionDurationFor } from './utils/questionTiming';
+import {
+  createPresencePatchQueue,
+  applyPresencePatches,
+  PRESENCE_FLUSH_INTERVAL_MS,
+  type PresencePatchQueue
+} from './utils/presenceFlush';
+import {
+  recordRosterFlush,
+  recordSweepLag,
+  setFreshnessProvider
+} from './utils/hostDiag';
 import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
@@ -281,6 +292,15 @@ export const App: React.FC = () => {
   const lastHostRxAtRef = useRef<number>(Date.now());
   const rxOutageRef = useRef<boolean>(false);
   const rxOutageSinceRef = useRef<number>(0);
+  // GOM CẬP NHẬT HIỆN DIỆN (cắt tải host, 17/11/2026): gỡ cờ "mất kết nối" từ
+  // prologue/ping/resync KHÔNG setMatchState riêng từng tin nữa — vá hiển thị
+  // vào hàng đợi này, xả tối đa 2 lần/giây hoặc xả ngay khi có tin gameplay.
+  // lastSeen THẬT vẫn ghi thẳng lastSeenByIdRef ngay khi tin tới (vòng quét
+  // không phụ thuộc nhịp xả hiển thị). Xem utils/presenceFlush.ts.
+  const presencePatchQueueRef = useRef<PresencePatchQueue | null>(null);
+  if (!presencePatchQueueRef.current) {
+    presencePatchQueueRef.current = createPresencePatchQueue();
+  }
   // Đợt 5 (4B.2): khoá định danh (studentId/playerId) đã bị giải phóng chỗ ở ván hiện
   // tại (chế độ không phải BELL — bản ghi đã bị dọn): còn đang PLAYING thì chưa cho
   // vào lại, trận về LOBBY (ván sau) mới vào lại bình thường.
@@ -1049,7 +1069,14 @@ export const App: React.FC = () => {
   // còn đặt cờ (handler đã trung tính) — xem lý do ngưỡng 90s ở utils/presence.ts.
   useEffect(() => {
     if (isDirectStudent) return;
+    // ĐO ĐỘ TRỄ VÒNG QUÉT (chẩn đoán tải host): vòng hẹn 5s mà chạy trễ nhiều
+    // nghĩa là luồng JS phía host đang bão hoà — ghi vào kho hostDiag để dòng
+    // chẩn đoán cạnh nhãn 🏷️ hiện số thật thay vì đoán.
+    let sweepExpectedAt = Date.now() + 5000;
     const sweepTimer = setInterval(() => {
+      const sweepNow = Date.now();
+      recordSweepLag(Math.max(0, sweepNow - sweepExpectedAt));
+      sweepExpectedAt = sweepNow + 5000;
       const ms = matchStateRef.current;
       if (!ms || ms.status === 'ENDED') return;
       if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
@@ -1114,6 +1141,62 @@ export const App: React.FC = () => {
     });
   };
 
+  // XẢ HÀNG ĐỢI VÁ HIỆN DIỆN: áp mọi vá hiển thị (gỡ cờ offline + lastSeen
+  // hiển thị) đang chờ bằng ĐÚNG MỘT setMatchState; lô vá không đổi gì thì bỏ
+  // qua hoàn toàn (không render). Chỉ dùng refs + setMatchState (ổn định) nên
+  // an toàn khi bị interval/handler gọi ở bất kỳ thời điểm nào.
+  const flushPresencePatches = () => {
+    const queue = presencePatchQueueRef.current;
+    if (!queue || queue.isEmpty()) return;
+    const patches = queue.drain();
+    setMatchState(prev => {
+      const applied = applyPresencePatches(prev.redPlayers, prev.bluePlayers, patches);
+      if (!applied.changed) return prev;
+      const nextState = { ...prev, redPlayers: applied.redPlayers, bluePlayers: applied.bluePlayers };
+      matchStateRef.current = nextState;
+      return nextState;
+    });
+  };
+  const flushPresencePatchesRef = useRef(flushPresencePatches);
+  flushPresencePatchesRef.current = flushPresencePatches;
+
+  // Xả định kỳ: interval đúng bằng chu kỳ xả → tối đa 2 lần xả/giây dù có bão
+  // tin gỡ cờ từ nhiều HS cùng lúc. Xả ngay khi có tin gameplay do handler gọi
+  // trực tiếp (vá đi cùng nhịp render của chính tin đó).
+  useEffect(() => {
+    if (isDirectStudent) return;
+    const t = setInterval(() => flushPresencePatchesRef.current(), PRESENCE_FLUSH_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [isDirectStudent]);
+
+  // ĐẾM FLUSH ROSTER cho dòng chẩn đoán: một commit React làm thay đổi danh
+  // tính mảng redPlayers/bluePlayers = một lần "vẽ lại danh sách".
+  const prevRosterRef = useRef<{ red: Player[]; blue: Player[] } | null>(null);
+  useEffect(() => {
+    const prev = prevRosterRef.current;
+    if (prev && (prev.red !== matchState.redPlayers || prev.blue !== matchState.bluePlayers)) {
+      recordRosterFlush();
+    }
+    prevRosterRef.current = { red: matchState.redPlayers, blue: matchState.bluePlayers };
+  }, [matchState]);
+
+  // ĐĂNG KÝ HÀM ĐẾM ĐỘ TƯƠI cho dòng chẩn đoán: HS có lastSeen <15s / tổng HS.
+  useEffect(() => {
+    if (isDirectStudent) return;
+    setFreshnessProvider(() => {
+      const now = Date.now();
+      const ms = matchStateRef.current;
+      const all = [...ms.redPlayers, ...ms.bluePlayers];
+      let fresh = 0;
+      all.forEach(p => {
+        const ls = lastSeenByIdRef.current.get(p.id);
+        if (ls && now - ls < 15000) fresh++;
+      });
+      return { fresh, total: all.length };
+    });
+    return () => setFreshnessProvider(null);
+  }, [isDirectStudent]);
+
   // Host incoming message handler
   const handleHostIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
@@ -1142,17 +1225,9 @@ export const App: React.FC = () => {
         const lifeNow = Date.now();
         lastSeenByIdRef.current.set(lifeTarget.id, lifeNow);
         if (lifeTarget.offline && !lifeTarget.holdReleased) {
-          setMatchState(prev => {
-            const upd = (p: Player): Player =>
-              p.id === lifeTarget.id ? { ...p, offline: false, lastSeen: lifeNow } : p;
-            const nextState = {
-              ...prev,
-              redPlayers: prev.redPlayers.map(upd),
-              bluePlayers: prev.bluePlayers.map(upd)
-            };
-            matchStateRef.current = nextState;
-            return nextState;
-          });
+          // GOM HIỆN DIỆN: chỉ enqueue vá gỡ cờ — xả gộp tối đa 2 lần/giây
+          // hoặc ngay khi tin này là tin gameplay (xả ở thân handler dưới).
+          presencePatchQueueRef.current?.enqueue(lifeTarget.id, { offline: false, lastSeen: lifeNow });
         }
       }
     }
@@ -1172,17 +1247,9 @@ export const App: React.FC = () => {
       if (!pingTarget) return;
       lastSeenByIdRef.current.set(pingTarget.id, pingNow);
       if (pingTarget.offline && !pingTarget.holdReleased) {
-        setMatchState(prev => {
-          const upd = (p: Player): Player =>
-            p.id === pingTarget.id ? { ...p, offline: false, lastSeen: pingNow } : p;
-          const nextState = {
-            ...prev,
-            redPlayers: prev.redPlayers.map(upd),
-            bluePlayers: prev.bluePlayers.map(upd)
-          };
-          matchStateRef.current = nextState;
-          return nextState;
-        });
+        // GOM HIỆN DIỆN: ping chỉ enqueue vá gỡ cờ, interval xả gộp xử lý —
+        // ping không bao giờ tự nó gây một lần render riêng nữa.
+        presencePatchQueueRef.current?.enqueue(pingTarget.id, { offline: false, lastSeen: pingNow });
       }
       return;
     }
@@ -1202,6 +1269,11 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Mọi tin còn lại đều là tin gameplay (resync, hồ sơ vào phòng, đáp án,
+    // power-up…): XẢ NGAY hàng đợi vá hiện diện TRƯỚC khi xử lý để vá gỡ cờ đi
+    // cùng nhịp render của chính tin này — không sinh thêm render riêng.
+    flushPresencePatches();
+
     if (d.type === 'RESYNC_REQUEST') {
       // Đợt 5 (4B.3): HS xin đồng bộ tường minh sau reconnect/F5/quay lại từ nền —
       // trả RESYNC_STATE dựng từ trạng thái thật phía host (không qua heartbeat đoán mò).
@@ -1216,17 +1288,9 @@ export const App: React.FC = () => {
       if (player) {
         lastSeenByIdRef.current.set(player.id, resyncNow);
         if (player.offline && !player.holdReleased) {
-          setMatchState(prev => {
-            const upd = (p: Player): Player =>
-              p.id === player.id ? { ...p, offline: false, lastSeen: resyncNow } : p;
-            const nextState = {
-              ...prev,
-              redPlayers: prev.redPlayers.map(upd),
-              bluePlayers: prev.bluePlayers.map(upd)
-            };
-            matchStateRef.current = nextState;
-            return nextState;
-          });
+          // GOM HIỆN DIỆN: enqueue vá gỡ cờ (xả gộp/định kỳ xử lý) thay cho
+          // setMatchState riêng như trước.
+          presencePatchQueueRef.current?.enqueue(player.id, { offline: false, lastSeen: resyncNow });
         }
       }
 
@@ -2051,6 +2115,19 @@ export const App: React.FC = () => {
   const handleHostIncomingMessageRef = useRef(handleHostIncomingMessage);
   handleHostIncomingMessageRef.current = handleHostIncomingMessage;
 
+  // DISPATCH ỔN ĐỊNH DUY NHẤT (cắt tải host, 17/11/2026): tầng mạng giao tin
+  // cho CẢ onMessageCallback LẪN hostMessageListener khi hai hàm KHÁC nhau
+  // (nó kiểm tra !==). Trước đây hai nơi đăng ký hai closure bọc khác nhau dù
+  // cùng trỏ về một handler → MỌI tin phía host bị xử lý 2 LẦN (updater chạy
+  // 2 lần, merge hồ sơ 2 lần…). Nay dùng MỘT instance hàm duy nhất cho cả hai
+  // đăng ký → tầng mạng tự khử còn 1 lần. Khi view là STUDENT_MOBILE (thầy thử
+  // HS trên cùng máy), StudentMobileView connect bằng callback của HS (khác
+  // instance này) nên hostMessageListener vẫn bắn riêng như thiết kế gốc.
+  const hostDispatchRef = useRef<((msg: CloudMessage) => void) | null>(null);
+  if (!hostDispatchRef.current) {
+    hostDispatchRef.current = (msg: CloudMessage) => handleHostIncomingMessageRef.current(msg);
+  }
+
   // Connect cloud continuously when Teacher is in Setup, Host Arena, or testing Student mode (Thử HS) so students never disconnect
   useEffect(() => {
     if (isDirectStudent) {
@@ -2062,7 +2139,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    CloudNetwork.setHostMessageListener((msg) => handleHostIncomingMessageRef.current(msg));
+    CloudNetwork.setHostMessageListener(hostDispatchRef.current);
 
     // Đợt 8 (4C): phía HOST là phía duy nhất quyết định broker (công bố broker epoch)
     // và ký lệnh điều khiển bằng KHOÁ PHÒNG của phòng này (sinh 1 lần, lưu theo phòng;
@@ -2073,7 +2150,7 @@ export const App: React.FC = () => {
     if (view !== 'STUDENT_MOBILE') {
       CloudNetwork.connect(
         activeRoomId,
-        (msg) => handleHostIncomingMessageRef.current(msg),
+        hostDispatchRef.current,
         () => {
           broadcastHeartbeatRef.current(matchStateRef.current, quizListRef.current, activeRoomId);
         }
