@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { MatchState, Player } from '../types';
 import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
+import { rankNameColor } from '../utils/rankNameColor';
 import { exportHonorCertificateHTML } from '../utils/exportEvidence';
 
 interface Props {
@@ -606,7 +607,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                           <td style={{ padding: '9px 10px', fontWeight: 900, fontSize: '14px', color: rank === 1 ? '#fde047' : rank === 2 ? '#e2e8f0' : rank === 3 ? '#fdba74' : '#94a3b8' }}>
                             {rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`}
                           </td>
-                          <td style={{ padding: '9px 10px', fontWeight: 900, color: '#ffffff', fontSize: '14.5px' }}>
+                          <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rank), fontSize: '14.5px' }}>
                             {player.label}
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 800, fontSize: '12.5px' }}>
@@ -721,7 +722,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                           <td style={{ padding: '9px 10px', fontWeight: 900, fontSize: '14px', color: rankByCorrect === 1 ? '#fde047' : rankByCorrect === 2 ? '#e2e8f0' : rankByCorrect === 3 ? '#fdba74' : '#94a3b8' }}>
                             {rankByCorrect === 1 ? '🥇 Hạng 1' : rankByCorrect === 2 ? '🥈 Hạng 2' : rankByCorrect === 3 ? '🥉 Hạng 3' : `#${rankByCorrect}`}
                           </td>
-                          <td style={{ padding: '9px 10px', fontWeight: 900, color: '#ffffff', fontSize: '14.5px' }}>
+                          <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rankByCorrect), fontSize: '14.5px' }}>
                             {player.label}
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
