@@ -368,14 +368,18 @@ const WORKER_SCRIPT = `
 `;
 
 class NetworkService {
-  // Đợt GIA CỐ TẢI (17/11/2026): MỖI MÁY CHỈ GIỮ 1 KẾT NỐI MQTT (client chính theo
-  // Mã Phòng / epoch của host). Client phụ song song thường trực đã BỎ: ở quy mô
-  // 200 HS nó nhân đôi số kết nối từ IP trường (~400) và nhân đôi mọi gói
-  // publish/subscribe qua broker công cộng — điểm nghẽn chạm trước tiên. Chống
-  // rớt broker nay dựa vào failover chủ động của client chính (thử lại có
-  // backoff + jitter, xem utils/netTiming) thay cho kết nối dự phòng thường trực.
-  // Field secondaryClient GIỮ LẠI (luôn null) để các điểm đọc "kênh nào đang
-  // sống" cũ giữ nguyên ngữ nghĩa: chỉ còn kênh chính quyết định.
+  // KIẾN TRÚC ĐƯỜNG TRUYỀN (khôi phục cơ chế gốc 17/11/2026 theo chỉ đạo của
+  // thầy, sau sự cố thực tế: bản 1-kết-nối sập ở câu 3 với 40 HS trong khi bản
+  // gốc chạy 40 HS "tẹt ga"): MỖI MÁY GIỮ 2 KẾT NỐI MQTT SONG SONG — client
+  // chính (theo Mã Phòng / epoch của host) + client MESH dự phòng ở broker
+  // còn lại của cặp {emqx, hivemq}. Mọi publish đi qua mọi client đang sống,
+  // mọi đường đều nhận (khử trùng _mid). Một broker chết/bị chặn thì đường
+  // kia gánh ngay — đây là cơ chế chống nghẽn/vượt chặn chính của bản gốc.
+  // Đợt gia cố tải trưa 17/11 từng cắt mesh để giảm số kết nối ở quy mô 200;
+  // thực tế lớp học cho thấy đánh đổi đó gây sập ở quy mô 40 nên đã hoàn lại.
+  // Các tối ưu KHÔNG thuộc đường truyền của đợt gia cố vẫn giữ: ping định
+  // tuyến host-only (players/<id>), nhịp ping/hồ sơ thích ứng theo quy mô
+  // phòng, HS không đăng ký players/+.
   private client: MqttClient | null = null;
   private secondaryClient: MqttClient | null = null;
   private activeBrokerUrl = '';
@@ -1269,9 +1273,12 @@ class NetworkService {
       }
     }
 
-    // 2. Kết nối Broker chính theo Mã Phòng — DUY NHẤT một kết nối mỗi máy
-    // (đợt gia cố tải: bỏ client phụ song song thường trực, xem ghi chú đầu class).
+    // 2. Kết nối Broker chính theo Mã Phòng + Broker song song dự phòng (mesh
+    // emqx + hivemq) — cơ chế gốc của thầy, khôi phục 17/11/2026 sau sự cố sập
+    // ở câu 3 khi chỉ còn 1 đường truyền: hai đường luôn sống song song, một
+    // đường chết thì đường kia gánh ngay, không có khoảng trống nối lại.
     this.connectSingleBrokerByRoom(cleanRoom, roomChanged);
+    this.connectSecondaryMeshBroker(cleanRoom, roomChanged);
 
     // 3. Đọc dữ liệu đồng bộ tức thời từ localStorage / cache nếu cùng thiết bị
     try {
@@ -1320,14 +1327,72 @@ class NetworkService {
   }
 
   /**
-   * Đợt GIA CỐ TẢI (17/11/2026): client phụ song song thường trực đã BỎ — mỗi máy
-   * chỉ giữ ĐÚNG 1 kết nối MQTT (client chính). Hàm này giữ lại dưới dạng no-op
-   * để mọi điểm gọi cũ (nếu còn sót) không thể tạo lại kết nối thứ hai; khả năng
-   * chịu rớt broker do failover chủ động của client chính đảm nhiệm (backoff +
-   * jitter, utils/netTiming). secondaryClient vì thế luôn null.
+   * KHÔI PHỤC CƠ CHẾ GỐC (17/11/2026, theo chỉ đạo của thầy sau sự cố sập ở
+   * câu 3 với 40 HS): client phụ MESH song song thường trực — nối tới broker
+   * còn lại trong cặp {emqx, hivemq} (broker chính ở broker nào thì mesh ở
+   * broker kia). Mọi tin đều phát qua MỌI client đang sống (xem
+   * publishToSingleMqttBroker) và nhận qua cả hai đường (khử trùng theo
+   * _mid ở deliverIncomingMessage), nên một broker chết/bị chặn/bị bóp thì
+   * đường còn lại gánh ngay lập tức — không có cửa sổ mất kết nối chờ
+   * failover như khi chỉ có 1 kết nối. Client mesh tự nối lại ngầm
+   * (reconnectPeriod 4000 như bản gốc) và KHÔNG mang Last-Will (will chỉ ở
+   * client chính, tránh báo offline oan khi chỉ mesh rớt).
    */
-  private connectSecondaryMeshBroker(_roomId: string, _forceReconnect: boolean = false) {
-    return;
+  private connectSecondaryMeshBroker(roomId: string, forceReconnect: boolean = false) {
+    if (this.isIntentionalDisconnect || !roomId) return;
+    const primaryIdx = (this.pinnedBrokerIndex !== null && this.pinnedBrokerIndex >= 0)
+      ? this.pinnedBrokerIndex
+      : (hashRoomId(roomId) % 2);
+    const secondaryIdx = primaryIdx === 0 ? 1 : 0;
+    const targetUrl = PRIMARY_BROKERS[secondaryIdx];
+
+    if (
+      !forceReconnect &&
+      this.secondaryClient &&
+      this.secondaryClient.connected &&
+      this.secondaryBrokerUrl === targetUrl
+    ) {
+      return;
+    }
+
+    this.secondaryBrokerUrl = targetUrl;
+    this.safeCloseSecondaryClient();
+
+    try {
+      const secClient = mqtt.connect(targetUrl, {
+        clientId: 'kc3d_sec_' + Math.random().toString(16).substring(2, 10),
+        clean: true,
+        connectTimeout: 4500,
+        reconnectPeriod: 4000,
+        keepalive: 30
+      });
+      this.secondaryClient = secClient;
+
+      secClient.on('connect', () => {
+        if (this.isIntentionalDisconnect || this.secondaryClient !== secClient) return;
+        const topics = this.getSubscriptionTopics();
+        if (topics.length === 0) return;
+        secClient.subscribe(topics, { qos: 0 }, (err) => {
+          if (!err) {
+            this.mqttHealthy = true;
+            this.setStatus('CONNECTED');
+            this.flushOfflineQueue();
+            this.notifyTelemetry();
+          }
+        });
+      });
+
+      secClient.on('message', (_topic, message) => {
+        try {
+          const rawStr = message.toString();
+          if (!rawStr) return;
+          const data = JSON.parse(rawStr) as CloudMessage;
+          this.deliverIncomingMessage(data);
+        } catch {}
+      });
+
+      secClient.on('error', () => {});
+    } catch {}
   }
 
   private safeCloseSecondaryClient() {
@@ -1476,13 +1541,24 @@ class NetworkService {
   private triggerSequentialFailover(_reason: string) {
     if (this.isIntentionalDisconnect || !this.currentRoomId) return;
 
-    // Đợt GIA CỐ TẢI: không còn client phụ — client chính vừa rớt là mất kênh MQTT,
-    // báo RECONNECTING thật. failoverStreak tăng để các lần thử lại giãn dần
-    // (backoff + jitter): 200 máy cùng rớt vì broker/wifi chập chờn sẽ KHÔNG cùng
-    // lao vào nối lại một lúc (chống dồn dập đồng loạt tự làm nghẽn thêm).
+    // KHÔI PHỤC HÀNH VI GỐC (17/11/2026): client mesh song song đang sống thì
+    // kênh vẫn khoẻ (mqttHealthy theo mesh như bản gốc) và KHÔNG lật trạng
+    // thái RECONNECTING — tin vẫn chảy qua đường mesh trong lúc client chính
+    // nối lại. ĐÃ BỎ nhánh "khoá epoch" của đợt 8 (HS đã nhận epoch bị cấm tự
+    // nhảy broker, phải thử lại đúng broker của host tới 4 chu kỳ): khi broker
+    // của host chết thật, nhánh khoá này ghìm cả lớp ở broker chết trong khi
+    // trận vẫn chạy — đúng mẫu sự cố sập ở câu 3 ngày 17/11. Nay mọi phía đều
+    // failover tự do như bản gốc; epoch trong heartbeat chỉ còn là tín hiệu để
+    // HS TỰ HỘI TỤ về broker của host khi nghe thấy (maybeAdoptBrokerEpoch),
+    // không còn là khoá. Độ trễ thử lại cũng theo bản gốc (350ms/200ms cố
+    // định): có mesh gánh nên failover của client chính không còn là đường
+    // sống duy nhất, không cần backoff dài; failoverStreak chỉ còn tăng để
+    // telemetry quan sát.
     this.failoverStreak++;
-    this.mqttHealthy = false;
-    this.setStatus('RECONNECTING');
+    this.mqttHealthy = Boolean(this.secondaryClient && this.secondaryClient.connected);
+    if (!this.mqttHealthy) {
+      this.setStatus('RECONNECTING');
+    }
     this.isConnectingMqtt = false;
     if (this.failoverTimer) {
       clearTimeout(this.failoverTimer);
@@ -1499,30 +1575,8 @@ class NetworkService {
         if (!this.isIntentionalDisconnect && this.currentRoomId) {
           this.connectSingleBrokerByRoom(this.currentRoomId, true);
         }
-      }, failoverBackoffMs(this.failoverStreak));
+      }, 350);
       return;
-    }
-
-    // Đợt 8 (4C.1): phía HS ĐÃ vào phòng có host (đã nhận broker epoch) KHÔNG tự nhảy
-    // broker độc lập nữa — broker công cộng không liên thông, nhảy là mất host. Chỉ thử
-    // lại ĐÚNG broker host đang dùng; host đổi broker sẽ công bố epoch mới và HS theo sau.
-    // VAN AN TOÀN: quá 4 chu kỳ khoá liên tiếp (broker của host nhiều khả năng đã sập
-    // hẳn — epoch mới không thể tới được qua broker cũ) thì rơi xuống nhánh dò broker
-    // kế tiếp bên dưới; broker dò chỉ được GIỮ khi nghe thấy epoch mới hơn của host
-    // (xem probeReturnTimer trong connectSingleBrokerByRoom), không thì quay về.
-    if (this.brokerRole === 'STUDENT' && this.adoptedBrokerEpoch) {
-      this.gatedFailoverCycles++;
-      if (this.gatedFailoverCycles <= 4) {
-        this.currentBrokerRetries = 0;
-        this.notifyTelemetry();
-        setTimeout(() => {
-          if (!this.isIntentionalDisconnect && this.currentRoomId) {
-            this.connectSingleBrokerByRoom(this.currentRoomId, true);
-          }
-        }, failoverBackoffMs(this.failoverStreak));
-        return;
-      }
-      this.gatedFailoverCycles = 0;
     }
 
     // Đã thử lại đủ 2 lần trên Broker hiện tại nhưng vẫn lỗi -> Chuyển sang Broker tiếp theo trong danh sách dự phòng
@@ -1535,7 +1589,7 @@ class NetworkService {
       if (!this.isIntentionalDisconnect && this.currentRoomId) {
         this.connectSingleBrokerByRoom(this.currentRoomId, true);
       }
-    }, failoverBackoffMs(this.failoverStreak));
+    }, 200);
   }
 
   private safeCloseClient() {
@@ -1813,9 +1867,13 @@ class NetworkService {
     }
     this.flushOfflineQueue();
 
-    // Nếu MQTT chưa kết nối thì thử kết nối lại (chỉ còn client chính — đợt gia cố tải)
+    // Nếu MQTT chưa kết nối thì thử kết nối lại — cả client chính lẫn mesh
+    // song song (hành vi gốc, khôi phục 17/11/2026).
     if (!this.client || !this.client.connected) {
       this.connectSingleBrokerByRoom(this.currentRoomId, false);
+    }
+    if (!this.secondaryClient || !this.secondaryClient.connected) {
+      this.connectSecondaryMeshBroker(this.currentRoomId, false);
     }
   }
 
