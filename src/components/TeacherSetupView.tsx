@@ -4,6 +4,7 @@ import { GamePlayType, JoinMode, SubjectData, QuizItem, MatchSettings, Player } 
 import {
   parseHTMLToQuiz,
   extractNormalizedLines,
+  convertWordOMMLToLatex,
   stripWordStyleGarbage,
   splitQuizTo3FormatHTML,
   cleanQuestionTitleText,
@@ -17,7 +18,23 @@ import {
 import { auditQuizList, QuizAuditSummary } from '../services/quizAuditor';
 import { QuizAuditorModal } from './QuizAuditorModal';
 import { MathRenderer } from '../utils/katexHelper';
+import { readFileAsText } from '../utils/fileText';
+import { getOrCreateRoomKey } from '../utils/commandSign';
+import { docxToHtml } from '../utils/docxImport';
 import { CloudNetwork, getStudentShareBaseUrl } from '../services/network';
+
+// Đợt 7 (1.3): phương án / ý Đ-S / đáp án ngắn có chứa công thức hoặc media thì
+// hiện thêm dòng xem trước qua MathRenderer trong bảng kiểm tra (giống điều
+// kiện hiện xem trước sẵn có của tiêu đề câu hỏi).
+const hasMathOrMediaPreview = (text: string): boolean =>
+  !!text &&
+  (text.includes('$') ||
+    text.includes('\\') ||
+    text.includes('<img') ||
+    text.includes('<table') ||
+    text.includes('<sub') ||
+    text.includes('<sup') ||
+    text.includes('['));
 
 interface Props {
   subjectsDB: Record<string, SubjectData>;
@@ -117,7 +134,8 @@ export const TeacherSetupView: React.FC<Props> = ({
     const base = getStudentShareBaseUrl();
     const gmFlag = gameType === 'FAST' ? '&gm=F' : (gameType === 'BELL' ? '&gm=B' : (gameType === 'BOSS' ? '&gm=BOSS' : '&gm=TUG'));
     const bkIdx = CloudNetwork.getActiveBrokerIndex(activeRoomId);
-    const url = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}`;
+    // Đợt 8 (4C.2): nhúng KHOÁ PHÒNG vào link phòng (tham số k) để HS kiểm tra chữ ký lệnh.
+    const url = `${base}?r=${activeRoomId}&role=player&t=R${gmFlag}&bk=${bkIdx}&k=${getOrCreateRoomKey(activeRoomId)}`;
     setRoomQRUrl(url);
     QRCode.toDataURL(url, { width: 220, margin: 1, errorCorrectionLevel: 'H' }).then(setRoomQRImg).catch(() => {});
   }, [activeRoomId, gameType]);
@@ -283,6 +301,14 @@ export const TeacherSetupView: React.FC<Props> = ({
     keepUnderlineTag: boolean = true
   ): { cleanedText: string; restoreProtectedTags: (str: string) => string } => {
     let content = htmlInput && htmlInput.trim() ? htmlInput : textInput;
+
+    // 0. CỨU EQUATION TRƯỚC TIÊN (Đợt 2 – mục 1.1): chuyển mọi Equation của Word
+    //    (<m:oMath> inline -> $...$, <m:oMathPara> đứng riêng đoạn -> $$...$$)
+    //    sang LaTeX bằng converter đệ quy dùng chung convertWordOMMLToLatex.
+    //    BẮT BUỘC chạy TRƯỚC mọi bước xoá/khử thẻ m:* ở dưới (bước 1 xoá thẳng
+    //    thẻ m:* nên nếu chuyển đổi chạy sau thì công thức đã sụp thành chữ phẳng).
+    //    Nội dung không có Equation: converter trả nguyên văn, hành vi giữ như cũ.
+    content = convertWordOMMLToLatex(content);
 
     // 1. Dọn sạch toàn bộ khối <style>, <xml>, <script>, <head>, <meta> và comment điều kiện rác của Microsoft Word
     // (Giữ lại nội dung bên trong <!--[if !supportLists]--> để không bị mất chữ A., B., C., D.)
@@ -853,6 +879,63 @@ export const TeacherSetupView: React.FC<Props> = ({
     }
   };
 
+  // Đợt 6 (2.1): Kéo–thả file ảnh trực tiếp vào ô soạn — dùng CHUNG pipeline nén canvas
+  // 720×480 JPEG 0.84 (compressImageFileToHTML) và cùng cơ chế chèn tại vị trí con trỏ
+  // như nút "🖼 Chèn ảnh" / Ctrl+V. Ô nhận thả được xác định bằng boxType truyền vào từ JSX
+  // của chính ô đó (đồng thời ghi activeEditorBoxRef để khớp cơ chế active editor hiện tại).
+  const handleEditorDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Ngăn trình duyệt mở file ảnh ra tab mới khi kéo qua ô soạn
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleEditorDropImage = async (e: React.DragEvent<HTMLDivElement>, boxType: 'MC' | 'TF' | 'SA') => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    const imageFile = files.find(f => f.type.startsWith('image/'));
+    if (!imageFile) return; // Không phải file ảnh -> để hành vi mặc định (thả chữ...) xử lý
+    e.preventDefault();
+    activeEditorBoxRef.current = boxType;
+
+    const imgHTML = await compressImageFileToHTML(imageFile);
+    if (!imgHTML) return;
+
+    const targetRef = boxType === 'MC' ? mcEditorRef : boxType === 'TF' ? tfEditorRef : saEditorRef;
+    const targetEl = targetRef.current;
+    if (!targetEl) return;
+    targetEl.focus();
+
+    // Cố gắng đặt con trỏ đúng điểm thả chuột (caretRangeFromPoint) để ảnh rơi đúng vị trí
+    let inserted = false;
+    try {
+      const docAny = document as any;
+      let range: Range | null = null;
+      if (typeof docAny.caretRangeFromPoint === 'function') {
+        range = docAny.caretRangeFromPoint(e.clientX, e.clientY);
+      } else if (typeof docAny.caretPositionFromPoint === 'function') {
+        const pos = docAny.caretPositionFromPoint(e.clientX, e.clientY);
+        if (pos) {
+          range = document.createRange();
+          range.setStart(pos.offsetNode, pos.offset);
+          range.collapse(true);
+        }
+      }
+      if (range && targetEl.contains(range.startContainer)) {
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+      inserted = document.execCommand('insertHTML', false, imgHTML);
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      targetEl.innerHTML += `<div>${imgHTML}</div>`;
+    }
+    syncEditorQuestionsLive();
+  };
+
   // Chèn Bảng Số Liệu mẫu (Địa lý, Sinh học, Vật lý, Hóa học, Toán thống kê) vào khung đang chọn
   const handleInsertDataTable = (boxType: 'MC' | 'TF' | 'SA') => {
     activeEditorBoxRef.current = boxType;
@@ -1062,13 +1145,43 @@ export const TeacherSetupView: React.FC<Props> = ({
     onSwitchToStudentMode();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const rawContent = String(ev.target?.result || '').trim();
-      if (!rawContent) return;
+    e.target.value = '';
+
+    // Đợt 7 (1.2): file Word .docx -> docxToHtml (mammoth + tiền xử lý OMML:
+    // Equation thành $...$/$$...$$ LaTeX, gạch chân giữ thành <u>) rồi đưa HTML
+    // vào ĐÚNG pipeline như đường dán: preparePasteCleanContent làm sạch rác
+    // Word -> parseHTMLToQuiz nhận diện câu hỏi -> đổ vào 3 khung Dạng thức.
+    if (file.name.toLowerCase().endsWith('.docx')) {
+      try {
+        const htmlFromDocx = await docxToHtml(await file.arrayBuffer());
+        if (!htmlFromDocx.trim()) {
+          alert('File .docx không có nội dung đọc được. Vui lòng kiểm tra lại file Word!');
+          return;
+        }
+        const { cleanedText, restoreProtectedTags } = preparePasteCleanContent(htmlFromDocx, '');
+        const restoredContent = restoreProtectedTags(cleanedText);
+        const parsedFromDocx = parseHTMLToQuiz(restoredContent, undefined, restoredContent);
+        if (parsedFromDocx && parsedFromDocx.length > 0) {
+          populate3BoxesFromItems(parsedFromDocx);
+          onImportJSON(parsedFromDocx);
+          alert(`✅ Đã mở file Word (.docx) và nạp thành công ${parsedFromDocx.length} câu hỏi vào 3 khung Dạng thức! Công thức Equation trong file đã được chuyển sang LaTeX để hiển thị đẹp trên sàn đấu.`);
+        } else {
+          alert('Không nhận diện được câu hỏi trong file .docx. Vui lòng kiểm tra định dạng đề trong file Word (Câu 1:, A. B. C. D., gạch chân đáp án đúng...)!');
+        }
+      } catch {
+        alert('Không đọc được file .docx này. Vui lòng dùng file Word định dạng .docx chuẩn (không phải .doc cũ) rồi thử lại!');
+      }
+      return;
+    }
+
+    // Đợt 4 (GĐ3.4): đọc file bằng hàm dùng chung — ngửi BOM UTF-8/UTF-16, fallback
+    // windows-1258 cho file .txt ANSI, chuẩn hoá NFC (hết lỗi dấu khi nạp file).
+    const rawContent = (await readFileAsText(file)).trim();
+    if (!rawContent) return;
+    {
       try {
         // Thử đọc dạng JSON trước
         const parsedJSON = JSON.parse(rawContent);
@@ -1118,6 +1231,12 @@ export const TeacherSetupView: React.FC<Props> = ({
             correct: correctIdx,
             tfItems: item.tfItems || [],
             shortAnswer: item.shortAnswer || '',
+            // Đợt 6 (2.2): GIỮ ĐỦ các trường media/lời giải khi nạp JSON — trước đây bị
+            // làm rơi nên đề xuất ra từ công cụ khác (có sẵn ảnh/âm thanh/lời giải) vào
+            // trang soạn là mất sạch. Chỉ gán khi file JSON thật sự có (không bịa trường rỗng).
+            ...(typeof item.imageUri === 'string' && item.imageUri ? { imageUri: item.imageUri } : {}),
+            ...(typeof item.audioUri === 'string' && item.audioUri ? { audioUri: item.audioUri } : {}),
+            ...(typeof item.explanation === 'string' && item.explanation ? { explanation: item.explanation } : {}),
             rightCount: 0,
             wrongCount: 0
           };
@@ -1137,9 +1256,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           alert('Không nhận diện được câu hỏi trong file. Vui lòng chọn file .json, .txt hoặc .html chứa câu hỏi trắc nghiệm!');
         }
       }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+    }
   };
 
   const orderKeys = ['BIO', 'AGRI', 'MATH', 'PHYS', 'CHEM', 'LIT', 'ENG', 'HIST', 'GEO', 'GDKTPL', 'IT', 'GDQPAN', 'ALL_SUBJ'];
@@ -1518,6 +1635,25 @@ export const TeacherSetupView: React.FC<Props> = ({
                 className="btn-action-sm"
                 style={{
                   height: '34px',
+                  background: '#ffffff',
+                  borderColor: '#38bdf8',
+                  color: '#0369a1',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  padding: '0 14px',
+                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.18)'
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                title="Mở thẳng file đề: Word .docx (giữ nguyên công thức Equation), .json, .txt hoặc .html"
+              >
+                📂 Mở file (.docx/.json/.txt)
+              </button>
+
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{
+                  height: '34px',
                   background: '#dcfce7',
                   borderColor: '#86efac',
                   color: '#166534',
@@ -1557,6 +1693,15 @@ export const TeacherSetupView: React.FC<Props> = ({
                 accept="image/*"
                 style={{ display: 'none' }}
                 onChange={handleInlineMediaFileSelect}
+              />
+
+              {/* Đợt 7 (1.2): input ẩn cho nút "📂 Mở file" — nạp đề từ .docx/.json/.txt/.html qua handleFileChange */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".docx,.json,.txt,.html"
+                style={{ display: 'none' }}
+                onChange={handleFileChange}
               />
             </div>
           </div>
@@ -1697,6 +1842,15 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 ➕ Thêm mẫu Dạng I
               </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#dbeafe', borderColor: '#60a5fa', color: '#1e3a8a', fontWeight: 800 }}
+                onClick={() => handleTriggerInsertImage('MC')}
+                title="Chèn ảnh / sơ đồ / bản đồ vào Khung 1 (hoặc kéo–thả file ảnh thẳng vào ô soạn bên dưới)"
+              >
+                🖼 Chèn ảnh
+              </button>
             </div>
 
             <div
@@ -1709,6 +1863,8 @@ export const TeacherSetupView: React.FC<Props> = ({
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'MC')}
               onPaste={e => handleCleanPasteInBox(e, 'MC')}
+              onDragOver={handleEditorDragOver}
+              onDrop={e => handleEditorDropImage(e, 'MC')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1767,6 +1923,15 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 ➕ Thêm mẫu Dạng II
               </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#ede9fe', borderColor: '#a78bfa', color: '#4c1d95', fontWeight: 800 }}
+                onClick={() => handleTriggerInsertImage('TF')}
+                title="Chèn ảnh / sơ đồ / bản đồ vào Khung 2 (hoặc kéo–thả file ảnh thẳng vào ô soạn bên dưới)"
+              >
+                🖼 Chèn ảnh
+              </button>
             </div>
 
             <div
@@ -1779,6 +1944,8 @@ export const TeacherSetupView: React.FC<Props> = ({
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'TF')}
               onPaste={e => handleCleanPasteInBox(e, 'TF')}
+              onDragOver={handleEditorDragOver}
+              onDrop={e => handleEditorDropImage(e, 'TF')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -1837,6 +2004,15 @@ export const TeacherSetupView: React.FC<Props> = ({
               >
                 ➕ Thêm mẫu Dạng III
               </button>
+              <button
+                type="button"
+                className="btn-action-sm"
+                style={{ fontSize: '12.5px', padding: '6px 12px', background: '#d1fae5', borderColor: '#34d399', color: '#065f46', fontWeight: 800 }}
+                onClick={() => handleTriggerInsertImage('SA')}
+                title="Chèn ảnh / sơ đồ / bản đồ vào Khung 3 (hoặc kéo–thả file ảnh thẳng vào ô soạn bên dưới)"
+              >
+                🖼 Chèn ảnh
+              </button>
             </div>
 
             <div
@@ -1849,6 +2025,8 @@ export const TeacherSetupView: React.FC<Props> = ({
               }}
               onKeyDown={e => handleEditorKeyDown(e, 'SA')}
               onPaste={e => handleCleanPasteInBox(e, 'SA')}
+              onDragOver={handleEditorDragOver}
+              onDrop={e => handleEditorDropImage(e, 'SA')}
               onInput={syncEditorQuestionsLive}
               onBlur={syncEditorQuestionsLive}
               style={{
@@ -2124,47 +2302,55 @@ export const TeacherSetupView: React.FC<Props> = ({
                                 key={oIdx}
                                 style={{
                                   display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
+                                  flexDirection: 'column',
+                                  gap: '3px',
                                   padding: '4px 6px',
                                   borderRadius: '8px',
                                   border: isCorr ? '2px solid #059669' : '1px solid #cbd5e1',
                                   background: isCorr ? '#dcfce7' : '#ffffff'
                                 }}
                               >
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickChangeCorrectMC(qIdx, oIdx)}
-                                  title="Bấm để chọn làm Đáp án Đúng"
-                                  style={{
-                                    padding: '3px 7px',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    background: isCorr ? '#059669' : '#e2e8f0',
-                                    color: isCorr ? '#ffffff' : '#334155',
-                                    fontWeight: 900,
-                                    fontSize: '11.5px',
-                                    cursor: 'pointer',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  {isCorr ? `✅ ${letter}` : letter}
-                                </button>
-                                <input
-                                  type="text"
-                                  value={optTxt}
-                                  onChange={e => handleQuickEditMCOptionText(qIdx, oIdx, e.target.value)}
-                                  onBlur={handleCommitPreviewEditsToBoxes}
-                                  style={{
-                                    flex: 1,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    fontWeight: isCorr ? 900 : 700,
-                                    color: isCorr ? '#065f46' : '#1e293b',
-                                    fontSize: '12px',
-                                    outline: 'none'
-                                  }}
-                                />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickChangeCorrectMC(qIdx, oIdx)}
+                                    title="Bấm để chọn làm Đáp án Đúng"
+                                    style={{
+                                      padding: '3px 7px',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: isCorr ? '#059669' : '#e2e8f0',
+                                      color: isCorr ? '#ffffff' : '#334155',
+                                      fontWeight: 900,
+                                      fontSize: '11.5px',
+                                      cursor: 'pointer',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    {isCorr ? `✅ ${letter}` : letter}
+                                  </button>
+                                  <input
+                                    type="text"
+                                    value={optTxt}
+                                    onChange={e => handleQuickEditMCOptionText(qIdx, oIdx, e.target.value)}
+                                    onBlur={handleCommitPreviewEditsToBoxes}
+                                    style={{
+                                      flex: 1,
+                                      border: 'none',
+                                      background: 'transparent',
+                                      fontWeight: isCorr ? 900 : 700,
+                                      color: isCorr ? '#065f46' : '#1e293b',
+                                      fontSize: '12px',
+                                      outline: 'none'
+                                    }}
+                                  />
+                                </div>
+                                {/* Đợt 7 (1.3): xem trước công thức của phương án qua MathRenderer */}
+                                {hasMathOrMediaPreview(optTxt) && (
+                                  <div style={{ fontSize: '12px', color: '#1e3a8a', padding: '2px 4px', background: '#eff6ff', borderRadius: '6px', overflowX: 'auto' }}>
+                                    <MathRenderer text={optTxt} />
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -2178,55 +2364,63 @@ export const TeacherSetupView: React.FC<Props> = ({
                               key={tfIdx}
                               style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
+                                flexDirection: 'column',
+                                gap: '3px',
                                 padding: '4px 6px',
                                 borderRadius: '8px',
                                 border: tf.isCorrect ? '2px solid #059669' : '1.5px solid #f43f5e',
                                 background: tf.isCorrect ? '#dcfce7' : '#ffe4e6'
                               }}
                             >
-                              <span style={{ fontWeight: 900, color: '#1e293b', fontSize: '12px' }}>{tf.label})</span>
-                              <input
-                                type="text"
-                                value={tf.text}
-                                onChange={e => handleQuickEditTFStatementText(qIdx, tfIdx, e.target.value)}
-                                onBlur={handleCommitPreviewEditsToBoxes}
-                                style={{
-                                  flex: 1,
-                                  border: 'none',
-                                  background: 'transparent',
-                                  fontWeight: 800,
-                                  color: tf.isCorrect ? '#065f46' : '#9f1239',
-                                  fontSize: '12px',
-                                  outline: 'none'
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleQuickToggleTFItem(qIdx, tfIdx)}
-                                title="Bấm để đổi Đúng / Sai"
-                                style={{
-                                  padding: '3px 8px',
-                                  borderRadius: '6px',
-                                  border: 'none',
-                                  background: tf.isCorrect ? '#059669' : '#e11d48',
-                                  color: '#ffffff',
-                                  fontWeight: 900,
-                                  fontSize: '11px',
-                                  cursor: 'pointer',
-                                  flexShrink: 0
-                                }}
-                              >
-                                {tf.isCorrect ? 'ĐÚNG' : 'SAI'}
-                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 900, color: '#1e293b', fontSize: '12px' }}>{tf.label})</span>
+                                <input
+                                  type="text"
+                                  value={tf.text}
+                                  onChange={e => handleQuickEditTFStatementText(qIdx, tfIdx, e.target.value)}
+                                  onBlur={handleCommitPreviewEditsToBoxes}
+                                  style={{
+                                    flex: 1,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    fontWeight: 800,
+                                    color: tf.isCorrect ? '#065f46' : '#9f1239',
+                                    fontSize: '12px',
+                                    outline: 'none'
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickToggleTFItem(qIdx, tfIdx)}
+                                  title="Bấm để đổi Đúng / Sai"
+                                  style={{
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: tf.isCorrect ? '#059669' : '#e11d48',
+                                    color: '#ffffff',
+                                    fontWeight: 900,
+                                    fontSize: '11px',
+                                    cursor: 'pointer',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  {tf.isCorrect ? 'ĐÚNG' : 'SAI'}
+                                </button>
+                              </div>
+                              {/* Đợt 7 (1.3): xem trước công thức của ý Đúng/Sai qua MathRenderer */}
+                              {hasMathOrMediaPreview(tf.text) && (
+                                <div style={{ fontSize: '12px', color: '#1e3a8a', padding: '2px 4px', background: '#eff6ff', borderRadius: '6px', overflowX: 'auto' }}>
+                                  <MathRenderer text={tf.text} />
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
                       )}
 
                       {item.format === 'SHORT_ANSWER' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 900, color: '#047857', fontSize: '12px' }}>🔑 Đáp án ngắn đúng:</span>
                           <input
                             type="text"
@@ -2245,6 +2439,12 @@ export const TeacherSetupView: React.FC<Props> = ({
                               width: '240px'
                             }}
                           />
+                          {/* Đợt 7 (1.3): xem trước công thức của đáp án ngắn qua MathRenderer */}
+                          {hasMathOrMediaPreview(item.shortAnswer ?? item.opts[0] ?? '') && (
+                            <span style={{ fontSize: '12px', color: '#1e3a8a', padding: '2px 6px', background: '#eff6ff', borderRadius: '6px' }}>
+                              <MathRenderer text={item.shortAnswer ?? item.opts[0] ?? ''} />
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
