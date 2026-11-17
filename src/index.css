@@ -298,6 +298,22 @@ body, html {
   white-space: nowrap;
 }
 
+/* Khung ⚙️ Cấu Hình Thông Số: đúng 2 hàng trên máy tính — mỗi hàng là MỘT
+   flex row NOWRAP (tổng bề rộng các mục đã được đo vừa khung ~1113px ở
+   viewport 1280/1366); màn hẹp (điện thoại) mới cho wrap tự nhiên. */
+.kc-settings-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: stretch;
+  width: 100%;
+}
+@media (max-width: 1000px) {
+  .kc-settings-row {
+    flex-wrap: wrap;
+  }
+}
+
 /* 2 nút bản quyền giữ hiệu ứng gây chú ý nhưng theo TÔNG RIÊNG từng nút
    (không còn gradient cầu vồng chung làm 2 nút trông giống nhau):
    💾 Lưu Đề Này = gradient ĐỎ/HỒNG chạy + pulse đỏ; ➕ Thêm Đề Mới =
