@@ -4,6 +4,7 @@ import { MatchState, Player } from '../types';
 import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
 import { rankNameColor } from '../utils/rankNameColor';
 import { exportHonorCertificateHTML } from '../utils/exportEvidence';
+import { levelFromXp } from '../utils/studentLevel';
 
 interface Props {
   matchState: MatchState;
@@ -361,10 +362,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ fontSize: '26px', marginBottom: '2px' }}>🥈</div>
               <div style={{ fontSize: '15px', fontWeight: 900, color: '#e2e8f0', textAlign: 'center' }}>
-                {top2.label}
+                {levelFromXp(top2.xp || 0).icon} {top2.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng
+                {top2.fastScore || 0} điểm • {top2.correct || 0} đúng • {levelFromXp(top2.xp || 0).name} ({top2.xp || 0} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -390,10 +391,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
               👑
             </div>
             <div style={{ fontSize: '18px', fontWeight: 900, color: '#fde047', textAlign: 'center' }}>
-              {top1.label}
+              {levelFromXp(top1.xp || 0).icon} {top1.label}
             </div>
             <div style={{ fontSize: '13px', color: '#4ade80', marginBottom: '6px', fontWeight: 900 }}>
-              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng
+              {top1.fastScore || 0} điểm • {top1.correct || 0} câu đúng • {levelFromXp(top1.xp || 0).name} ({top1.xp || 0} XP)
             </div>
             <div style={{
               width: '100%',
@@ -418,10 +419,10 @@ export const GrandFinaleScreen: React.FC<Props> = ({
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ fontSize: '26px', marginBottom: '2px' }}>🥉</div>
               <div style={{ fontSize: '15px', fontWeight: 900, color: '#fdba74', textAlign: 'center' }}>
-                {top3.label}
+                {levelFromXp(top3.xp || 0).icon} {top3.label}
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 800 }}>
-                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng
+                {top3.fastScore || 0} điểm • {top3.correct || 0} đúng • {levelFromXp(top3.xp || 0).name} ({top3.xp || 0} XP)
               </div>
               <div style={{
                 width: '100%',
@@ -608,7 +609,11 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             {rank === 1 ? '🥇 Hạng 1' : rank === 2 ? '🥈 Hạng 2' : rank === 3 ? '🥉 Hạng 3' : `#${rank}`}
                           </td>
                           <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rank), fontSize: '14.5px' }}>
+                            <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
                             {player.label}
+                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
+                              {levelFromXp(player.xp || 0).name} • {player.xp || 0} XP
+                            </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 800, fontSize: '12.5px' }}>
                             <span style={{ color: '#4ade80' }}>✅ {player.correct || 0}</span>
@@ -723,7 +728,11 @@ export const GrandFinaleScreen: React.FC<Props> = ({
                             {rankByCorrect === 1 ? '🥇 Hạng 1' : rankByCorrect === 2 ? '🥈 Hạng 2' : rankByCorrect === 3 ? '🥉 Hạng 3' : `#${rankByCorrect}`}
                           </td>
                           <td style={{ padding: '9px 10px', fontWeight: 900, color: rankNameColor(rankByCorrect), fontSize: '14.5px' }}>
+                            <span style={{ marginRight: '6px' }}>{levelFromXp(player.xp || 0).icon}</span>
                             {player.label}
+                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, marginLeft: '6px' }}>
+                              {levelFromXp(player.xp || 0).name} • {player.xp || 0} XP
+                            </span>
                           </td>
                           <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 900, color: '#4ade80', fontSize: '15px' }}>
                             ✅ {player.correct || 0}/{safeTotalQ} câu
