@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Player, GamePlayType } from '../types';
 import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
+import { rankNameColor } from '../utils/rankNameColor';
 
 interface Props {
   isOpen: boolean;
@@ -177,7 +178,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                     {badge.medal}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 900, color: rankNameColor(rank), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {player.label}
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 700, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -317,7 +318,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                     {badge.medal}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 900, color: rankNameColor(rankByCorrect), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {player.label}
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#a7f3d0', fontWeight: 800, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
