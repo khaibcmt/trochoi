@@ -1,6 +1,6 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { CloudMessage, QuizItem } from '../types';
-import { isSensitiveCommand, signCommandSync } from '../utils/commandSign';
+import { isForeignControlCommand, isSensitiveCommand, signCommandSync } from '../utils/commandSign';
 import { failoverBackoffMs } from '../utils/netTiming';
 
 export interface BrokerEpochInfo {
@@ -47,6 +47,9 @@ export interface NetworkTelemetry {
   // lỗi nổi lên telemetry này và qua callback onPublishError để phía host biết phát đề hỏng.
   lastPublishError: string | null;
   publishErrorCount: number;
+  // Lệnh điều khiển LẠ (sai/thiếu chữ ký) phía HOST đã thấy trên topic phòng
+  // trong phiên này — CHỈ máy thầy hiển thị chỉ báo nhỏ; phía HS không hiện gì.
+  foreignCmdBlocked: number;
 }
 
 export interface PublishErrorInfo {
@@ -465,6 +468,9 @@ class NetworkService {
   private brokerRole: 'HOST' | 'STUDENT' | null = null;
   // Đợt 8 (4C.2): khoá phòng phía HOST dùng để ký lệnh điều khiển trong sendMessage.
   private roomKey: string | null = null;
+  // Bộ đếm lệnh điều khiển lạ phía HOST (xem isForeignControlCommand) — reset
+  // khi ngắt phiên, đưa lên telemetry để HostArenaView hiện chỉ báo kín đáo.
+  private foreignCmdBlockedCount = 0;
   // Đợt 8 (4C.1) phía HOST: broker/epoch đang công bố (lưu localStorage theo phòng để
   // F5 không làm epoch nhảy lui). hostBrokerIdx = -1 nghĩa là chưa nối thành công lần nào.
   private hostBrokerIdx = -1;
@@ -760,7 +766,8 @@ class NetworkService {
       quizChunksReceived: this.quizChunkProgressReceived,
       quizChunksTotal: this.quizChunkProgressTotal,
       lastPublishError: this.lastPublishError,
-      publishErrorCount: this.publishErrorCount
+      publishErrorCount: this.publishErrorCount,
+      foreignCmdBlocked: this.foreignCmdBlockedCount
     };
   }
 
@@ -1094,6 +1101,17 @@ class NetworkService {
         return; // Bỏ qua ngay, không kích hoạt hàm 2 lần
       }
       this.recordMsgId(data._mid);
+    }
+
+    // Phía HOST: đếm THẦM lệnh điều khiển lạ (sai/thiếu chữ ký) phát tán trên
+    // topic phòng — đặt SAU khối khử trùng _mid nên lệnh của chính host dội
+    // lại không bao giờ bị đếm nhầm. Chỉ đếm + báo qua telemetry cho máy
+    // thầy; việc chặn thi hành vẫn do từng phía tự quyết như cũ, luồng tin
+    // không đổi. Lệnh lạ là sự kiện hiếm nên notifyTelemetry ở đây không
+    // thêm tải đáng kể.
+    if (this.brokerRole === 'HOST' && isForeignControlCommand(data as unknown as Record<string, unknown>, this.roomKey)) {
+      this.foreignCmdBlockedCount++;
+      this.notifyTelemetry();
     }
 
     // Đợt 8 (4C.1): phía HS đi theo broker epoch do host công bố trong state/heartbeat —
@@ -2355,6 +2373,7 @@ class NetworkService {
     // dùng chung service sẽ tự khai báo lại), tránh ký/đi theo epoch của phiên trước.
     this.brokerRole = null;
     this.roomKey = null;
+    this.foreignCmdBlockedCount = 0;
     this.adoptedBrokerEpoch = null;
     this.gatedFailoverCycles = 0;
     if (this.probeReturnTimer) {
