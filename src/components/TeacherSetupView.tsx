@@ -1438,16 +1438,42 @@ export const TeacherSetupView: React.FC<Props> = ({
             </label>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
-              ⏱️ Thời gian đếm ngược:
+              ⏱️ Phần 1 – Trắc nghiệm:
               <input
                 type="number"
                 min={5}
-                max={120}
+                max={300}
                 value={matchSettings.questionDurationSec}
                 onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSec: Math.max(5, parseInt(e.target.value) || 30) })}
                 style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f59e0b', fontWeight: 900, textAlign: 'center' }}
               />
-              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây</span>
+              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
+              ⏱️ Phần 2 – Đúng/Sai:
+              <input
+                type="number"
+                min={5}
+                max={300}
+                value={matchSettings.questionDurationTfSec ?? 60}
+                onChange={e => onUpdateSettings({ ...matchSettings, questionDurationTfSec: Math.max(5, parseInt(e.target.value) || 60) })}
+                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#c4b5fd', fontWeight: 900, textAlign: 'center' }}
+              />
+              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
+              ⏱️ Phần 3 – Trả lời ngắn:
+              <input
+                type="number"
+                min={5}
+                max={300}
+                value={matchSettings.questionDurationSaSec ?? 60}
+                onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSaSec: Math.max(5, parseInt(e.target.value) || 60) })}
+                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#6ee7b7', fontWeight: 900, textAlign: 'center' }}
+              />
+              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
             </label>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
