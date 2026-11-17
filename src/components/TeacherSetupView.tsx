@@ -22,6 +22,7 @@ import { readFileAsText } from '../utils/fileText';
 import { getOrCreateRoomKey } from '../utils/commandSign';
 import { docxToHtml } from '../utils/docxImport';
 import { CloudNetwork, getStudentShareBaseUrl } from '../services/network';
+import { useLicenseGate } from './LicenseGate';
 
 // Đợt 7 (1.3): phương án / ý Đ-S / đáp án ngắn có chứa công thức hoặc media thì
 // hiện thêm dòng xem trước qua MathRenderer trong bảng kiểm tra (giống điều
@@ -101,6 +102,10 @@ export const TeacherSetupView: React.FC<Props> = ({
   onResetClass,
   onOpenCoffeeModal
 }) => {
+  // Bản quyền (17/11/2026): cửa đăng ký kích hoạt cho 2 nút Thêm Đề Mới /
+  // Lưu Đề Này + Admin 2 khoá + Quản lý máy — logic ở utils/license.ts.
+  const license = useLicenseGate();
+
   // 3 Khung Dạng Thức Chia Sẵn Riêng Biệt (Chuẩn THPT 2018)
   const mcEditorRef = useRef<HTMLDivElement>(null);
   const tfEditorRef = useRef<HTMLDivElement>(null);
@@ -1447,6 +1452,34 @@ export const TeacherSetupView: React.FC<Props> = ({
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>(tin/s, số lần vẽ lại danh sách — tắt khi lớp đông nếu thấy vướng)</span>
             </label>
 
+            <button
+              type="button"
+              onClick={license.openAdmin}
+              title={license.isAdmin ? 'Đang ở chế độ Admin — bấm để thoát' : 'Mở chế độ Admin (2 khoá: mã chủ + mã Admin của thầy)'}
+              style={{
+                padding: '5px 12px', borderRadius: '8px', cursor: 'pointer',
+                border: '1.5px solid #f59e0b', background: license.isAdmin ? '#f59e0b' : '#090d16',
+                color: license.isAdmin ? '#1c1440' : '#fbbf24', fontWeight: 900, fontSize: '12.5px'
+              }}
+            >
+              {license.isAdmin ? '👑 Admin đang mở' : '🔑 Admin'}
+            </button>
+
+            {license.isAdmin && (
+              <button
+                type="button"
+                onClick={license.openMachines}
+                title="Xem danh sách máy đã đăng ký kích hoạt, khoá lại / mở lại từng máy"
+                style={{
+                  padding: '5px 12px', borderRadius: '8px', cursor: 'pointer',
+                  border: '1.5px solid #818cf8', background: '#090d16',
+                  color: '#a5b4fc', fontWeight: 900, fontSize: '12.5px'
+                }}
+              >
+                🔐 Quản lý máy
+              </button>
+            )}
+
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               ⏱️ Phần 1 – Trắc nghiệm:
               <input
@@ -1628,21 +1661,18 @@ export const TeacherSetupView: React.FC<Props> = ({
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
-                className="btn-action-sm"
+                className="btn-action-sm kc-cta-live"
                 style={{
                   height: '34px',
-                  background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-                  borderColor: '#93c5fd',
                   color: '#ffffff',
                   fontWeight: 900,
                   fontSize: '13px',
-                  padding: '0 14px',
-                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)'
+                  padding: '0 14px'
                 }}
-                onClick={handleSaveToSubject}
-                title="Lưu toàn bộ câu hỏi của 3 phần vào môn học này"
+                onClick={() => license.guardAction(handleSaveToSubject)}
+                title="Lưu toàn bộ câu hỏi của 3 phần vào môn học này (cần đăng ký kích hoạt 1 lần)"
               >
-                💾 Lưu Đề Vào Môn Này
+                💾 Lưu Đề Này
               </button>
 
               <button
@@ -1691,20 +1721,18 @@ export const TeacherSetupView: React.FC<Props> = ({
 
               <button
                 type="button"
-                className="btn-action-sm"
+                className="btn-action-sm kc-cta-live"
                 style={{
                   height: '34px',
-                  background: '#dcfce7',
-                  borderColor: '#86efac',
-                  color: '#166534',
+                  color: '#ffffff',
                   fontWeight: 900,
                   fontSize: '13px',
                   padding: '0 12px'
                 }}
-                onClick={onAddSubject}
-                title="Thêm môn học mới vào hệ thống"
+                onClick={() => license.guardAction(onAddSubject)}
+                title="Thêm môn học mới vào hệ thống (cần đăng ký kích hoạt 1 lần)"
               >
-                ➕ Thêm Môn Mới
+                ➕ Thêm Đề Mới
               </button>
 
               {!subjectsDB[currentSubjectKey]?.fixed && (
@@ -2874,6 +2902,9 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Bản quyền: modal đăng ký kích hoạt / đăng nhập Admin / quản lý máy */}
+      {license.modals}
 
       {/* Bác Sĩ Bắt Lỗi Đề (Quiz Auditor Modal) */}
 
