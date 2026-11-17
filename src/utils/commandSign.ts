@@ -236,6 +236,24 @@ export function verifyCommandSync(
   }
 }
 
+/**
+ * Lệnh điều khiển LẠ dưới mắt HOST (thuần): là lệnh nhạy cảm phát trên topic
+ * phòng nhưng chữ ký KHÔNG đúng khoá phòng (giả mạo / sai khoá / thiếu chữ
+ * ký). Tin nội bộ từ kênh HTTP của máy chủ (tiền tố _mid 'srv_') được miễn —
+ * cùng quy ước phía HS đang dùng. Không có khoá phòng → không kết luận được
+ * → false. Phía host dùng để ĐẾM thầm (chỉ báo nhỏ trên máy thầy); phía HS
+ * KHÔNG hiển thị gì về việc này (chốt của thầy 17/11).
+ */
+export function isForeignControlCommand(
+  payload: Record<string, unknown> & { type?: unknown; sig?: unknown; _mid?: unknown },
+  roomKey: string | null | undefined
+): boolean {
+  if (!roomKey) return false;
+  if (!isSensitiveCommand(typeof payload.type === 'string' ? payload.type : undefined)) return false;
+  if (typeof payload._mid === 'string' && payload._mid.startsWith('srv_')) return false;
+  return !verifyCommandSync(roomKey, payload, typeof payload.sig === 'string' ? payload.sig : undefined);
+}
+
 function subtleAvailable(): boolean {
   try {
     return (
