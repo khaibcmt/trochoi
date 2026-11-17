@@ -977,7 +977,6 @@ export const App: React.FC = () => {
         currentMS.questionPause && currentMS.questionPause.qIndex === safeIdx
           ? currentMS.questionPause.remainingSec
           : undefined,
-      ttsStudentEnabled: currentMS.settings?.ttsStudentEnabled === true,
       currentRound: currentMS.currentRound,
       redRoundWins: currentMS.redRoundWins,
       blueRoundWins: currentMS.blueRoundWins,
