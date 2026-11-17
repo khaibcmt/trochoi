@@ -4066,18 +4066,6 @@ export const StudentMobileView: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Countdown Bar theo thời lượng câu hỏi cấu hình */}
-          <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${Math.max(0, Math.min(100, (remSec / Math.max(1, questionDurationSec)) * 100))}%`,
-                background: remSec > 10 ? '#10b981' : remSec > 5 ? '#f59e0b' : '#ef4444',
-                transition: 'width 0.1s linear'
-              }}
-            />
-          </div>
-
           {/* Banner Sự Kiện Đặc Biệt Toàn Sân / Câu Hỏi Vàng X2 (Nếu có) */}
           {worldEventTitle && (
             <div style={{
