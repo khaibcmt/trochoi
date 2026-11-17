@@ -509,10 +509,10 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     <b style={{ color: '#fef08a' }}>⚡ Tia Chớp Đầu Tiên (+500đ):</b> HS trả lời đúng nhanh nhất lớp nhận vinh danh Tia Chớp và cộng nóng +500 điểm thi đấu.
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#67e8f9' }}>🎲 Cược Bản Lĩnh (Dùng 1 lần):</b> Chọn mức cược trước khi chốt đáp án: <b>An Toàn (x1)</b> • <b>Liều Lĩnh (x1.5 / -300đ)</b> • <b>Tất Tay (x2.5 / -800đ)</b>.
+                    <b style={{ color: '#67e8f9' }}>🎲 Cược Bản Lĩnh (Dùng 1 lần):</b> Chọn mức cược trước khi chốt đáp án: <b>An Toàn (x1)</b> — có <b>lá chắn che phạt điểm 1 lần/trận</b>, hết lá chắn sai trừ <b>-1000đ</b> • <b>Liều Lĩnh (x1.5 / -300đ)</b> • <b>Tất Tay (x2.5 / -800đ)</b>.
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
-                    <b style={{ color: '#a7f3d0' }}>🎁 Rương Bí Ẩn (Streak = 5, dùng 1 lần):</b> Trả lời đúng liên tiếp 5 câu, có 4s chọn 1 trong 3 rương: Nổ Hũ +1500đ, Đạo chích hút 500đ Top 1, Tim hồi sinh, Khiên bất tử!
+                    <b style={{ color: '#a7f3d0' }}>🎁 Rương Bí Ẩn (Streak = 5, dùng 1 lần):</b> Trả lời đúng liên tiếp 5 câu, có 4s chọn 1 trong 3 rương: Nổ Hũ +1500đ, Đạo chích hút 500đ Top 1, Tim hồi sinh (chỉ có ở Rung Chuông Vàng), Khiên bất tử!
                   </div>
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
                     <b style={{ color: '#fed7aa' }}>📊 Chuẩn Thông Tư 22/BGDĐT:</b> Thang điểm 10 = <code>(Đúng / Tổng câu) * 10</code> làm tròn 1 số lẻ, xếp thứ tự từ cao xuống thấp để vào sổ vnEdu / SMAS.
@@ -679,7 +679,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.65 }}>
                     Trước khi bấm chọn đáp án, học sinh có thể chọn mức cược chiến thuật:<br />
-                    • <b>🛡️ An Toàn (x1):</b> Đúng cộng điểm chuẩn, sai không bị trừ điểm (mức mặc định).<br />
+                    • <b>🛡️ An Toàn (x1):</b> Đúng cộng điểm chuẩn. Mỗi trận có <b>1 LÁ CHẮN AN TOÀN</b>: câu sai đầu tiên ở An Toàn được miễn trừ điểm; từ câu sai thứ hai trừ <b>-1000đ</b>. Ở Rung Chuông Vàng, trả lời sai luôn mất 1 ❤️ — lá chắn chỉ che điểm, không che mạng.<br />
                     • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm (+1.500đ), sai bị trừ <b>-300đ</b>.<br />
                     • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để bứt phá lên Top 1)!<br />
                     <span style={{ color: '#fde047', fontWeight: 800 }}>
@@ -702,7 +702,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     • Xuất hiện <b>3 Rương Kho Báu</b>, đếm ngược <b>4 giây</b> để bạn chạm chọn 1 rương ngẫu nhiên:<br />
                     &nbsp;&nbsp;💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
                     &nbsp;&nbsp;🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của bạn đang dẫn đầu Top 1.<br />
-                    &nbsp;&nbsp;💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
+                    &nbsp;&nbsp;💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh — <b>CHỈ xuất hiện trong Rung Chuông Vàng</b>; ở các trò khác, rương chỉ có 3 vật phẩm còn lại.<br />
                     &nbsp;&nbsp;🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn tuyệt đối không bị trừ điểm nếu câu sau trả lời sai!
                   </div>
                 </div>
@@ -740,7 +740,8 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     • Học sinh được chia vào <b>Đội Đỏ</b> và <b>Đội Xanh</b>.<br />
                     • Mỗi câu trả lời đúng của từng thành viên sẽ tạo lực kéo sợi dây về phía đội mình.<br />
                     • Đội nào kéo dây qua vạch quy định sẽ giành chiến thắng hiệp đấu.<br />
-                    • Chuỗi đúng 3 câu mở khóa <b>Thẻ Kỹ Năng</b>: Đóng băng đối thủ, Khiên chắn, Nhân đôi lực kéo!
+                    • Chuỗi đúng 3 câu mở khóa <b>Thẻ Kỹ Năng</b>: Đóng băng đối thủ, Khiên chắn, Nhân đôi lực kéo!<br />
+                    • Trả lời sai chỉ bị trừ điểm theo mức cược (An Toàn: lá chắn che 1 lần, sau đó -1000đ) — <b>không bị đóng băng khi trả lời sai</b>; đóng băng chỉ đến từ Thẻ Kỹ Năng của đối thủ.
                   </div>
                 </div>
 
@@ -751,7 +752,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   </div>
                   <div style={{ fontSize: '14.5px', color: '#cbd5e1', lineHeight: 1.6 }}>
                     • Mỗi thí sinh bắt đầu với <b>3 Trái Tim Sinh Mệnh (3 ❤️)</b>.<br />
-                    • Trả lời sai trừ 1 ❤️. Khi mất hết 3 ❤️, nhân vật sẽ <b>tự động ẩn khỏi sân khấu 3D</b> để nhường chỗ cho các bạn còn lại và chuyển sang ghế Khán giả.<br />
+                    • Trả lời sai trừ 1 ❤️ <b>và trừ điểm</b> theo mức cược: An Toàn — câu sai đầu tiên được lá chắn che điểm (vẫn mất ❤️), từ câu sai thứ hai <b>-1000đ</b>; Liều Lĩnh <b>-300đ</b>; Tất Tay <b>-800đ</b>. Khi mất hết 3 ❤️, nhân vật sẽ <b>tự động ẩn khỏi sân khấu 3D</b> để nhường chỗ cho các bạn còn lại và chuyển sang ghế Khán giả.<br />
                     • Giáo viên có thể bấm <b>&ldquo;🆘 Phao Cứu Trợ&rdquo;</b> hoặc quay <b>Phép Màu</b> để hồi sinh toàn bộ thí sinh quay lại sàn đấu!
                   </div>
                 </div>
@@ -766,7 +767,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                     • Đúng trong <b>≤ 5 giây:</b> Thưởng nóng <b>+300đ</b>.<br />
                     • Đúng trong <b>≤ 10 giây:</b> Thưởng nóng <b>+150đ</b>.<br />
                     • Trả lời đúng đầu tiên toàn phòng nhận danh hiệu <b>⚡ Tia Chớp Đầu Tiên (+500đ)</b>.<br />
-                    • Trả lời sai bị trừ điểm nếu chọn cược Liều Lĩnh / Tất Tay.
+                    • Trả lời sai bị trừ điểm theo mức cược: Liều Lĩnh -300đ / Tất Tay -800đ; ở An Toàn, câu sai đầu tiên được lá chắn che điểm, từ câu sai thứ hai -1000đ.
                   </div>
                 </div>
 
@@ -803,7 +804,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                       🎲 1. Cược Bản Lĩnh Trước Khi Chốt (Dùng 1 Lần Duy Nhất):
                     </div>
                     <div style={{ fontSize: '13.5px', color: '#cbd5e1', lineHeight: 1.55 }}>
-                      • <b>🛡️ An Toàn (x1):</b> Sai không bị trừ điểm (mặc định an tâm).<br />
+                      • <b>🛡️ An Toàn (x1):</b> Có lá chắn che phạt điểm cho câu sai đầu tiên của trận; từ câu sai thứ hai -1000đ (Rung Chuông Vàng: sai luôn mất 1 ❤️, lá chắn chỉ che điểm).<br />
                       • <b>⚡ Liều Lĩnh (x1.5):</b> Đúng nhân 1.5x điểm (+1.500đ), sai bị trừ <b>-300đ</b>.<br />
                       • <b>🔥 Tất Tay (x2.5):</b> Đúng nhân 2.5x điểm (+2.500đ), sai bị trừ <b>-800đ</b> (dành cho bạn tự tin 100% để lật kèo)!<br />
                       <i>* Sau khi dùng 1 lần, các câu sau hệ thống tự động khóa và trở về An Toàn (x1).</i>
@@ -818,7 +819,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                       Khi trả lời đúng 5 câu liên tiếp, học sinh có 4 giây để chọn 1 trong 3 rương bí ẩn:<br />
                       • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500 điểm thưởng.<br />
                       • 🥷 <b>Đạo Chích:</b> +900đ và hút 500đ của đối thủ đang Top 1.<br />
-                      • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh trong Rung Chuông Vàng.<br />
+                      • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh — chỉ có trong Rung Chuông Vàng (các trò khác rương chỉ gồm 3 vật phẩm còn lại).<br />
                       • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ bạn không bị trừ điểm nếu câu sau trả lời sai!
                     </div>
                   </div>
