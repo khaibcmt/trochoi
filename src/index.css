@@ -1185,8 +1185,8 @@ body, html {
 }
 
 .opt-color-0 { background: linear-gradient(135deg, #e11d48, #be123c); border-color: #fda4af; }
-.opt-color-1 { background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #7dd3fc; }
-.opt-color-2 { background: linear-gradient(135deg, #d97706, #b45309); border-color: #fde047; }
+.opt-color-1 { background: linear-gradient(135deg, #d97706, #b45309); border-color: #fde047; }
+.opt-color-2 { background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #7dd3fc; }
 .opt-color-3 { background: linear-gradient(135deg, #7c3aed, #5b21b6); border-color: #c4b5fd; }
 
 #host-question-board.review-active .hq-opt-item:not(.correct-reveal) {
