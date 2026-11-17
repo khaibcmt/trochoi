@@ -25,6 +25,7 @@ import { BUILD_TAG } from '../utils/buildTag';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
+import { levelFromXp } from '../utils/studentLevel';
 
 interface Props {
   matchState: MatchState;
@@ -2886,7 +2887,8 @@ export const HostArenaView: React.FC<Props> = ({
             // Bản ghi đã GIẢI PHÓNG chỗ (holdReleased: bị loại/hết giữ chỗ ở BELL)
             // KHÔNG mang hậu tố này — đó là trạng thái khác hẳn mất kết nối.
             const isOfflineHeld = p.offline === true && !p.holdReleased;
-            const prefixBadges = `${isOfflineHeld ? '📴 ' : ''}${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
+            // Hệ CẤP ĐỘ: icon cấp đứng đầu nhãn tên trên sân khấu (trước mọi badge khác).
+            const prefixBadges = `${levelFromXp(p.xp || 0).icon} ${isOfflineHeld ? '📴 ' : ''}${isFirstBloodWinner ? '⚡' : ''}${isOnFire ? '🔥' : ''}${hasDoneQ ? '✓ ' : ''}`;
 
             let labelText = '';
             if (matchState.gameType === 'BELL') {
@@ -3187,6 +3189,9 @@ export const HostArenaView: React.FC<Props> = ({
                 return (
                   <div key={p.id} className={`flb-row rank-${rank}`} style={isOfflineHeld ? { opacity: 0.55, filter: 'grayscale(1)' } : undefined}>
                     <div className="flb-rank">{medal}</div>
+                    <div className="flb-level" title={`${levelFromXp(p.xp || 0).name} • ${p.xp || 0} XP`}>
+                      {levelFromXp(p.xp || 0).icon}
+                    </div>
                     <div className="flb-name" title={p.label}>
                       {matchState.gameType === 'TUG' && (
                         <span style={{ fontSize: '10px', marginRight: '4px' }}>{p.team === 'RED' ? '🔴' : '🔵'}</span>
@@ -3339,6 +3344,7 @@ export const HostArenaView: React.FC<Props> = ({
                     }}
                   >
                     <span>{(p.offline && !p.holdReleased) ? '📴' : p.ready ? '✅' : '🟢'}</span>
+                    <span title={`${levelFromXp(p.xp || 0).name} • ${p.xp || 0} XP`}>{levelFromXp(p.xp || 0).icon}</span>
                     <span>{p.label}{(p.offline && !p.holdReleased) ? ' (mất kết nối)' : ''}</span>
                   </span>
                 ))}
