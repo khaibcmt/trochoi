@@ -22,7 +22,7 @@ interface Props {
 export const GrandFinaleScreen: React.FC<Props> = ({
   matchState,
   activeRoomId,
-  totalQuestions = 12,
+  totalQuestions,
   onReviewMatch,
   onDownloadCSV,
   onPrintPDFEvidence,
@@ -57,7 +57,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   }, []);
 
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
-  const safeTotalQ = Math.max(1, totalQuestions || 12);
+  const safeTotalQ = Math.max(1, totalQuestions || 1);
 
   // 1. BẢNG XẾP HẠNG THEO TỔNG ĐIỂM THI ĐẤU (BXH TRÒ CHƠI - GIỮ NGUYÊN CẤU TRÚC)
   const rankedByScorePlayers = [...allPlayers].sort((a, b) => {
@@ -79,8 +79,8 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   // - Trả về thang điểm 10, chỉ tính (Số câu đúng / Tổng số câu) * 10, làm tròn 1 số lẻ
   // - Xếp điểm thực tế theo thứ tự từ cao đến thấp để ghi vào sổ điểm
   const rankedByCorrectPlayers = [...allPlayers].sort((a, b) => {
-    const scoreA = Number((((a.correct || 0) / safeTotalQ) * 10).toFixed(1));
-    const scoreB = Number((((b.correct || 0) / safeTotalQ) * 10).toFixed(1));
+    const scoreA = getTeacherGradebookScore(a.correct || 0, safeTotalQ).grade;
+    const scoreB = getTeacherGradebookScore(b.correct || 0, safeTotalQ).grade;
     if (scoreB !== scoreA) {
       return scoreB - scoreA;
     }
@@ -803,7 +803,7 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         </button>
 
         <button
-          onClick={() => exportHonorCertificateHTML(matchState, activeRoomId)}
+          onClick={() => exportHonorCertificateHTML(matchState, activeRoomId, safeTotalQ)}
           style={{
             padding: '11px 18px',
             borderRadius: '12px',
