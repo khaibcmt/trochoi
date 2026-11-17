@@ -28,6 +28,7 @@ import {
   mergePlayerRecord,
   sweepPlayerPresence
 } from './utils/presence';
+import { questionDurationFor } from './utils/questionTiming';
 import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
@@ -171,6 +172,8 @@ export const App: React.FC = () => {
     roomCapacity: 200,
     max3DRenderCount: 10,
     questionDurationSec: 30,
+    questionDurationTfSec: 60,
+    questionDurationSaSec: 60,
     bossMaxHP: 1000
   });
 
@@ -274,6 +277,8 @@ export const App: React.FC = () => {
         roomCapacity: 200,
         max3DRenderCount: 10,
         questionDurationSec: 30,
+        questionDurationTfSec: 60,
+        questionDurationSaSec: 60,
         bossMaxHP: 1000
       }
     };
@@ -420,7 +425,10 @@ export const App: React.FC = () => {
         redPlayers: prev.redPlayers.map(resetPlayer),
         bluePlayers: prev.bluePlayers.map(resetPlayer),
         bossHP: matchSettings.bossMaxHP || 1000,
-        maxBossHP: matchSettings.bossMaxHP || 1000
+        maxBossHP: matchSettings.bossMaxHP || 1000,
+        // Đổi trò chơi = trận mới: xoá dấu tạm dừng / mốc đoạn của trận trước.
+        questionPause: null,
+        currentTiming: null
       };
       matchStateRef.current = nextMS;
       setTimeout(() => {
@@ -944,7 +952,15 @@ export const App: React.FC = () => {
       gameType: currentMS.gameType,
       status: currentMS.status,
       serverTs: Date.now(),
-      durationSec: currentMS.settings?.questionDurationSec,
+      // Thời lượng của CHÍNH câu đang chiếu, tính theo phần của câu đó (Phần 1/2/3).
+      durationSec: questionDurationFor(currentMS.settings, rawActiveQ),
+      // Trạng thái TẠM DỪNG theo câu + số giây còn lại đã chốt: HS nào lỡ gói
+      // PAUSE_TOGGLE vẫn đông cứng đúng theo nhịp tim.
+      questionPaused: Boolean(currentMS.questionPause && currentMS.questionPause.qIndex === safeIdx),
+      remainingSec:
+        currentMS.questionPause && currentMS.questionPause.qIndex === safeIdx
+          ? currentMS.questionPause.remainingSec
+          : undefined,
       ttsStudentEnabled: currentMS.settings?.ttsStudentEnabled === true,
       currentRound: currentMS.currentRound,
       redRoundWins: currentMS.redRoundWins,
@@ -983,10 +999,10 @@ export const App: React.FC = () => {
       questionTimingRef.current = {
         qIndex: matchState.globalQIndex,
         serverStartTime: Date.now(),
-        durationSec: matchState.settings?.questionDurationSec || 30
+        durationSec: questionDurationFor(matchState.settings, quizListRef.current[matchState.globalQIndex])
       };
     }
-  }, [matchState.status, matchState.globalQIndex, matchState.currentRound, matchState.settings?.questionDurationSec, isDirectStudent]);
+  }, [matchState.status, matchState.globalQIndex, matchState.currentRound, matchState.settings?.questionDurationSec, matchState.settings?.questionDurationTfSec, matchState.settings?.questionDurationSaSec, isDirectStudent]);
 
   // Đợt 5 (4B.2): VÒNG QUÉT GIỮ CHỖ mỗi 5s — quá 15s không tín hiệu: bật cờ offline
   // (host hiển thị xám "mất kết nối") nhưng giữ nguyên chỗ/điểm/mạng; quá 90s: giải
@@ -1128,9 +1144,19 @@ export const App: React.FC = () => {
       const deck = quizListRef.current;
       const rawQ = deck[qIdx];
       const question = rawQ ? { ...rawQ, qIndex: qIdx, totalQuestions: deck.length } : undefined;
-      const timing = questionTimingRef.current.qIndex === ms.globalQIndex
-        ? questionTimingRef.current
-        : { serverStartTime: undefined, durationSec: ms.settings?.questionDurationSec || 30 };
+      // Đang TẠM DỪNG ở chính câu này: RESYNC trả trạng thái đông cứng + số giây
+      // còn lại, KHÔNG trả deadline đang chạy. Ngoài lúc dừng: ưu tiên mốc đoạn
+      // host đã công bố (currentTiming — gồm cả đoạn Tiếp tục sau tạm dừng), rồi
+      // tới mốc ghi ở effect, cuối cùng mới tính theo phần của câu.
+      const pausedForQ =
+        ms.questionPause && ms.questionPause.qIndex === ms.globalQIndex ? ms.questionPause : null;
+      const timing = pausedForQ
+        ? { serverStartTime: undefined, durationSec: undefined as number | undefined }
+        : ms.currentTiming && ms.currentTiming.qIndex === ms.globalQIndex
+          ? ms.currentTiming
+          : questionTimingRef.current.qIndex === ms.globalQIndex
+            ? questionTimingRef.current
+            : { serverStartTime: undefined, durationSec: questionDurationFor(ms.settings, rawQ) };
 
       let answer: { hasAnswered: boolean; isCorrect?: boolean | null; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string } = { hasAnswered: false };
       if (player) {
@@ -1158,7 +1184,9 @@ export const App: React.FC = () => {
         buildResyncStateMessage(ms, player, d.playerId, {
           question,
           serverStartTime: timing.serverStartTime,
-          durationSec: timing.durationSec || ms.settings?.questionDurationSec || 30,
+          durationSec: timing.durationSec || (pausedForQ ? undefined : questionDurationFor(ms.settings, rawQ)),
+          questionPaused: Boolean(pausedForQ),
+          remainingSec: pausedForQ ? pausedForQ.remainingSec : undefined,
           serverTs: resyncNow,
           answer,
           holdReleased
@@ -1207,7 +1235,12 @@ export const App: React.FC = () => {
                 buildResyncStateMessage(prev, existing, d.playerId!, {
                   question: rawQR ? { ...rawQR, qIndex: safeIdxR, totalQuestions: deckR.length } : undefined,
                   serverStartTime: questionTimingRef.current.qIndex === prev.globalQIndex ? questionTimingRef.current.serverStartTime : undefined,
-                  durationSec: prev.settings?.questionDurationSec || 30,
+                  durationSec: questionDurationFor(prev.settings, rawQR),
+                  questionPaused: Boolean(prev.questionPause && prev.questionPause.qIndex === prev.globalQIndex),
+                  remainingSec:
+                    prev.questionPause && prev.questionPause.qIndex === prev.globalQIndex
+                      ? prev.questionPause.remainingSec
+                      : undefined,
                   serverTs: nowR,
                   answer: { hasAnswered: answeredQKeysRef.current.has(`${existing.id}_q_${prev.globalQIndex}`) },
                   holdReleased: true
@@ -1338,7 +1371,12 @@ export const App: React.FC = () => {
               buildResyncStateMessage(prev, null, d.playerId!, {
                 question: rawQH ? { ...rawQH, qIndex: safeIdxH, totalQuestions: deckH.length } : undefined,
                 serverStartTime: questionTimingRef.current.qIndex === prev.globalQIndex ? questionTimingRef.current.serverStartTime : undefined,
-                durationSec: prev.settings?.questionDurationSec || 30,
+                durationSec: questionDurationFor(prev.settings, rawQH),
+                questionPaused: Boolean(prev.questionPause && prev.questionPause.qIndex === prev.globalQIndex),
+                remainingSec:
+                  prev.questionPause && prev.questionPause.qIndex === prev.globalQIndex
+                    ? prev.questionPause.remainingSec
+                    : undefined,
                 serverTs: nowH,
                 answer: { hasAnswered: false },
                 holdReleased: true
