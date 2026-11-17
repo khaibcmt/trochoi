@@ -44,6 +44,27 @@ import { CloudBackupData } from './types';
 import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
+/**
+ * Các loại tin DO HỌC SINH gửi lên — mọi tin thuộc nhóm này đều là bằng chứng HS
+ * đang sống: host phải ghi nhận lastSeen và gỡ cờ "mất kết nối" ngay khi xử lý,
+ * không phân biệt tin đó là ping hay đáp án (sửa sự cố 17/11/2026: đáp án về đều
+ * mà cờ offline vẫn chốt vì chỉ riêng đường ping mới gỡ cờ). PLAYER_OFFLINE cố ý
+ * KHÔNG có ở đây (đó là tin báo chết, xử lý riêng); các tin phía host gửi xuống
+ * (ENTER_CONFIRMED, RESYNC_STATE, PLAYER_LIVES_SYNC…) cũng không có — tránh host
+ * tự nghe tiếng vọng của chính mình rồi đánh dấu HS còn sống oan.
+ */
+const STUDENT_SIGN_OF_LIFE_TYPES: ReadonlySet<string> = new Set([
+  'PLAYER_PING',
+  'PULL_CORRECT',
+  'FREEZE_WRONG',
+  'MYSTERY_CHEST_CLAIMED',
+  'PLAYER_READY_ROPE',
+  'AUTO_ENTER_ARENA',
+  'PLAYER_FINISH_QUIZ',
+  'PLAYER_UPDATE_NAME',
+  'RESYNC_REQUEST'
+]);
+
 export const App: React.FC = () => {
   // Query & Hash parameters check (Hỗ trợ cả ?r=12345 và #r=12345 khi quét QR hoặc mở qua Zalo/iFrame)
   const [urlParams] = useState(() => {
@@ -1037,9 +1058,17 @@ export const App: React.FC = () => {
       const timing = presenceTimingForRoomSize(ms.redPlayers.length + ms.bluePlayers.length);
       const rxOutage = isHostReceptionOutage(lastHostRxAtRef.current, now, timing.outageMs);
       if (rxOutage) {
+        // Host đang ĐIẾC (không nhận được bất kỳ tin nào từ HS): ĐÔNG CỨNG vòng
+        // quét vô thời hạn — không bật cờ offline, không giải phóng ai. Mất thu là
+        // khiếm khuyết phía host/broker, KHÔNG phải bằng chứng HS đã rời phòng.
+        // BẢN CŨ CÓ LỐI THOÁT: mất thu quá 300s thì "quay lại quét bình thường" —
+        // mà lúc đó lastSeen của CẢ LỚP đều đã quá hạn 300s cùng lúc nên MỘT vòng
+        // quét giải phóng TOÀN BỘ danh sách (sự cố phòng 99197, 17/11/2026: đang
+        // câu 10, đã đếm 37 lượt trả lời, roster về 0 sạch trơn). Giữ danh sách
+        // nguyên vẹn khi điếc là vô hại: HS quay lại thì ân hạn ở nhánh hồi phục
+        // dưới đây xử lý, còn lớp tan thật thì thầy kết thúc/làm mới phòng tay.
         if (!rxOutageRef.current) { rxOutageRef.current = true; rxOutageSinceRef.current = lastHostRxAtRef.current; }
-        if (now - rxOutageSinceRef.current <= timing.holdMs) return; // host đang điếc: không giải phóng ai oan
-        rxOutageRef.current = false; // mất thu quá cả thời gian giữ chỗ → quay lại quét bình thường
+        return;
       } else if (rxOutageRef.current) {
         rxOutageRef.current = false;
         // Vừa hồi phục thu: ân hạn — làm mới lastSeen cho mọi bản ghi CHƯA bị will đánh dấu offline và chưa bị giải phóng
@@ -1089,6 +1118,38 @@ export const App: React.FC = () => {
       return;
     }
 
+    // DẤU HIỆU SỐNG DÙNG CHUNG (sửa sự cố xám oan 17/11/2026): bất kỳ tin nào do
+    // HS gửi tới (đáp án, mở rương, hồ sơ, xin resync…) đều làm mới lastSeen và
+    // gỡ cờ offline NGAY — nguyên tắc: tin về được thì tuyệt đối không mang cờ
+    // mất kết nối. Trước đây việc gỡ cờ chỉ nằm ở handler PLAYER_PING/RESYNC/
+    // enter, còn đáp án chỉ ghi lastSeen vào ref nên cờ đã bật (will oan, một
+    // vòng quét lúc ping trễ) là chốt tới hết trận dù HS trả lời đều đặn.
+    if (STUDENT_SIGN_OF_LIFE_TYPES.has(d.type) && (d.playerId || d.studentId)) {
+      const lifeTarget = findPlayerByIdentity(
+        matchStateRef.current.redPlayers,
+        matchStateRef.current.bluePlayers,
+        d.playerId,
+        d.studentId
+      );
+      if (lifeTarget) {
+        const lifeNow = Date.now();
+        lastSeenByIdRef.current.set(lifeTarget.id, lifeNow);
+        if (lifeTarget.offline && !lifeTarget.holdReleased) {
+          setMatchState(prev => {
+            const upd = (p: Player): Player =>
+              p.id === lifeTarget.id ? { ...p, offline: false, lastSeen: lifeNow } : p;
+            const nextState = {
+              ...prev,
+              redPlayers: prev.redPlayers.map(upd),
+              bluePlayers: prev.bluePlayers.map(upd)
+            };
+            matchStateRef.current = nextState;
+            return nextState;
+          });
+        }
+      }
+    }
+
     if (d.type === 'PLAYER_PING') {
       // Đợt 5 (4B.2): nhịp tim gọn mỗi 5s — CHỈ ghi lastSeen (đồng hồ host) vào ref,
       // ping không bao giờ tạo bản ghi mới và không phát ENTER_CONFIRMED. Chỉ khi HS
@@ -1120,18 +1181,22 @@ export const App: React.FC = () => {
     }
 
     if (d.type === 'PLAYER_OFFLINE') {
-      // Đợt 5 (4B.2): Last-Will của HS vừa bắn (rớt hẳn) — ĐÓNG BĂNG lastSeen tại thời
-      // điểm host nhận tin và bật cờ offline ngay, KHÔNG xoá bản ghi: vòng quét giữ
-      // chỗ sẽ đếm đủ 5 phút từ mốc đóng băng này mới giải phóng chỗ.
+      // Last-Will của HS vừa bắn — chỉ BẬT CỜ hiển thị ngay, KHÔNG xoá bản ghi và
+      // KHÔNG còn ghi đè/đóng băng lastSeen như bản cũ. Lý do (sửa sự cố
+      // 17/11/2026): will có thể OAN (client chính của HS bị đóng cưỡng bức lúc
+      // tự chuyển broker cũng làm broker bắn will — xem safeCloseClient), mà bản
+      // cũ ghi đè lastSeen = thời điểm nhận will rồi vòng quét chốt HELD theo cờ
+      // bất kể tín hiệu thật → HS vẫn trả lời đều vẫn xám tới hết trận. Nay mốc
+      // "thấy lần cuối" luôn là tín hiệu THẬT gần nhất (ping/đáp án/hồ sơ): HS
+      // còn tín hiệu thì dấu hiệu sống + vòng quét tự gỡ cờ; HS chết thật thì
+      // lastSeen đứng yên, tuổi tăng dần qua ngưỡng xám rồi tới 5 phút mới giải
+      // phóng chỗ — đúng luật giữ chỗ, chỉ chậm hơn cách cũ tối đa một nhịp ping.
       if (!d.playerId) return;
-      const offlineNow = Date.now();
       setMatchState(prev => {
         const target = findPlayerByIdentity(prev.redPlayers, prev.bluePlayers, d.playerId, d.studentId);
-        if (!target || target.holdReleased) return prev;
-        lastSeenByIdRef.current.set(target.id, offlineNow);
-        if (target.offline && target.lastSeen === offlineNow) return prev;
+        if (!target || target.holdReleased || target.offline) return prev;
         const upd = (p: Player): Player =>
-          p.id === target.id ? { ...p, offline: true, lastSeen: offlineNow } : p;
+          p.id === target.id ? { ...p, offline: true } : p;
         const nextState = {
           ...prev,
           redPlayers: prev.redPlayers.map(upd),
