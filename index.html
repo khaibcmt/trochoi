@@ -428,7 +428,9 @@
 
   <script>
     (function () {
-      const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzwdXDqUQbWShXFFYrgX17fCnhi0jc4TLFaoECm6DvTi8zcDO8i37dsxnLQfErZNRfj/exec";
+      // Đường gửi đăng ký: ghi thẳng vào kho Quản lý máy (Firebase
+      // edumaster-online, node kc3d_*) — KHÔNG qua Google Sheet nữa.
+      const FB_BASE = "https://edumaster-online-default-rtdb.asia-southeast1.firebasedatabase.app";
       const USER_STORAGE_KEY = "dautruong_current_user";
       const DEVICE_STORAGE_KEY = "dautruong_device_id";
 
@@ -559,55 +561,55 @@
           submitText.textContent = "ĐANG XÁC THỰC HỆ THỐNG...";
 
           const ipAddress = await getClientIpAddress();
-          const payload = {
-            gmail: gmail,
-            teacherName: teacherName,
-            schoolName: schoolName,
-            deviceId: deviceId,
-            ipAddress: ipAddress,
-            status: "active",
-            appName: "DauTruongOnline"
-          };
+          const at = Date.now();
 
           try {
-            const response = await fetch(GOOGLE_SCRIPT_URL, {
-              method: "POST",
-              headers: {
-                "Content-Type": "text/plain;charset=utf-8"
-              },
-              body: JSON.stringify(payload)
-            });
-
-            let resultData = null;
-            const rawText = await response.text();
+            // Xử lý trùng theo deviceId (bản ghi keyed theo mã máy nên ghi
+            // lại là idempotent): máy đã có license 'active' -> coi như đã
+            // đăng ký, không ghi đè; máy bị Admin khoá ('locked') -> tôn
+            // trọng lệnh khoá, không tự mở lại.
+            let existingLic = null;
             try {
-              resultData = JSON.parse(rawText);
-            } catch (_) {
-              resultData = { status: rawText ? rawText.trim().toLowerCase() : "ok" };
+              const licRes = await fetch(FB_BASE + "/kc3d_licenses/" + deviceId + ".json", { method: "GET" });
+              if (licRes.ok) existingLic = await licRes.json();
+            } catch (lookupErr) {
+              // Không đọc được trạng thái cũ (mạng chập) -> cứ đi tiếp đường
+              // ghi bên dưới; lỗi ghi thật sẽ được báo ở catch ngoài.
             }
 
-            const statusStr = String(
-              (resultData && (resultData.status || resultData.result || resultData.error)) || ""
-            ).toLowerCase();
-
-            if (statusStr.includes("duplicate")) {
-              showError(
-                (resultData && resultData.message) ||
-                "Tài khoản Gmail hoặc thiết bị này đã được đăng ký trên thiết bị khác (Duplicate)!"
-              );
-              submitBtn.disabled = false;
-              submitText.textContent = "VÀO ĐẤU TRƯỜNG ONLINE";
+            if (existingLic && existingLic.status === "locked") {
+              showError("Thiết bị này đã bị Admin khoá. Vui lòng liên hệ Admin để được mở lại!");
               return;
             }
 
-            if (statusStr.includes("error") || resultData?.success === false) {
-              showError(
-                (resultData && resultData.message) ||
-                "Hệ thống từ chối xác thực hoặc có lỗi dữ liệu. Vui lòng kiểm tra lại thông tin!"
-              );
-              submitBtn.disabled = false;
-              submitText.textContent = "VÀO ĐẤU TRƯỜNG ONLINE";
-              return;
+            if (!existingLic || existingLic.status !== "active") {
+              const reqRes = await fetch(FB_BASE + "/kc3d_requests/" + deviceId + ".json", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: gmail,
+                  name: teacherName,
+                  school: schoolName,
+                  at: at,
+                  ua: (navigator.userAgent || "").slice(0, 140),
+                  ip: ipAddress
+                })
+              });
+              if (!reqRes.ok) throw new Error("kc3d_requests -> " + reqRes.status);
+
+              const licPutRes = await fetch(FB_BASE + "/kc3d_licenses/" + deviceId + ".json", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  status: "active",
+                  by: "auto",
+                  email: gmail,
+                  name: teacherName,
+                  school: schoolName,
+                  at: at
+                })
+              });
+              if (!licPutRes.ok) throw new Error("kc3d_licenses -> " + licPutRes.status);
             }
 
             // Thành công -> Lưu localStorage và đóng modal
