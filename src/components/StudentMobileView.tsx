@@ -1782,6 +1782,15 @@ export const StudentMobileView: React.FC<Props> = ({
       activeStudentTimerQIndexRef.current = -1;
       // Trận mới bắt đầu: xoá mọi trạng thái đã-trả-lời đã lưu của trận trước
       clearPersistedAnsweredStates();
+      // Trận mới = sổ điểm MỚI: reset điểm & số câu đúng của trận cũ còn lưu theo
+      // tab (sessionStorage kc3d_score_/kc3d_correct_). Thiếu reset này, tổng cũ
+      // bị gửi kèm savedScore/savedCorrect/totalScore trong mọi gói vào phòng &
+      // đáp án — phía host trước đây nhận theo nên BXH phình (sự cố 17/11/2026:
+      // mới câu 15 đã có bạn "24 câu đúng"). Nhất quán với handler GAME_SWITCH.
+      setFastScore(0);
+      fastScoreRef.current = 0;
+      setMyCorrectCount(0);
+      myCorrectCountRef.current = 0;
       startMsRef.current = Date.now();
       setRemSec(questionDurationSecRef.current);
       hasAnsweredCurrentQRef.current = false;
