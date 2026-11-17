@@ -25,7 +25,7 @@ import { BUILD_TAG } from '../utils/buildTag';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
-import { levelFromXp } from '../utils/studentLevel';
+import { buildPostMatchXpByDeviceId, levelFromXp } from '../utils/studentLevel';
 
 interface Props {
   matchState: MatchState;
@@ -1249,6 +1249,16 @@ export const HostArenaView: React.FC<Props> = ({
   const allPlayers = useMemo(() => {
     return [...matchState.redPlayers, ...matchState.bluePlayers];
   }, [matchState.redPlayers, matchState.bluePlayers]);
+
+  // XP SAU TRẬN cho màn kết (Grand Finale + modal Top 10 mở từ màn kết): chỉ
+  // tính khi ENDED, từ ĐÚNG dữ kiện App dùng để ghi Firebase (đội hình + sổ
+  // điểm + hạng) qua buildPostMatchXpByDeviceId → màn kết hiện icon/tên cấp
+  // + số XP MỚI vừa ghi, không còn hiện XP cũ lúc vào phòng. Ngoài ENDED trả
+  // undefined → mọi nơi tự rơi về XP lúc vào phòng như cũ.
+  const postMatchXpByDeviceId = useMemo(() => {
+    if (matchState.status !== 'ENDED') return undefined;
+    return buildPostMatchXpByDeviceId(allPlayers, matchState.gameType, quizList.length);
+  }, [matchState.status, allPlayers, matchState.gameType, quizList.length]);
 
   // KHÔI PHỤC THIẾT KẾ GỐC (17/11/2026): tập học sinh ĐƯỢC LÊN SÂN KHẤU host —
   // số lượng lấy từ Ô CÀI ĐẶT max3DRenderCount (mặc định 10, cùng giá trị
@@ -2512,6 +2522,30 @@ export const HostArenaView: React.FC<Props> = ({
             🏷️ {BUILD_TAG}
           </span>
 
+          {/* Chỉ báo lệnh lạ: CHỈ máy thầy thấy (tầng mạng phía host đếm lệnh
+              điều khiển sai/thiếu chữ ký trên topic phòng) — nhỏ, trung tính,
+              cạnh chip bản dựng. Học sinh không thấy bất kỳ cảnh báo nào. */}
+          {netTelemetry.foreignCmdBlocked > 0 && (
+            <span
+              title="Số lệnh điều khiển giả (không đúng chữ ký phòng) đã thấy trên đường truyền trong phiên này — các lệnh này bị bỏ qua, trận đấu không bị ảnh hưởng"
+              style={{
+                flex: '0 0 auto',
+                alignSelf: 'center',
+                color: '#cbd5e1',
+                background: 'rgba(30, 41, 59, 0.85)',
+                border: '1px solid #475569',
+                borderRadius: '6px',
+                padding: '2px 6px',
+                fontSize: '10.5px',
+                fontWeight: 800,
+                letterSpacing: '0.3px',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              🛡️ Đã chặn {netTelemetry.foreignCmdBlocked} lệnh lạ
+            </span>
+          )}
+
           {/* Đợt 3 (2.3): lỗi publish chunk/state gần nhất — phát đề thất bại phải hiện rõ cho host */}
           {netTelemetry.lastPublishError && (
             <span
@@ -3445,6 +3479,7 @@ export const HostArenaView: React.FC<Props> = ({
           onReturnToSetup={onReturnToSetup}
           onNewSession={onNewSession}
           onResetClass={onResetClass}
+          postMatchXpByDeviceId={postMatchXpByDeviceId}
         />
       )}
 
@@ -4032,6 +4067,7 @@ export const HostArenaView: React.FC<Props> = ({
         totalQuestions={quizList.length}
         onDownloadCSV={handleDownloadCSV}
         onPrintPDFEvidence={onPrintPDFEvidence}
+        postMatchXpByDeviceId={postMatchXpByDeviceId}
       />
 
       {/* QR Zoom Modal */}
