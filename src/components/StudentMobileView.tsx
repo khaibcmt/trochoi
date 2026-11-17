@@ -13,6 +13,7 @@ import {
   getPresetQuizBySubject
 } from '../data/defaultSubjects';
 import { MathRenderer } from '../utils/katexHelper';
+import { BUILD_TAG } from '../utils/buildTag';
 import {
   extractRoomKeyFromUrlParts,
   isSensitiveCommand,
@@ -3548,6 +3549,25 @@ export const StudentMobileView: React.FC<Props> = ({
           50% { transform: rotate(4deg) translateY(0px); }
         }
       `}</style>
+
+      {/* Nhãn phiên bản bản dựng: góc dưới màn hình, chữ nhỏ mờ — ảnh chụp tự cho biết đang chạy bản nào */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          right: '6px',
+          bottom: '4px',
+          zIndex: 950,
+          fontSize: '9.5px',
+          fontWeight: 700,
+          letterSpacing: '0.3px',
+          color: 'rgba(226, 232, 240, 0.55)',
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        🏷️ {BUILD_TAG}
+      </div>
 
       {/* Tab switch anti-cheat warning banner */}
       {tabWarning && (
