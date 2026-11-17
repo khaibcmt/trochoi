@@ -1095,7 +1095,7 @@ body, html {
 }
 .flb-row {
   display: grid;
-  grid-template-columns: 28px 22px 1fr auto;
+  grid-template-columns: 28px 52px 1fr auto;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
@@ -1105,8 +1105,11 @@ body, html {
   font-size: 12px;
   font-weight: 800;
 }
-/* Hệ CẤP ĐỘ: cột icon cấp riêng, bề rộng cố định — không bị tên dài chèn ép */
-.flb-level { font-size: 14.5px; text-align: center; line-height: 1; }
+/* Hệ CẤP ĐỘ: cột cấp riêng bề rộng cố định — icon + TÊN CẤP CÓ MÀU theo cấp
+   (thầy chốt 17/11/2026), không bị tên học sinh dài chèn ép */
+.flb-level { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1; }
+.flb-level-icon { font-size: 15px; line-height: 1.1; }
+.flb-level-name { font-size: 8.5px; font-weight: 800; text-align: center; line-height: 1.15; white-space: nowrap; }
 .flb-row.rank-1 {
   background: linear-gradient(90deg, rgba(234, 179, 8, 0.35), rgba(30, 41, 59, 0.9));
   border-color: #fde047;
