@@ -161,10 +161,24 @@ export interface IncomingPlayerIdentity {
 }
 
 /**
+ * Khoá khử trùng đáp án phía host: MỖI BẢN GHI HS × MỖI CÂU HỎI chỉ được ghi nhận
+ * ĐÚNG MỘT LẦN trong cả trận. Mọi đường ghi điểm (PULL_CORRECT / FREEZE_WRONG /
+ * RESYNC) PHẢI dùng chung hàm này để khoá không bao giờ lệch nhau giữa các handler.
+ */
+export function answerKeyFor(playerRecordId: string, qIndex: number): string {
+  return `${playerRecordId}_q_${qIndex}`;
+}
+
+/**
  * GỘP tin vào phòng của HS quay lại vào BẢN GHI CŨ phía host:
  * - giữ nguyên id bản ghi cũ (mã canonical mà host/đáp án đã tham chiếu),
- * - giữ điểm/mạng/streak/đội/vai trò/loại của bản ghi cũ; điểm & số câu đúng chỉ lấy
- *   giá trị CAO HƠN giữa cũ và phía HS báo lên (không bao giờ tụt điểm khi vào lại),
+ * - giữ điểm/mạng/streak/đội/vai trò/loại của bản ghi cũ. Điểm & số câu đúng là số
+ *   liệu DO HOST ghi sổ (mỗi HS × mỗi câu tính đúng 1 lần qua answerKeyFor) nên
+ *   TUYỆT ĐỐI không nhận giá trị phía HS báo lên (savedScore/savedCorrect): máy HS
+ *   có thể mang tổng cũ của trận/phòng trước (sessionStorage theo tab) — nhận vào
+ *   là BXH phình ngay (sự cố 17/11/2026: mới câu 15 đã có HS "24 câu đúng").
+ *   HS vào lại vẫn không tụt điểm vì bản ghi host còn nguyên; phía HS cũng tự đồng
+ *   bộ lại theo savedCorrect/savedScore mà ENTER_CONFIRMED của host trả về.
  * - tên: ưu tiên tên thật phía HS vừa gửi (nếu không phải tên placeholder),
  * - lastSeen = now, offline/holdReleased được xoá (HS đã quay lại thật).
  */
@@ -178,14 +192,8 @@ export function mergePlayerRecord(existing: Player, incoming: IncomingPlayerIden
     label: hasRealIncomingName ? incomingName : hasRealExistingName ? existing.label : incomingName || existing.label,
     avatar: incoming.avatar || existing.avatar,
     ready: existing.ready || incoming.ready === true,
-    fastScore: Math.max(
-      existing.fastScore || 0,
-      typeof incoming.savedScore === 'number' ? incoming.savedScore : 0
-    ),
-    correct: Math.max(
-      existing.correct || 0,
-      typeof incoming.savedCorrect === 'number' ? incoming.savedCorrect : 0
-    ),
+    fastScore: existing.fastScore || 0,
+    correct: existing.correct || 0,
     lastSeen: now,
     offline: false,
     holdReleased: false
