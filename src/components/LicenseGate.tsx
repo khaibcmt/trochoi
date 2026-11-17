@@ -5,9 +5,11 @@ import {
   MachineRow,
   applyRemoteStatus,
   beginAdminSession,
+  buildMachinesCsv,
   decidePw2Step,
   defaultFetch,
   endAdminSession,
+  evidenceCsvFilename,
   fbGet,
   fetchMachines,
   fetchRemotePwHash,
@@ -33,8 +35,9 @@ import {
  * Cửa bản quyền Đấu Trường 3D — hook dùng trong TeacherSetupView:
  *  - Cổng điểm-vào (Chuyện 1): hook mount cùng TeacherSetupView = mỗi lần
  *    vào khu giáo viên; máy chưa kích hoạt + không phải Admin → tự hiện
- *    modal mời đăng ký sau khi đối chiếu xong trạng thái với Firebase.
- *    Đóng modal thì dùng tiếp đề có sẵn bình thường; lần vào sau mời lại.
+ *    KHUNG A sau khi đối chiếu xong trạng thái với Firebase. Khung A
+ *    BẮT BUỘC ĐIỀN (thầy chốt tối 17/11): không đường bỏ qua, không bấm
+ *    ra ngoài để tắt — gửi form thành công (auto-duyệt) mới vào được.
  *  - guardAction(fn) (Chuyện 2): máy chưa kích hoạt (và không phải Admin)
  *    bấm 2 nút Thêm Đề Mới / Lưu Đề Này → mở modal đăng ký thay vì chạy fn;
  *    kích hoạt xong thì chạy fn đang chờ.
@@ -143,7 +146,9 @@ export function useLicenseGate(): LicenseGateApi {
 
   /* ----- Cửa đăng ký — HAI KHUNG TÁCH BẠCH (thầy chốt 17/11) -----
    * 'entry' = KHUNG A điểm-vào khu giáo viên: màn hình xác thực lớn
-   *   "ĐẤU TRƯỜNG ONLINE PRO" (đăng nhập lần đầu, điền 1 lần nhớ vĩnh viễn).
+   *   "ĐẤU TRƯỜNG ONLINE PRO" (đăng nhập lần đầu, điền 1 lần nhớ vĩnh viễn)
+   *   — BẮT BUỘC ĐIỀN: chế độ entry không có bất kỳ đường đóng nào khi
+   *   chưa gửi form thành công (không nút bỏ qua/X, backdrop không tắt).
    * 'guard' = KHUNG B ở 2 nút Thêm Đề Mới / Lưu Đề Này: modal gốc
    *   "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" — giữ nguyên 100%, không restyle.
    * Cả hai cùng ghi về một luồng auto-duyệt kc3d duy nhất (submitRegistration). */
@@ -298,6 +303,26 @@ export function useLicenseGate(): LicenseGateApi {
     loadMachines();
   }, [loadMachines]);
 
+  /* Xuất danh sách minh chứng: tải CSV toàn bộ máy đang hiển thị trong
+   * panel (cùng nguồn fetchMachines) — minh chứng sử dụng sản phẩm để
+   * báo cáo / đi thi. Nội dung do hàm thuần buildMachinesCsv dựng. */
+  const exportEvidence = () => {
+    try {
+      const blob = new Blob([buildMachinesCsv(machines)], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = evidenceCsvFilename(new Date());
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      showToast('📥 Đã xuất danh sách minh chứng (' + machines.length + ' máy).');
+    } catch {
+      setMachinesError('❌ Xuất danh sách chưa được — thử lại nhé.');
+    }
+  };
+
   const toggleMachine = async (row: MachineRow) => {
     const next = row.status === 'active' ? 'locked' : 'active';
     if (next === 'locked' && !window.confirm('Khoá lại máy ' + row.mid + '? Máy đó sẽ mất quyền dùng 2 nút Thêm Đề Mới / Lưu Đề Này ở lần mở trang kế tiếp.')) return;
@@ -315,10 +340,10 @@ export function useLicenseGate(): LicenseGateApi {
   /* ----- Cổng điểm-vào khu giáo viên (Chuyện 1) -----
    * Hook mount cùng TeacherSetupView nên effect này chạy đúng MỘT lần mỗi
    * lần vào khu giáo viên (đã đối chiếu Firebase xong): chưa kích hoạt +
-   * không phải Admin → mở modal mời đăng ký ở chế độ KHÔNG có hành động chờ
-   * (đóng modal là dùng tiếp đề có sẵn; 2 nút vẫn bị guardAction chặn riêng
-   * như cũ). Dùng chung state showReg với cửa ở 2 nút nên không bao giờ có
-   * 2 modal chồng nhau. */
+   * không phải Admin → mở KHUNG A ở chế độ KHÔNG có hành động chờ và
+   * KHÔNG có đường đóng (bắt buộc điền — gửi form thành công mới qua cổng;
+   * 2 nút vẫn bị guardAction chặn riêng như cũ bằng KHUNG B). Dùng chung
+   * state showReg với cửa ở 2 nút nên không bao giờ có 2 modal chồng nhau. */
   const entryPromptedRef = useRef(false);
   useEffect(() => {
     if (!statusSynced || entryPromptedRef.current) return;
@@ -342,8 +367,10 @@ export function useLicenseGate(): LicenseGateApi {
 
   const modals = (
     <>
+      {/* Backdrop modal đăng ký: KHUNG A (entry, chưa gửi form xong) bấm ra ngoài KHÔNG tắt — bắt buộc điền;
+          KHUNG B (guard) và màn hình thành công giữ nguyên hành vi đóng như cũ. */}
       {showReg && (
-        <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) setShowReg(false); }}>
+        <div style={overlayStyle} onClick={e => { if ((regSource === 'guard' || regDone) && e.target === e.currentTarget) setShowReg(false); }}>
           <div style={regSource === 'entry' ? { ...cardStyle, maxWidth: '560px', padding: '28px 30px' } : cardStyle}>
             {!regDone ? (regSource === 'entry' ? (
               <>
@@ -359,7 +386,7 @@ export function useLicenseGate(): LicenseGateApi {
                   khoá 2 nút <b>➕ Thêm Đề Mới</b> và <b>💾 Lưu Đề Này</b>.
                 </p>
                 <p style={{ fontSize: '13.5px', lineHeight: 1.55, margin: '8px 0 0', color: '#94a3b8' }}>
-                  Chưa kích hoạt vẫn <b>chơi / tổ chức thi bằng các bộ đề có sẵn như bình thường</b>.
+                  Đây là <b>cổng bắt buộc ở lần đầu vào khu giáo viên</b> — điền xong mới vào được, và chỉ điền đúng một lần này.
                 </p>
                 <label style={labelStyle}>ĐỊA CHỈ GMAIL *</label>
                 <input style={inputStyle} type="email" placeholder="vd: nguyenvana@gmail.com" value={regForm.email}
@@ -378,12 +405,6 @@ export function useLicenseGate(): LicenseGateApi {
                   style={{ ...primaryBtn, width: '100%', marginTop: '18px', padding: '14px 18px', fontSize: '16.5px' }}>
                   {regBusy ? '⏳ Đang gửi...' : '🚀 VÀO ĐẤU TRƯỜNG ONLINE'}
                 </button>
-                <div style={{ textAlign: 'center', marginTop: '8px' }}>
-                  <button type="button" onClick={() => setShowReg(false)}
-                    style={{ background: 'transparent', border: 0, color: '#94a3b8', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: '6px 10px' }}>
-                    Bỏ qua, dùng đề có sẵn →
-                  </button>
-                </div>
               </>
             ) : (
               <>
@@ -527,7 +548,8 @@ export function useLicenseGate(): LicenseGateApi {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '14px', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '14px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button type="button" style={{ ...primaryBtn, marginRight: 'auto' }} disabled={machinesBusy || machines.length === 0} onClick={exportEvidence}>📥 Xuất danh sách minh chứng</button>
               <button type="button" style={ghostBtn} onClick={loadMachines}>↻ Tải lại</button>
               <button type="button" style={ghostBtn} onClick={() => setShowMachines(false)}>Đóng</button>
             </div>
