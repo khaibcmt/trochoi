@@ -38,20 +38,24 @@ export interface StudentLevel {
   icon: string;
   name: string;
   minXp: number;
+  /** Màu riêng của TÊN cấp (thầy duyệt 17/11) — đọc rõ trên nền tối. */
+  color: string;
+  /** Cấp cao nhất (👑 Huyền Thoại) phát sáng nhẹ. */
+  glow?: boolean;
 }
 
-/** Thang cấp do thầy duyệt: mốc xp tối thiểu → icon + tên cấp. */
-export const STUDENT_LEVELS: ReadonlyArray<{ icon: string; name: string; minXp: number }> = [
-  { icon: '🌱', name: 'Tân Binh', minXp: 0 },
-  { icon: '🐣', name: 'Tập Sự', minXp: 100 },
-  { icon: '🐥', name: 'Chiến Binh', minXp: 250 },
-  { icon: '🦊', name: 'Lão Luyện', minXp: 450 },
-  { icon: '🐺', name: 'Thợ Săn', minXp: 700 },
-  { icon: '🦅', name: 'Đại Bàng', minXp: 1000 },
-  { icon: '🐉', name: 'Rồng Con', minXp: 1400 },
-  { icon: '🔥', name: 'Hỏa Long', minXp: 1900 },
-  { icon: '⚡', name: 'Thần Tốc', minXp: 2500 },
-  { icon: '👑', name: 'Huyền Thoại', minXp: 3200 }
+/** Thang cấp do thầy duyệt: mốc xp tối thiểu → icon + tên cấp + màu tên cấp. */
+export const STUDENT_LEVELS: ReadonlyArray<{ icon: string; name: string; minXp: number; color: string; glow?: boolean }> = [
+  { icon: '🌱', name: 'Tân Binh', minXp: 0, color: '#cbd5e1' },
+  { icon: '🐣', name: 'Tập Sự', minXp: 100, color: '#fde047' },
+  { icon: '🐥', name: 'Chiến Binh', minXp: 250, color: '#facc15' },
+  { icon: '🦊', name: 'Lão Luyện', minXp: 450, color: '#fb923c' },
+  { icon: '🐺', name: 'Thợ Săn', minXp: 700, color: '#38bdf8' },
+  { icon: '🦅', name: 'Đại Bàng', minXp: 1000, color: '#818cf8' },
+  { icon: '🐉', name: 'Rồng Con', minXp: 1400, color: '#4ade80' },
+  { icon: '🔥', name: 'Hỏa Long', minXp: 1900, color: '#f87171' },
+  { icon: '⚡', name: 'Thần Tốc', minXp: 2500, color: '#e879f9' },
+  { icon: '👑', name: 'Huyền Thoại', minXp: 3200, color: '#fbbf24', glow: true }
 ];
 
 /** Suy cấp từ xp (thuần): xp âm coi như 0. */
@@ -63,7 +67,12 @@ export function levelFromXp(xp: number): StudentLevel {
     else break;
   }
   const lv = STUDENT_LEVELS[idx];
-  return { index: idx, icon: lv.icon, name: lv.name, minXp: lv.minXp };
+  return { index: idx, icon: lv.icon, name: lv.name, minXp: lv.minXp, color: lv.color, glow: lv.glow === true };
+}
+
+/** Màu tên cấp từ xp — mọi nơi tô màu tên cấp dùng chung hàm này. */
+export function levelColor(xp: number | undefined | null): string {
+  return levelFromXp(typeof xp === 'number' ? xp : 0).color;
 }
 
 /** Icon cấp để gắn trước tên (mọi nơi render tên dùng chung hàm này). */
