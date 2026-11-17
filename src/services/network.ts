@@ -404,7 +404,6 @@ class NetworkService {
   // Bộ lọc khử trùng lặp gói tin (Deduplication Guard)
   private seenMsgIds = new Set<string>();
   private seenMsgQueue: string[] = [];
-  private deliveredCount = 0;
 
   private localBus: BroadcastChannel | null = null;
   private worker: Worker | null = null;
@@ -765,8 +764,6 @@ class NetworkService {
     };
   }
 
-  public getDeliveredCount(): number { return this.deliveredCount; }
-
   /** Đợt 3 (2.3): đăng ký nhận thông báo mỗi khi publish chunk/state thất bại. */
   public onPublishError(cb: (info: PublishErrorInfo) => void): () => void {
     this.publishErrorListeners.add(cb);
@@ -1098,7 +1095,6 @@ class NetworkService {
       }
       this.recordMsgId(data._mid);
     }
-    this.deliveredCount++;
 
     // Đợt 8 (4C.1): phía HS đi theo broker epoch do host công bố trong state/heartbeat —
     // xử lý ở tầng mạng TRƯỚC khi chuyển tin lên trên để lần chuyển broker diễn ra ngay.
