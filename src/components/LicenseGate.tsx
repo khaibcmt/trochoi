@@ -22,7 +22,6 @@ import {
   setLocalPwHash,
   setMachineStatus,
   sha256Hex,
-  shouldPromptEntryGate,
   submitRegistration,
   validateRegistration,
   verifyMasterCode,
@@ -33,21 +32,18 @@ import {
 
 /**
  * Cửa bản quyền Đấu Trường 3D — hook dùng trong TeacherSetupView:
- *  - Cổng điểm-vào (Chuyện 1): hook mount cùng TeacherSetupView = mỗi lần
- *    vào khu giáo viên; máy chưa kích hoạt + không phải Admin → tự hiện
- *    KHUNG A sau khi đối chiếu xong trạng thái với Firebase. Khung A
- *    BẮT BUỘC ĐIỀN (thầy chốt tối 17/11): không đường bỏ qua, không bấm
- *    ra ngoài để tắt — gửi form thành công (auto-duyệt) mới vào được.
- *  - guardAction(fn) (Chuyện 2): máy chưa kích hoạt (và không phải Admin)
- *    bấm 2 nút Thêm Đề Mới / Lưu Đề Này → mở modal đăng ký thay vì chạy fn;
- *    kích hoạt xong thì chạy fn đang chờ.
- *  - HAI KHUNG TÁCH BẠCH (thầy chốt 17/11): điểm-vào dùng KHUNG A — màn
- *    hình xác thực lớn "ĐẤU TRƯỜNG ONLINE PRO"; 2 nút dùng KHUNG B —
- *    modal gốc "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" giữ nguyên 100%.
- *    Chỉ khác hình thức; cả hai cùng một luồng auto-duyệt kc3d.
+ *  - KHUNG 1 (đăng nhập lần đầu) DUY NHẤT là cổng tĩnh gốc trong
+ *    index.html (overlay #dautruong-auth-overlay, mã ARENA-…) — cổng đó
+ *    ghi thẳng vào kc3d nên máy của nó cũng hiện ở panel Quản lý máy.
+ *    React KHÔNG có cổng điểm-vào riêng (bản trùng thêm ở đợt 17:55 đã
+ *    gỡ tối 17/11 theo lệnh thầy: "chỉ 1 cái thôi").
+ *  - guardAction(fn) (KHUNG B): máy chưa kích hoạt (và không phải Admin)
+ *    bấm 2 nút Thêm Đề Mới / Lưu Đề Này → mở modal đăng ký gốc
+ *    "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" thay vì chạy fn; kích hoạt
+ *    xong (auto-duyệt kc3d) thì chạy fn đang chờ.
  *  - openAdmin(): đăng nhập Admin 2 khoá (mã chủ + mã cá nhân của thầy).
- *  - openMachines(): panel 🔐 Quản lý máy (chỉ Admin).
- *  - modals: JSX của cả 3 modal + toast — render một lần ở cuối màn hình.
+ *  - openMachines(): panel 🔐 Quản lý máy (chỉ Admin) + nút xuất minh chứng.
+ *  - modals: JSX của các modal + toast — render một lần ở cuối màn hình.
  * Toàn bộ logic thuần nằm ở utils/license.ts (đã có test riêng).
  */
 
@@ -117,10 +113,9 @@ export function useLicenseGate(): LicenseGateApi {
   }, []);
 
   /* ----- Kiểm trạng thái kích hoạt với Firebase khi tải trang -----
-   * statusSynced = đã đối chiếu xong (mọi kết cục, kể cả mất mạng) — cổng
-   * điểm-vào chỉ quyết định sau mốc này để không mời nhầm máy đã kích hoạt
-   * ở Firebase mà bộ nhớ máy vừa bị xoá, và để bắt cả ca bị khoá từ xa. */
-  const [statusSynced, setStatusSynced] = useState(false);
+   * Đối chiếu license của máy với Firebase: bị khoá từ xa → mất quyền;
+   * Firebase đã có license active mà máy chưa lưu → cấp lại quyền; mất
+   * mạng → giữ nguyên trạng thái đã lưu (không khoá oan). */
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -139,21 +134,16 @@ export function useLicenseGate(): LicenseGateApi {
         if (!next && local.activated) clearLocalActivation(safeStore);
         setActivated(next);
       }
-      setStatusSynced(true);
     })();
     return () => { cancelled = true; };
   }, [machineId]);
 
-  /* ----- Cửa đăng ký — HAI KHUNG TÁCH BẠCH (thầy chốt 17/11) -----
-   * 'entry' = KHUNG A điểm-vào khu giáo viên: màn hình xác thực lớn
-   *   "ĐẤU TRƯỜNG ONLINE PRO" (đăng nhập lần đầu, điền 1 lần nhớ vĩnh viễn)
-   *   — BẮT BUỘC ĐIỀN: chế độ entry không có bất kỳ đường đóng nào khi
-   *   chưa gửi form thành công (không nút bỏ qua/X, backdrop không tắt).
-   * 'guard' = KHUNG B ở 2 nút Thêm Đề Mới / Lưu Đề Này: modal gốc
-   *   "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" — giữ nguyên 100%, không restyle.
-   * Cả hai cùng ghi về một luồng auto-duyệt kc3d duy nhất (submitRegistration). */
+  /* ----- Cửa đăng ký KHUNG B — ở 2 nút Thêm Đề Mới / Lưu Đề Này -----
+   * Modal gốc "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" — giữ nguyên 100%,
+   * không restyle. Ghi về luồng auto-duyệt kc3d duy nhất
+   * (submitRegistration). (Cổng điểm-vào trong React đã gỡ — khung 1
+   * duy nhất là cổng tĩnh gốc ở index.html.) */
   const [showReg, setShowReg] = useState(false);
-  const [regSource, setRegSource] = useState<'entry' | 'guard'>('guard');
   const [regDone, setRegDone] = useState(false);
   const [regBusy, setRegBusy] = useState(false);
   const [regError, setRegError] = useState('');
@@ -163,7 +153,6 @@ export function useLicenseGate(): LicenseGateApi {
   const guardAction = useCallback(
     (fn: () => void) => {
       if (gateAllows({ isAdmin, activated })) { fn(); return; }
-      setRegSource('guard'); // bấm 2 nút → KHUNG B (modal gốc)
       pendingAction.current = fn;
       const info = readLocalActivation(safeStore).info;
       if (info) setRegForm({ email: info.email || '', name: info.name || '', school: info.school || '' });
@@ -337,28 +326,6 @@ export function useLicenseGate(): LicenseGateApi {
     setMachinesBusy(false);
   };
 
-  /* ----- Cổng điểm-vào khu giáo viên (Chuyện 1) -----
-   * Hook mount cùng TeacherSetupView nên effect này chạy đúng MỘT lần mỗi
-   * lần vào khu giáo viên (đã đối chiếu Firebase xong): chưa kích hoạt +
-   * không phải Admin → mở KHUNG A ở chế độ KHÔNG có hành động chờ và
-   * KHÔNG có đường đóng (bắt buộc điền — gửi form thành công mới qua cổng;
-   * 2 nút vẫn bị guardAction chặn riêng như cũ bằng KHUNG B). Dùng chung
-   * state showReg với cửa ở 2 nút nên không bao giờ có 2 modal chồng nhau. */
-  const entryPromptedRef = useRef(false);
-  useEffect(() => {
-    if (!statusSynced || entryPromptedRef.current) return;
-    if (showReg || adminStep || showMachines) return;
-    if (!shouldPromptEntryGate({ isAdmin, activated })) return;
-    entryPromptedRef.current = true;
-    setRegSource('entry'); // vào khu giáo viên → KHUNG A (màn hình xác thực lớn)
-    pendingAction.current = null;
-    const info = readLocalActivation(safeStore).info;
-    if (info) setRegForm({ email: info.email || '', name: info.name || '', school: info.school || '' });
-    setRegDone(false);
-    setRegError('');
-    setShowReg(true);
-  }, [statusSynced, isAdmin, activated, showReg, adminStep, showMachines]);
-
   /* ----- JSX các modal ----- */
   const fmtTime = (ts: number) => {
     if (!ts) return '';
@@ -367,46 +334,11 @@ export function useLicenseGate(): LicenseGateApi {
 
   const modals = (
     <>
-      {/* Backdrop modal đăng ký: KHUNG A (entry, chưa gửi form xong) bấm ra ngoài KHÔNG tắt — bắt buộc điền;
-          KHUNG B (guard) và màn hình thành công giữ nguyên hành vi đóng như cũ. */}
+      {/* Modal đăng ký KHUNG B (ở 2 nút Thêm Đề Mới / Lưu Đề Này) — modal gốc, bấm ra ngoài tắt được như cũ. */}
       {showReg && (
-        <div style={overlayStyle} onClick={e => { if ((regSource === 'guard' || regDone) && e.target === e.currentTarget) setShowReg(false); }}>
-          <div style={regSource === 'entry' ? { ...cardStyle, maxWidth: '560px', padding: '28px 30px' } : cardStyle}>
-            {!regDone ? (regSource === 'entry' ? (
-              <>
-                <div style={{ textAlign: 'center', fontSize: '27px', fontWeight: 900, letterSpacing: '0.5px', color: '#facc15', lineHeight: 1.2 }}>
-                  ĐẤU TRƯỜNG ONLINE PRO
-                </div>
-                <p style={{ textAlign: 'center', fontSize: '14.5px', color: '#c7d2fe', margin: '8px 0 0', lineHeight: 1.55 }}>
-                  Xác thực thông tin Giáo viên để kích hoạt hệ thống điều khiển phòng thi 3D
-                </p>
-                <p style={{ fontSize: '14px', lineHeight: 1.6, margin: '14px 0 0' }}>
-                  Đây là <b>lần điền đầu tiên và duy nhất</b> — hệ thống <b>tự động kích hoạt ngay</b> và
-                  <b> ghi nhớ máy này vĩnh viễn</b>, lần sau vào thẳng, không hỏi lại. Kích hoạt xong sẽ mở
-                  khoá 2 nút <b>➕ Thêm Đề Mới</b> và <b>💾 Lưu Đề Này</b>.
-                </p>
-                <p style={{ fontSize: '13.5px', lineHeight: 1.55, margin: '8px 0 0', color: '#94a3b8' }}>
-                  Đây là <b>cổng bắt buộc ở lần đầu vào khu giáo viên</b> — điền xong mới vào được, và chỉ điền đúng một lần này.
-                </p>
-                <label style={labelStyle}>ĐỊA CHỈ GMAIL *</label>
-                <input style={inputStyle} type="email" placeholder="vd: nguyenvana@gmail.com" value={regForm.email}
-                  onChange={e => setRegForm({ ...regForm, email: e.target.value })} />
-                <label style={labelStyle}>HỌ VÀ TÊN THẦY / CÔ *</label>
-                <input style={inputStyle} type="text" placeholder="vd: Nguyễn Văn A" value={regForm.name}
-                  onChange={e => setRegForm({ ...regForm, name: e.target.value })} />
-                <label style={labelStyle}>TRƯỜNG CÔNG TÁC *</label>
-                <input style={inputStyle} type="text" placeholder="vd: THPT Mang Thít" value={regForm.school}
-                  onChange={e => setRegForm({ ...regForm, school: e.target.value })} />
-                <p style={{ fontSize: '13px', margin: '12px 0 0', color: '#94a3b8' }}>
-                  Mã máy của máy này (cố định): <b style={{ color: '#facc15', letterSpacing: '0.5px' }}>{machineId}</b>
-                </p>
-                {regError && <p style={{ color: '#fca5a5', fontWeight: 700, fontSize: '14px', margin: '10px 0 0' }}>{regError}</p>}
-                <button type="button" disabled={regBusy} onClick={handleRegSubmit}
-                  style={{ ...primaryBtn, width: '100%', marginTop: '18px', padding: '14px 18px', fontSize: '16.5px' }}>
-                  {regBusy ? '⏳ Đang gửi...' : '🚀 VÀO ĐẤU TRƯỜNG ONLINE'}
-                </button>
-              </>
-            ) : (
+        <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) setShowReg(false); }}>
+          <div style={cardStyle}>
+            {!regDone ? (
               <>
                 <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: 900, color: '#facc15' }}>
                   🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D
@@ -435,7 +367,7 @@ export function useLicenseGate(): LicenseGateApi {
                   </button>
                 </div>
               </>
-            )) : (
+            ) : (
               <>
                 <div style={{ textAlign: 'center', fontSize: '21px', fontWeight: 900, color: '#4ade80' }}>🎉 KÍCH HOẠT THÀNH CÔNG!</div>
                 <p style={{ fontSize: '15px', lineHeight: 1.65, margin: '12px 0 0', textAlign: 'center' }}>
