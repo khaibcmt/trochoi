@@ -108,7 +108,13 @@ export interface Player {
 export interface MatchSettings {
   roomCapacity: number; // e.g. 50
   max3DRenderCount: number; // default 20
-  questionDurationSec: number; // default 30s
+  // Thời gian trả lời theo TỪNG PHẦN câu hỏi (giây/câu) — giáo viên chỉnh trong
+  // màn hình cài đặt: Phần 1 trắc nghiệm nhiều lựa chọn (MULTIPLE_CHOICE) mặc định
+  // 30s, Phần 2 Đúng/Sai (TRUE_FALSE) mặc định 60s, Phần 3 trả lời ngắn
+  // (SHORT_ANSWER) mặc định 60s. Xem utils/questionTiming.ts.
+  questionDurationSec: number; // Phần 1 — MULTIPLE_CHOICE, default 30s
+  questionDurationTfSec?: number; // Phần 2 — TRUE_FALSE, default 60s
+  questionDurationSaSec?: number; // Phần 3 — SHORT_ANSWER, default 60s
   bossMaxHP: number; // default 1000
   // Đợt 4 (GĐ3): công tắc chung của host — bật thì máy học sinh mới hiện nút 🔊
   // và mới đáp ứng lệnh đọc đồng bộ TTS_READ. Mặc định TẮT (undefined = tắt).
@@ -135,6 +141,14 @@ export interface MatchState {
   maxBossHP?: number;
   bossRage?: boolean;
   bossLastAttack?: string;
+  // TẠM DỪNG theo câu (host bấm ⏸ Tạm dừng): số giây CÒN LẠI của câu hiện tại đã
+  // được chốt tại thời điểm dừng; null/undefined = không đang dừng. Phía HS đông
+  // cứng đồng hồ đúng số giây này và khoá gửi đáp án cho tới khi host Tiếp tục.
+  questionPause?: { qIndex: number; remainingSec: number } | null;
+  // Mốc thời gian của ĐOẠN câu hiện tại do host đã công bố cho HS (khi bắt đầu câu
+  // và khi Tiếp tục sau tạm dừng: serverStartTime mới + durationSec = số giây còn
+  // lại). RESYNC_STATE ưu tiên lấy từ đây để trả đúng deadline cho HS vào lại.
+  currentTiming?: { qIndex: number; serverStartTime: number; durationSec: number } | null;
   // World-class Drama & Surprise Mechanics
   activeWorldEvent?: WorldEventType;
   worldEventTitle?: string;
@@ -240,6 +254,10 @@ export interface CloudMessage {
   rank?: number;
   grade?: number;
   remainingSec?: number;
+  // TẠM DỪNG theo câu: host công bố kèm HOST_HEARTBEAT / RESYNC_STATE — đang dừng
+  // thì HS đông cứng đồng hồ ở remainingSec và khoá đáp án. Lệnh dừng/tiếp tục
+  // chính thức đi qua PAUSE_TOGGLE (lệnh nhạy cảm, đã ký bằng khoá phòng — Đợt 8).
+  questionPaused?: boolean;
   top10?: any[];
   playerIds?: string[];
   chunkIndex?: number;
