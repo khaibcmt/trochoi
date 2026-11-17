@@ -28,7 +28,7 @@ import {
   findPlayerByIdentity,
   isHostReceptionOutage,
   mergePlayerRecord,
-  PLAYER_HOLD_MS,
+  presenceTimingForRoomSize,
   sweepPlayerPresence
 } from './utils/presence';
 import { questionDurationFor } from './utils/questionTiming';
@@ -263,6 +263,12 @@ export const App: React.FC = () => {
   // tại (chế độ không phải BELL — bản ghi đã bị dọn): còn đang PLAYING thì chưa cho
   // vào lại, trận về LOBBY (ván sau) mới vào lại bình thường.
   const releasedHoldKeysRef = useRef<Set<string>>(new Set());
+  // Đợt GIA CỐ TẢI: định danh KHÁN GIẢ (vai SPECTATOR — giáo viên dự giờ / HS vào
+  // khi 2 đội đã đầy ở chế độ LIMITED_VS) đã được ĐẾM vào matchState.spectators.
+  // Khán giả KHÔNG có bản ghi người chơi (không chiếm chỗ, không bị quét giữ chỗ);
+  // client khán giả vẫn gửi lại tin vào phòng theo vòng đồng bộ nên host phải đếm
+  // MỘT LẦN cho mỗi định danh, tránh số khán giả phình vô hạn sau mỗi ~20s.
+  const spectatorKeysRef = useRef<Set<string>>(new Set());
 
   const [matchState, setMatchState] = useState<MatchState>(() => {
     const defaultState: MatchState = {
@@ -402,6 +408,7 @@ export const App: React.FC = () => {
     answeredQKeysRef.current.clear();
     answeredDetailsRef.current.clear();
     releasedHoldKeysRef.current.clear();
+    spectatorKeysRef.current.clear();
     firstBloodByQRef.current.clear();
     setGameType(newGameType);
     setMatchState(prev => {
@@ -1024,17 +1031,22 @@ export const App: React.FC = () => {
       if (!ms || ms.status === 'ENDED') return;
       if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
       const now = Date.now();
-      const rxOutage = isHostReceptionOutage(lastHostRxAtRef.current, now);
+      // Đợt GIA CỐ TẢI: ngưỡng quét co giãn theo quy mô phòng hiện tại — phòng
+      // càng đông, HS ping càng thưa (8–15s) nên mốc "mất kết nối" và van mất-thu
+      // phải nới tương ứng, nếu không cả lớp bị xám/giải phóng oan dù vẫn đang
+      // ping đúng nhịp mới. Giữ chỗ vẫn 5 phút ở mọi nấc (timing.holdMs).
+      const timing = presenceTimingForRoomSize(ms.redPlayers.length + ms.bluePlayers.length);
+      const rxOutage = isHostReceptionOutage(lastHostRxAtRef.current, now, timing.outageMs);
       if (rxOutage) {
         if (!rxOutageRef.current) { rxOutageRef.current = true; rxOutageSinceRef.current = lastHostRxAtRef.current; }
-        if (now - rxOutageSinceRef.current <= PLAYER_HOLD_MS) return; // host đang điếc: không giải phóng ai oan
+        if (now - rxOutageSinceRef.current <= timing.holdMs) return; // host đang điếc: không giải phóng ai oan
         rxOutageRef.current = false; // mất thu quá cả thời gian giữ chỗ → quay lại quét bình thường
       } else if (rxOutageRef.current) {
         rxOutageRef.current = false;
         // Vừa hồi phục thu: ân hạn — làm mới lastSeen cho mọi bản ghi CHƯA bị will đánh dấu offline và chưa bị giải phóng
         [...ms.redPlayers, ...ms.bluePlayers].forEach(p => { if (p.offline !== true && !p.holdReleased) lastSeenByIdRef.current.set(p.id, now); });
       }
-      const result = sweepPlayerPresence(ms.redPlayers, ms.bluePlayers, ms.gameType, now, lastSeenByIdRef.current);
+      const result = sweepPlayerPresence(ms.redPlayers, ms.bluePlayers, ms.gameType, now, lastSeenByIdRef.current, timing);
       if (result.releasedIds.length > 0) {
         const allBefore = [...ms.redPlayers, ...ms.bluePlayers];
         result.releasedIds.forEach(id => {
@@ -1500,6 +1512,14 @@ export const App: React.FC = () => {
           }, 15);
           return nextState;
         } else {
+          // KHÁN GIẢ (dự giờ / vào khi 2 đội đã đầy): KHÔNG tạo bản ghi người
+          // chơi → không chiếm chỗ, không bị tính vào các ngưỡng người chơi,
+          // không bị vòng quét giữ chỗ đụng tới. ENTER_CONFIRMED vẫn trả mỗi
+          // lần khán giả gửi lại tin vào phòng (đề phòng gói xác nhận đầu bị
+          // rớt) nhưng số khán giả chỉ ĐẾM MỘT LẦN cho mỗi định danh.
+          const specKey = d.studentId || d.playerId || '';
+          const alreadyCountedSpectator = specKey ? spectatorKeysRef.current.has(specKey) : false;
+          if (specKey) spectatorKeysRef.current.add(specKey);
           CloudNetwork.sendMessage({
             type: 'ENTER_CONFIRMED',
             playerId: d.playerId,
@@ -1514,6 +1534,9 @@ export const App: React.FC = () => {
             eliminated: true,
             question: activeQWithMeta || undefined
           });
+          if (alreadyCountedSpectator) {
+            return prev;
+          }
           const nextState = { ...prev, spectators: prev.spectators + 1 };
           matchStateRef.current = nextState;
           return nextState;
