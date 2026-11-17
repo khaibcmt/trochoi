@@ -248,6 +248,115 @@ export function buildPostMatchXpByDeviceId(
   return out;
 }
 
+/* ============ LẬP KẾ HOẠCH GHI XP TỪ SỔ ĐÁP ÁN (sửa sự cố "trận ma" 17/11/2026) ============
+ *
+ * SỰ CỐ: trận 84639 ghi ĐÚNG lúc 20:23. Ngay sau đó thầy bấm "THI ĐẤU TRẬN
+ * MỚI" ở màn kết (handleRestartMatch) → bản ghi người chơi bị reset
+ * (correct = 0, fastScore = 0) + MATCH_START loopback xoá sổ đáp án; thầy bấm
+ * "Kết Thúc" → status ENDED lần hai → effect ghi XP cũ tính correct từ BỘ ĐẾM
+ * TRÊN BẢN GHI (đã reset = 0) và wrong = cả bộ đề − 0 = 28 cho MỌI HS, mã trận
+ * suy từ bộ đếm đã reset nên khác mã trận thật → cả 3 lớp chống đúp cho qua →
+ * một "trận ma" trừ oan −84 XP của 42 người (gồm cả HS chỉ vừa vào phòng).
+ *
+ * NGUYÊN TẮC SỬA: đường ghi KHÔNG tin bộ đếm trên bản ghi người chơi nữa.
+ * correct/wrong suy từ SỔ ĐÁP ÁN của host (answeredDetails — cùng sổ đã khử
+ * trùng mỗi HS × mỗi câu đúng 1 lần và nuôi BXH/RESYNC) và số câu ĐÃ MỞ của
+ * trận (không phải cả bộ đề — kết thúc giữa chừng chỉ tính sai trên câu đã
+ * mở). Mã trận suy từ KẾT QUẢ SUY RA (không suy từ bộ đếm) nên cùng một kết
+ * quả luôn cho cùng một mã — reset bộ đếm không còn đường sinh "trận ma".
+ * Trận không có bất kỳ đáp án nào trong sổ → KHÔNG lập kế hoạch (không ghi).
+ */
+
+/** Tách playerRecordId khỏi khoá đáp án `${id}_q_${qIndex}` (bỏ hậu tố _q_<số> ở CUỐI khoá). */
+export function playerIdFromAnswerKey(key: string): string {
+  const m = /^(.*)_q_\d+$/.exec(key || '');
+  return m ? m[1] : '';
+}
+
+export interface MatchXpPlan {
+  matchId: string;
+  updates: StudentXpUpdate[];
+  /** XP sau trận theo deviceId — CÙNG số liệu với updates, cho màn kết hiển thị. */
+  postMatchXpByDeviceId: Record<string, number>;
+  /** Số câu ĐÃ MỞ của trận (cơ số tính sai), không phải độ dài cả bộ đề. */
+  playedQuestions: number;
+  /** Tổng số đáp án (đúng + sai) trong sổ thuộc về roster hiện tại. */
+  answeredTotal: number;
+}
+
+/**
+ * Lập kế hoạch ghi XP cuối trận (thuần) — NGUỒN SỰ THẬT DUY NHẤT cho cả
+ * đường GHI (App, effect ENDED) lẫn đường HIỂN THỊ màn kết (App tính rồi
+ * truyền xuống HostArenaView):
+ *  - correct của từng HS = số đáp án ĐÚNG của chính HS đó trong sổ đáp án
+ *    (chặn trên bởi số câu đã mở); wrong = câu đã mở − correct (không trả
+ *    lời trên câu đã mở tính sai — nhất quán luật; câu CHƯA mở không tính).
+ *  - Số câu đã mở = globalQIndex + 1 (chặn trong [0, độ dài bộ đề]): mọi
+ *    đường kết thúc đều dừng globalQIndex ở câu cuối đã mở (kết thúc tự
+ *    nhiên dừng ở câu cuối của đề → đã mở = cả đề).
+ *  - Hạng thưởng: comparator BXH cuối trận như cũ, nhưng correct/wrongTotal
+ *    dùng số SUY RA TỪ SỔ (fastScore/lives/eliminated vẫn từ bản ghi).
+ *  - Trả null khi sổ KHÔNG có đáp án nào của roster (trận không thực sự
+ *    diễn ra — vd bấm "trận mới" rồi kết thúc ngay) → nơi gọi bỏ qua hẳn,
+ *    không ghi, không đặt dấu chống đúp.
+ *  - Trả null khi không HS nào có deviceId (toàn client cũ — không có gì để ghi).
+ */
+export function planMatchXpFlush(input: {
+  roomId: string;
+  players: Array<XpRankPlayer & { deviceId?: string; label?: string; xp?: number }>;
+  detailsEntries: Iterable<readonly [string, { isCorrect?: boolean } | null | undefined]>;
+  deckLength: number;
+  globalQIndex: number;
+  gameType: string;
+}): MatchXpPlan | null {
+  const deck = Math.max(0, Math.floor(input.deckLength || 0));
+  if (deck <= 0 || input.players.length === 0) return null;
+  const played = Math.min(deck, Math.max(0, Math.floor(input.globalQIndex || 0)) + 1);
+
+  // Đếm đáp án đúng theo bản ghi người chơi từ SỔ ĐÁP ÁN (chỉ tính mục thuộc roster).
+  const rosterIds = new Set(input.players.map(p => p.id));
+  const correctById = new Map<string, number>();
+  let answeredTotal = 0;
+  for (const [key, det] of input.detailsEntries) {
+    const pid = playerIdFromAnswerKey(key);
+    if (!pid || !rosterIds.has(pid)) continue;
+    answeredTotal++;
+    if (det && det.isCorrect) correctById.set(pid, (correctById.get(pid) || 0) + 1);
+  }
+  if (answeredTotal === 0) return null;
+
+  const derived = input.players.map(p => {
+    const correct = Math.min(correctById.get(p.id) || 0, played);
+    return { player: p, correct, wrong: Math.max(0, played - correct) };
+  });
+  const ranked = rankPlayersForXp(
+    derived.map(d => ({ ...d.player, correct: d.correct, wrongTotal: d.wrong })),
+    input.gameType
+  );
+  const derivedById = new Map(derived.map(d => [d.player.id, d]));
+
+  const updates: StudentXpUpdate[] = [];
+  const postMatchXpByDeviceId: Record<string, number> = {};
+  ranked.forEach((rp, idx) => {
+    if (!rp.deviceId) return;
+    const d = derivedById.get(rp.id);
+    if (!d) return;
+    const { delta } = computeMatchXpDelta({ correct: d.correct, totalQuestions: played, rank: idx + 1 });
+    updates.push({ deviceId: rp.deviceId, name: (rp.label || '').trim(), correct: d.correct, wrong: d.wrong, delta });
+    postMatchXpByDeviceId[rp.deviceId] = computePostMatchXp(rp.xp || 0, delta);
+  });
+  if (updates.length === 0) return null;
+
+  // Mã trận suy từ KẾT QUẢ SUY RA: cùng kết quả → cùng mã (F5 ở màn kết /
+  // bộ đếm bị reset vẫn ra đúng mã của trận thật → lastMatchId chặn ghi lại).
+  const core = updates
+    .map(u => `${u.deviceId}:${u.correct}:${u.wrong}:${u.delta}`)
+    .sort()
+    .join('|');
+  const h = cyrb53(`${input.roomId}#${input.gameType}#${played}#${core}`, 29).toString(36).toUpperCase();
+  return { matchId: `M-${h}`, updates, postMatchXpByDeviceId, playedQuestions: played, answeredTotal };
+}
+
 /**
  * Áp 1 khoản cập nhật lên bản ghi hiện có (thuần) — TRÁI TIM chống ghi đúp:
  * bản ghi đã mang lastMatchId của chính trận này → trả null (bỏ qua, không
