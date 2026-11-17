@@ -470,6 +470,75 @@ export async function fetchMachines(fetchFn: FetchFn): Promise<MachineRow[]> {
   return mergeMachines(requests, licenses);
 }
 
+/* ================= Xuất danh sách minh chứng (Admin) =================
+ * Mục đích (thầy chốt 17/11): danh sách giáo viên đã đăng ký dùng Đấu
+ * Trường 3D là MINH CHỨNG sử dụng sản phẩm để báo cáo / đi thi — xuất
+ * từ panel Quản lý máy ra 1 file CSV. Chỉ dùng đúng các trường bản ghi
+ * thật có (tên, trường, email, mã máy, thời gian, trạng thái). */
+
+/** Nhãn trạng thái máy tiếng Việt trong file minh chứng. */
+export function machineStatusLabel(status: MachineRow['status']): string {
+  if (status === 'active') return 'Đang hoạt động';
+  if (status === 'locked') return 'Đã khoá';
+  return 'Chờ kích hoạt';
+}
+
+/** Escape 1 ô CSV (RFC 4180): bọc nháy kép khi ô chứa phẩy/nháy/xuống dòng. */
+function csvCell(v: string): string {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/** Thời gian đăng ký dạng dd/MM/yyyy HH:mm theo giờ VN cho file minh chứng. */
+function fmtCsvTime(ts: number): string {
+  if (!ts) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date(ts));
+    const g = (t: string) => (parts.find(p => p.type === t)?.value || '');
+    return `${g('day')}/${g('month')}/${g('year')} ${g('hour')}:${g('minute')}`;
+  } catch { return ''; }
+}
+
+/**
+ * Dựng nội dung CSV danh sách minh chứng (thuần — đã có test): đầu file
+ * có BOM UTF-8 để Excel mở đúng tiếng Việt; sắp xếp theo thời gian đăng
+ * ký TĂNG dần. Cột: STT | Họ và tên giáo viên | Trường công tác |
+ * Địa chỉ email | Mã máy | Thời gian đăng ký | Trạng thái.
+ */
+export function buildMachinesCsv(rows: MachineRow[]): string {
+  const sorted = [...rows].sort((a, b) => (a.at || 0) - (b.at || 0));
+  const header = ['STT', 'Họ và tên giáo viên', 'Trường công tác', 'Địa chỉ email', 'Mã máy', 'Thời gian đăng ký', 'Trạng thái'];
+  const lines = [header.map(csvCell).join(',')];
+  sorted.forEach((r, i) => {
+    lines.push([
+      String(i + 1),
+      r.name || '',
+      r.school || '',
+      r.email || '',
+      r.mid,
+      fmtCsvTime(r.at),
+      machineStatusLabel(r.status)
+    ].map(csvCell).join(','));
+  });
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
+}
+
+/** Tên file minh chứng theo ngày giờ VN: danh-sach-minh-chung-dau-truong-3d-<YYYY-MM-DD>.csv */
+export function evidenceCsvFilename(now: Date): string {
+  let ymd = '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(now);
+    const g = (t: string) => (parts.find(p => p.type === t)?.value || '');
+    ymd = `${g('year')}-${g('month')}-${g('day')}`;
+  } catch { ymd = now.toISOString().slice(0, 10); }
+  return `danh-sach-minh-chung-dau-truong-3d-${ymd}.csv`;
+}
+
 /** Khoá lại / Mở lại một máy: PATCH trạng thái lên kc3d_licenses (giữ nguyên thông tin). */
 export async function setMachineStatus(
   fetchFn: FetchFn,
