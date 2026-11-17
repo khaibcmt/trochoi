@@ -8,10 +8,12 @@
  *    kc3d_requests/<mã máy> rồi TỰ ĐỘNG DUYỆT NGAY (ghi kc3d_licenses/<mã máy>
  *    status 'active', by 'auto') → mở khoá cả 2 nút vĩnh viễn trên máy đó.
  *    Thầy không duyệt tay; chỉ khoá lại khi cần ở panel Quản lý máy.
- *  - CỔNG ĐIỂM-VÀO KHU GIÁO VIÊN (chuyện RIÊNG với cửa ở 2 nút, thầy chốt
- *    17/11): máy chưa kích hoạt vào khu giáo viên là hiện modal mời đăng ký
- *    ngay; modal đóng được — chưa đăng ký vẫn dùng đề có sẵn bình thường,
- *    chỉ 2 nút trên mới bị chặn. Đã kích hoạt thì không hiện ở đâu nữa.
+ *  - KHUNG 1 (đăng nhập lần đầu) là CỔNG TĨNH GỐC trong index.html
+ *    (overlay #dautruong-auth-overlay, mã ARENA-…) — chuyện RIÊNG với cửa
+ *    ở 2 nút. Từ tối 17/11 cổng này ghi thẳng vào kc3d_requests +
+ *    kc3d_licenses (key = mã ARENA) nên máy đăng ký qua cổng cũng hiện
+ *    trong panel Quản lý máy + file xuất minh chứng. React KHÔNG còn cổng
+ *    điểm-vào riêng (đã gỡ bản trùng của đợt 17:55).
  *  - Mã máy bền KC3D-XXXX-XXXX: vân tay thiết bị + bộ nhớ đệm tại máy (như
  *    HLVM của Học Liệu).
  *  - Admin 2 khoá: khoá 1 = MÃ CHỦ dùng chung các trang của thầy (kiểm chứng
@@ -207,16 +209,6 @@ export function clearLocalActivation(store: KeyValueStore): void {
 /** Cửa đăng ký: Admin hoặc máy đã kích hoạt thì 2 nút chạy thẳng. */
 export function gateAllows(opts: { isAdmin: boolean; activated: boolean }): boolean {
   return opts.isAdmin || opts.activated;
-}
-
-/**
- * Cổng điểm-vào khu giáo viên (CHUYỆN 1 — tách bạch với cửa ở 2 nút của
- * gateAllows): vào khu giáo viên mà máy chưa kích hoạt + không phải Admin
- * thì hiện modal mời đăng ký. Đóng modal mà chưa đăng ký → lần vào kế tiếp
- * vẫn mời lại; đã kích hoạt (hoặc Admin) thì KHÔNG bao giờ hiện.
- */
-export function shouldPromptEntryGate(opts: { isAdmin: boolean; activated: boolean }): boolean {
-  return !opts.isAdmin && !opts.activated;
 }
 
 export type RemoteLicStatus = 'active' | 'locked' | 'none' | 'error';
