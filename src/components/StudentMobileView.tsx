@@ -19,6 +19,7 @@ import {
   getOrCreateStudentDeviceId,
   levelFromXp,
   readCachedStudentXp,
+  refreshOwnStudentXp,
   writeCachedStudentXp
 } from '../utils/studentLevel';
 import { applyPointsPenalty, computeWrongPenalty } from '../utils/wagerPenalty';
@@ -317,9 +318,12 @@ export const StudentMobileView: React.FC<Props> = ({
   const [connStatus, setConnStatus] = useState('🟢 Đã kết nối thông suốt sân đấu 3D!');
   // Đợt 8 (4C.2): KHOÁ PHÒNG đọc từ link QR (tham số k ở query hoặc hash) để kiểm tra
   // chữ ký HMAC của lệnh điều khiển. Không có khoá (phòng tạo từ bản cũ) → null →
-  // hành vi như cũ, không chặn lệnh nào. Số lệnh giả đã bị bỏ qua hiện ở banner nhỏ.
+  // hành vi như cũ, không chặn lệnh nào. Lệnh giả bị bỏ qua được đếm THẦM vào
+  // ref này (chỉ còn console.warn) — học sinh KHÔNG thấy bất kỳ cảnh báo nào
+  // (thầy chốt 17/11: bỏ hẳn banner đỏ phía HS; thông tin lệnh lạ chỉ hiện
+  // phía máy thầy qua telemetry của tầng mạng).
   const roomKeyRef = useRef<string | null>(null);
-  const [rejectedCmdCount, setRejectedCmdCount] = useState(0);
+  const rejectedCmdCountRef = useRef(0);
   const [networkState, setNetworkState] = useState<NetworkConnStatus>(() => CloudNetwork.getStatus());
   const [netTelemetry, setNetTelemetry] = useState<NetworkTelemetry>(() => CloudNetwork.getTelemetry());
   useEffect(() => {
@@ -715,6 +719,34 @@ export const StudentMobileView: React.FC<Props> = ({
     } catch {}
     return 'LOBBY';
   });
+  // Màn ENDED: đọc lại XP MỚI của chính mình để chip cấp + số XP trên màn kết
+  // là số SAU trận (host ghi lên kc3d_students vài giây sau khi trận kết
+  // thúc), không phải số cũ lúc vào phòng. Chỉ chạy khi CẢ màn hình đã ENDED
+  // lẫn host đã tuyên bố ENDED (em làm xong sớm vẫn phải chờ host chốt trận
+  // mới có số mới). refreshOwnStudentXp tự chờ + thử lại 1 lần; đọc được thì
+  // cập nhật cả cache tại máy → vào phòng sau hiện đúng ngay từ đầu; không
+  // đọc được thì giữ nguyên hiển thị cũ. Tối đa 2 GET cho chính mình, chỉ ở
+  // màn kết — zero-tải lúc thi giữ nguyên.
+  useEffect(() => {
+    if (screen !== 'ENDED' || hostMatchStatus !== 'ENDED') return;
+    const deviceId = studentDeviceIdRef.current;
+    if (!deviceId) return;
+    let cancelled = false;
+    const endedAt = Date.now();
+    refreshOwnStudentXp(defaultFetch, deviceId, { endedAt })
+      .then(xp => {
+        if (cancelled || xp === null) return;
+        if (xp !== myXpRef.current) {
+          myXpRef.current = xp;
+          setMyXp(xp);
+          try { writeCachedStudentXp(localStorage, xp); } catch { /* bỏ qua */ }
+        }
+      })
+      .catch(() => { /* giữ hiển thị cũ */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, hostMatchStatus]);
+
   const waitingRoomLockedRef = useRef<boolean>((() => {
     try {
       const savedScr = sessionStorage.getItem(`kc3d_screen_${tabSessionId}`);
@@ -1433,7 +1465,7 @@ export const StudentMobileView: React.FC<Props> = ({
       }
       const key = roomKeyRef.current;
       if (key && !verifyCommandSync(key, d as unknown as Record<string, unknown>, d.sig)) {
-        setRejectedCmdCount(prev => prev + 1);
+        rejectedCmdCountRef.current += 1;
         try {
           console.warn(`[KC3D] Bỏ qua lệnh ${d.type} vì chữ ký không hợp lệ (lệnh giả hoặc sai khoá phòng).`);
         } catch {}
@@ -3871,26 +3903,6 @@ export const StudentMobileView: React.FC<Props> = ({
               }}
             />
           </div>
-        </div>
-      )}
-
-      {/* Đợt 8 (4C.2): ghi nhận lệnh điều khiển GIẢ đã bị bỏ qua vì sai chữ ký —
-          chỉ hiện khi thật sự có lệnh bị chặn, để thầy/HS biết phòng đang bị phá. */}
-      {rejectedCmdCount > 0 && (
-        <div
-          style={{
-            margin: '10px 12px 0 12px',
-            padding: '7px 12px',
-            borderRadius: '12px',
-            background: 'rgba(225, 29, 72, 0.16)',
-            border: '1.5px solid #f43f5e',
-            color: '#fda4af',
-            fontSize: '12.5px',
-            fontWeight: 800,
-            textAlign: 'center'
-          }}
-        >
-          🛡️ Đã chặn {rejectedCmdCount} lệnh lạ không đúng chữ ký của giáo viên (phòng đang bị người ngoài phá — lệnh giả bị bỏ qua, em cứ thi bình thường).
         </div>
       )}
 
