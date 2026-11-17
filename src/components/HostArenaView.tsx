@@ -20,6 +20,7 @@ import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
 import { getOrCreateRoomKey } from '../utils/commandSign';
 import { questionDurationFor, computeRemainingSec } from '../utils/questionTiming';
+import { fastPairX, bossPairAngle, tugPairDistance, tugPairZ, TUG_PAIR_ANCHOR } from '../utils/stagePairs';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
@@ -1087,16 +1088,21 @@ export const HostArenaView: React.FC<Props> = ({
           p,
           apply: (g) => {
             if (isBoss) {
-              // Semi-circle combat formation facing the Boss
+              // Semi-circle combat formation facing the Boss — XẾP CẶP dọc
+              // cung (17/11/2026): hai em liên tiếp đứng sát nhau thành một
+              // cặp, khe giữa các cặp rộng hơn rõ rệt (stagePairs.bossPairAngle).
               const ringIdx = Math.floor(idx / 10);
               const posInRing = idx % 10;
               const countInRing = Math.min(10, topRender.length - ringIdx * 10);
-              const angle = -Math.PI * 0.68 + (posInRing / Math.max(1, countInRing - 1)) * Math.PI * 1.36;
+              const angle = bossPairAngle(posInRing, countInRing);
               const rad = 5.8 + ringIdx * 1.6;
               g.position.set(Math.sin(angle) * rad, 0, Math.cos(angle) * rad - 1.2);
               g.lookAt(0, 2.5, -2.5);
             } else if (isBell) {
-              // Golden Bell: Seated on stage in concentric rings
+              // Golden Bell: Seated on stage in concentric rings — GIỮ NGUYÊN
+              // bố cục vòng tròn đồng tâm đặc thù của sân khấu chuông vàng
+              // 3 tầng (không xếp cặp: cặp trên vòng tròn sẽ phá cấu trúc
+              // tầng/vòng và chỗ ngồi đã định theo vòng).
               let rad = 2.6;
               let tierY = 0.88;
               let angle = 0;
@@ -1120,13 +1126,15 @@ export const HostArenaView: React.FC<Props> = ({
               g.userData.baseBellY = tierY;
               g.lookAt(g.position.x * 2, tierY, (g.position.z + 1.8) * 2 - 1.8);
             } else {
-              // Speed racing: rows of 6 racers
+              // Speed racing: rows of 6 racers — XẾP CẶP (17/11/2026): mỗi
+              // hàng vẫn 6 em nhưng đứng thành 3 cặp sát nhau, khe giữa cặp
+              // rộng hơn rõ rệt (stagePairs.fastPairX, hàng tự căn giữa theo
+              // số em thật của hàng nên hàng cuối 4 em = 2 cặp vẫn cân).
               const cols = 6;
-              const spacingX = 1.95;
-              const startX = -((cols - 1) * spacingX) / 2;
               const row = Math.floor(idx / cols);
               const col = idx % cols;
-              g.position.set(startX + col * spacingX, 0, 1.8 - row * 1.9);
+              const countInRow = Math.min(cols, topRender.length - row * cols);
+              g.position.set(fastPairX(col, countInRow), 0, 1.8 - row * 1.9);
               g.lookAt(0, 1.5, -6);
             }
           }
@@ -1150,16 +1158,18 @@ export const HostArenaView: React.FC<Props> = ({
       const redToRender = sortedRed.slice(0, perTeamMax);
       const blueToRender = sortedBlue.slice(0, perTeamMax);
 
-      // Position Red pullers alongside the rope
+      // Position Red pullers alongside the rope — XẾP CẶP dọc dây
+      // (17/11/2026): hai em liên tiếp đứng sát nhau thành một cặp cùng
+      // phía z, khe giữa các cặp rộng hơn rõ rệt (stagePairs.tugPair*).
+      // Hai đội vẫn hai phía dây như cũ, neo 1.55 giữ nguyên.
       redToRender.forEach((p, idx) => {
         layoutEntries.push({
           p,
           apply: (g) => {
             const col = idx % 6;
             const row = Math.floor(idx / 6);
-            const spacing = 1.32;
-            const startX = -1.55 - col * spacing;
-            const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
+            const startX = -TUG_PAIR_ANCHOR - tugPairDistance(col);
+            const posZ = tugPairZ(row, col);
             g.position.set(startX, 0, posZ);
             g.userData.tugBaseX = startX;
             g.userData.tugBaseZ = posZ;
@@ -1168,16 +1178,16 @@ export const HostArenaView: React.FC<Props> = ({
         });
       });
 
-      // Position Blue pullers alongside the rope
+      // Position Blue pullers alongside the rope — XẾP CẶP dọc dây như
+      // đội Đỏ (đối xứng qua tâm dây).
       blueToRender.forEach((p, idx) => {
         layoutEntries.push({
           p,
           apply: (g) => {
             const col = idx % 6;
             const row = Math.floor(idx / 6);
-            const spacing = 1.32;
-            const startX = 1.55 + col * spacing;
-            const posZ = row === 0 ? (col % 2 === 0 ? 0.36 : -0.36) : (col % 2 === 0 ? 1.25 : -1.25);
+            const startX = TUG_PAIR_ANCHOR + tugPairDistance(col);
+            const posZ = tugPairZ(row, col);
             g.position.set(startX, 0, posZ);
             g.userData.tugBaseX = startX;
             g.userData.tugBaseZ = posZ;
