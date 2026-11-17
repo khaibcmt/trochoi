@@ -1,6 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { CloudMessage, QuizItem } from '../types';
 import { isSensitiveCommand, signCommandSync } from '../utils/commandSign';
+import { failoverBackoffMs } from '../utils/netTiming';
 
 export interface BrokerEpochInfo {
   brokerId: number;
@@ -367,13 +368,22 @@ const WORKER_SCRIPT = `
 `;
 
 class NetworkService {
-  // Kết nối Broker chính theo Mã Phòng + Broker song song dự phòng (emqx + hivemq) để chống lệch Broker 100%
+  // Đợt GIA CỐ TẢI (17/11/2026): MỖI MÁY CHỈ GIỮ 1 KẾT NỐI MQTT (client chính theo
+  // Mã Phòng / epoch của host). Client phụ song song thường trực đã BỎ: ở quy mô
+  // 200 HS nó nhân đôi số kết nối từ IP trường (~400) và nhân đôi mọi gói
+  // publish/subscribe qua broker công cộng — điểm nghẽn chạm trước tiên. Chống
+  // rớt broker nay dựa vào failover chủ động của client chính (thử lại có
+  // backoff + jitter, xem utils/netTiming) thay cho kết nối dự phòng thường trực.
+  // Field secondaryClient GIỮ LẠI (luôn null) để các điểm đọc "kênh nào đang
+  // sống" cũ giữ nguyên ngữ nghĩa: chỉ còn kênh chính quyết định.
   private client: MqttClient | null = null;
   private secondaryClient: MqttClient | null = null;
   private activeBrokerUrl = '';
   private secondaryBrokerUrl = '';
   private failoverAttempt = 0;
   private currentBrokerRetries = 0;
+  // Số lần failover LIÊN TIẾP chưa nối lại được — đầu vào cho backoff lũy thừa.
+  private failoverStreak = 0;
   private pinnedBrokerIndex: number | null = null;
   private failoverTimer: any = null;
   private isConnectingMqtt = false;
@@ -620,8 +630,6 @@ class NetworkService {
     if (!this.client || !this.client.connected || this.activeBrokerUrl !== targetUrl) {
       this.connectSingleBrokerByRoom(this.currentRoomId, true);
     }
-    // Client phụ cũng về cùng broker của host (không còn trỏ broker "còn lại" nữa)
-    this.connectSecondaryMeshBroker(this.currentRoomId, true);
     this.notifyTelemetry();
   }
 
@@ -1261,9 +1269,9 @@ class NetworkService {
       }
     }
 
-    // 2. Kết nối Broker chính + Broker song song dự phòng (emqx + hivemq) để Giáo viên & Học sinh luôn thông suốt 100%
+    // 2. Kết nối Broker chính theo Mã Phòng — DUY NHẤT một kết nối mỗi máy
+    // (đợt gia cố tải: bỏ client phụ song song thường trực, xem ghi chú đầu class).
     this.connectSingleBrokerByRoom(cleanRoom, roomChanged);
-    this.connectSecondaryMeshBroker(cleanRoom, roomChanged);
 
     // 3. Đọc dữ liệu đồng bộ tức thời từ localStorage / cache nếu cùng thiết bị
     try {
@@ -1295,92 +1303,31 @@ class NetworkService {
 
   private getSubscriptionTopics(): string[] {
     if (!this.currentRoomTopic) return [];
-    return [
+    const topics = [
       this.currentRoomTopic,
       `${this.currentRoomTopic}/state`,
-      `${this.currentRoomTopic}/qchunk/+`,
-      `${this.currentRoomTopic}/players/+`
+      `${this.currentRoomTopic}/qchunk/+`
     ];
+    // Đợt GIA CỐ TẢI: topic players/+ chỉ HOST mới đăng ký. Trên topic này là
+    // PLAYER_PING + hồ sơ retained + Last-Will của TỪNG HS — toàn là tin cho
+    // host. Trước đây HS cũng đăng ký nên mỗi điện thoại phải nhận ping/hồ sơ
+    // của CẢ PHÒNG (ở 200 HS: hàng chục gói/giây vô ích trên máy HS và nhân
+    // fan-out tại broker). Vai trò chưa rõ (null, tương thích ngược) giữ đủ 4.
+    if (this.brokerRole !== 'STUDENT') {
+      topics.push(`${this.currentRoomTopic}/players/+`);
+    }
+    return topics;
   }
 
-  private connectSecondaryMeshBroker(roomId: string, forceReconnect: boolean = false) {
-    if (this.isIntentionalDisconnect || !roomId) return;
-    const primaryIdx = (this.pinnedBrokerIndex !== null && this.pinnedBrokerIndex >= 0)
-      ? this.pinnedBrokerIndex
-      : (hashRoomId(roomId) % 2);
-    // Đợt 8 (4C.1): phía HS ĐÃ vào phòng có host (đã nhận epoch) → client phụ trỏ CÙNG
-    // broker với client chính/host thay vì broker còn lại, tránh nhận tin lệch broker.
-    // Phía host và HS chưa biết epoch giữ cơ chế mesh 2 broker như cũ.
-    const secondaryIdx =
-      this.brokerRole === 'STUDENT' && this.adoptedBrokerEpoch
-        ? this.adoptedBrokerEpoch.brokerId
-        : primaryIdx === 0
-          ? 1
-          : 0;
-    const targetUrl = PRIMARY_BROKERS[secondaryIdx];
-
-    if (
-      !forceReconnect &&
-      this.secondaryClient &&
-      this.secondaryClient.connected &&
-      this.secondaryBrokerUrl === targetUrl
-    ) {
-      return;
-    }
-
-    this.secondaryBrokerUrl = targetUrl;
-    this.safeCloseSecondaryClient();
-
-    try {
-      const secClient = mqtt.connect(targetUrl, {
-        clientId: 'kc3d_sec_' + Math.random().toString(16).substring(2, 10),
-        clean: true,
-        connectTimeout: 4500,
-        reconnectPeriod: 4000,
-        keepalive: 30
-      });
-      this.secondaryClient = secClient;
-
-      secClient.on('connect', () => {
-        if (this.isIntentionalDisconnect || this.secondaryClient !== secClient) return;
-        const topics = this.getSubscriptionTopics();
-        if (topics.length === 0) return;
-        secClient.subscribe(topics, { qos: 1 }, (err) => {
-          if (!err) {
-            this.mqttHealthy = true;
-            this.setStatus('CONNECTED');
-            this.flushOfflineQueue();
-            this.notifyTelemetry();
-          }
-        });
-      });
-
-      secClient.on('message', (_topic, message) => {
-        try {
-          const rawStr = message.toString();
-          if (!rawStr) return;
-          const data = JSON.parse(rawStr) as CloudMessage;
-          this.deliverIncomingMessage(data);
-        } catch {}
-      });
-
-      secClient.on('close', () => {
-        if (this.secondaryClient !== secClient) return;
-        // Client phụ tự reconnect sau 4s; nếu cả client chính cũng không sống thì trạng thái thật là RECONNECTING
-        if (!this.client || !this.client.connected) {
-          this.mqttHealthy = false;
-          if (this.isStaticHost || !this.httpHealthy) {
-            this.setStatus('RECONNECTING');
-          } else {
-            this.notifyTelemetry();
-          }
-        } else {
-          this.notifyTelemetry();
-        }
-      });
-
-      secClient.on('error', () => {});
-    } catch {}
+  /**
+   * Đợt GIA CỐ TẢI (17/11/2026): client phụ song song thường trực đã BỎ — mỗi máy
+   * chỉ giữ ĐÚNG 1 kết nối MQTT (client chính). Hàm này giữ lại dưới dạng no-op
+   * để mọi điểm gọi cũ (nếu còn sót) không thể tạo lại kết nối thứ hai; khả năng
+   * chịu rớt broker do failover chủ động của client chính đảm nhiệm (backoff +
+   * jitter, utils/netTiming). secondaryClient vì thế luôn null.
+   */
+  private connectSecondaryMeshBroker(_roomId: string, _forceReconnect: boolean = false) {
+    return;
   }
 
   private safeCloseSecondaryClient() {
@@ -1465,6 +1412,7 @@ class NetworkService {
             this.mqttHealthy = true;
             this.failoverAttempt = 0; // Đặt lại về 0 khi kết nối thành công
             this.currentBrokerRetries = 0; // Đặt lại retry khi kết nối thành công
+            this.failoverStreak = 0; // Đặt lại chuỗi failover liên tiếp (backoff về mốc đầu)
             // Đợt 8 (4C.1): phía host ghi nhận broker vừa nối được — đổi broker thì
             // tăng epoch công bố để HS chuyển theo (cùng broker thì giữ nguyên epoch).
             const connectedIdx = PRIMARY_BROKERS.indexOf(targetBrokerUrl);
@@ -1528,11 +1476,13 @@ class NetworkService {
   private triggerSequentialFailover(_reason: string) {
     if (this.isIntentionalDisconnect || !this.currentRoomId) return;
 
-    this.mqttHealthy = Boolean(this.secondaryClient && this.secondaryClient.connected);
-    if (!this.mqttHealthy) {
-      // Client chính vừa rớt và chưa có kênh MQTT nào sống: đang nối lại, không được báo CONNECTED
-      this.setStatus('RECONNECTING');
-    }
+    // Đợt GIA CỐ TẢI: không còn client phụ — client chính vừa rớt là mất kênh MQTT,
+    // báo RECONNECTING thật. failoverStreak tăng để các lần thử lại giãn dần
+    // (backoff + jitter): 200 máy cùng rớt vì broker/wifi chập chờn sẽ KHÔNG cùng
+    // lao vào nối lại một lúc (chống dồn dập đồng loạt tự làm nghẽn thêm).
+    this.failoverStreak++;
+    this.mqttHealthy = false;
+    this.setStatus('RECONNECTING');
     this.isConnectingMqtt = false;
     if (this.failoverTimer) {
       clearTimeout(this.failoverTimer);
@@ -1549,7 +1499,7 @@ class NetworkService {
         if (!this.isIntentionalDisconnect && this.currentRoomId) {
           this.connectSingleBrokerByRoom(this.currentRoomId, true);
         }
-      }, 350);
+      }, failoverBackoffMs(this.failoverStreak));
       return;
     }
 
@@ -1569,7 +1519,7 @@ class NetworkService {
           if (!this.isIntentionalDisconnect && this.currentRoomId) {
             this.connectSingleBrokerByRoom(this.currentRoomId, true);
           }
-        }, 350);
+        }, failoverBackoffMs(this.failoverStreak));
         return;
       }
       this.gatedFailoverCycles = 0;
@@ -1585,7 +1535,7 @@ class NetworkService {
       if (!this.isIntentionalDisconnect && this.currentRoomId) {
         this.connectSingleBrokerByRoom(this.currentRoomId, true);
       }
-    }, 200);
+    }, failoverBackoffMs(this.failoverStreak));
   }
 
   private safeCloseClient() {
@@ -1863,12 +1813,9 @@ class NetworkService {
     }
     this.flushOfflineQueue();
 
-    // Nếu MQTT chưa kết nối thì thử kết nối lại
+    // Nếu MQTT chưa kết nối thì thử kết nối lại (chỉ còn client chính — đợt gia cố tải)
     if (!this.client || !this.client.connected) {
       this.connectSingleBrokerByRoom(this.currentRoomId, false);
-    }
-    if (!this.secondaryClient || !this.secondaryClient.connected) {
-      this.connectSecondaryMeshBroker(this.currentRoomId, false);
     }
   }
 
@@ -2092,6 +2039,27 @@ class NetworkService {
     // lên telemetry/callback qua publishWithErrorReport thay vì try/catch im lặng.
     // HOST_HEARTBEAT live + PLAYER_PING + feed giữ QoS 0 như quyết định Đợt 5.
     const liveQos: 0 | 1 = qosForMessageType(effectivePayload.type);
+
+    // Đợt GIA CỐ TẢI: PLAYER_PING là tin CHỈ host tiêu thụ (ghi lastSeen giữ
+    // chỗ) — phát thẳng vào topic players/<playerId> thay vì topic phòng, để
+    // broker chỉ giao cho host (đăng ký players/+) chứ KHÔNG fan-out tới mọi
+    // máy HS. Trước gia cố, ở 200 HS: 40 ping/s × phát kép 2 client × ~402
+    // subscription ≈ 32.000 lượt giao/s chỉ riêng ping — nghẽn wifi lớp +
+    // broker công cộng trước mọi điểm nghẽn khác. Sau gia cố: ~13 lượt/s.
+    if (effectivePayload.type === 'PLAYER_PING' && effectivePayload.playerId) {
+      const pingTopic = `${this.currentRoomTopic}/players/${effectivePayload.playerId}`;
+      activeClients.forEach(c => {
+        this.publishWithErrorReport(
+          c,
+          pingTopic,
+          mqttLivePayload,
+          { qos: liveQos },
+          'MQTT live PLAYER_PING (host-only)'
+        );
+      });
+      return;
+    }
+
     activeClients.forEach(c => {
       this.publishWithErrorReport(
         c,
