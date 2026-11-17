@@ -1741,12 +1741,266 @@ function extractBatchAnswerKeyMap(rawLine: string): Record<number, number> | nul
   return null;
 }
 
+/* ============================================================================
+ * BỘ CẮT ĐỀ THI CHUẨN (17/11/2026 — sửa lỗi nạp file đề nuốt tiêu đề/câu dẫn):
+ * Đề thi thật có khối tiêu đề (SỞ/TRƯỜNG/NĂM HỌC/KỲ THI) ở đầu, các PHẦN I/II/III
+ * kèm câu dẫn ("Thí sinh trả lời từ câu 1 đến câu 12"...), kết bằng "— HẾT —"
+ * rồi mới tới ĐÁP ÁN / HƯỚNG DẪN GIẢI. Bộ cắt này đảm bảo:
+ * 1. Chỉ đọc vùng từ tiêu đề "PHẦN I" tới mốc "HẾT" (hoặc tiêu đề vùng đáp án).
+ * 2. Dòng tiêu đề phần + dòng câu dẫn KHÔNG bao giờ thành câu hỏi.
+ * 3. Vùng sau HẾT không thành câu hỏi; đáp án tổng hợp trong vùng đó vẫn được
+ *    thu hoạch, lời giải theo từng câu được gán vào trường explanation CHỈ khi
+ *    khớp số câu + phần một cách duy nhất (khớp không chắc thì bỏ qua).
+ * 4. Đường biên câu CỨNG: mốc "Câu N:" dính giữa dòng (bảng Word/mammoth gộp
+ *    dòng) bị tách ra trước khi phân tích — một phương án không bao giờ được
+ *    chứa mốc của câu khác.
+ * ========================================================================== */
+
+type NormalizedLine = { text: string; isU: boolean; isBold?: boolean; raw: string };
+
+/** Chữ thuần của 1 dòng chuẩn hoá (bỏ rác style Word + token gạch chân/in đậm). */
+function examLinePlainText(raw: string): string {
+  return stripWordStyleGarbage(raw || '')
+    .replace(/⟦\/?[UB]⟧/g, '')
+    .replace(/^\*+\s*/, '')
+    .trim();
+}
+
+/**
+ * Nhận diện dòng TIÊU ĐỀ PHẦN: "PHẦN I. ...", "PHẦN II. Câu trắc nghiệm đúng sai
+ * (2,0 điểm). Thí sinh trả lời...", "DẠNG THỨC 2..." -> trả 1 | 2 | 3.
+ * Tiêu đề thật thường NGẮN hoặc chứa từ khoá đặc trưng của đề thi; dòng văn xuôi
+ * bắt đầu bằng "Phần..." dài mà không có từ khoá thì KHÔNG coi là tiêu đề.
+ */
+export function detectExamSectionHeader(raw: string): 1 | 2 | 3 | null {
+  const t = examLinePlainText(raw);
+  const m = t.match(/^(?:PHẦN|DẠNG\s*THỨC)\s*(I|II|III|1|2|3)\b/i);
+  if (!m) return null;
+  const hasKeyword = /(trắc\s*nghiệm|đúng\s*sai|trả\s*lời\s*ngắn|thí\s*sinh|học\s*sinh)/i.test(t);
+  if (t.length >= 170 && !hasKeyword) return null;
+  const g = m[1].toUpperCase();
+  return g === 'I' || g === '1' ? 1 : g === 'II' || g === '2' ? 2 : 3;
+}
+
+/**
+ * Nhận diện dòng CÂU DẪN / hướng dẫn làm bài của từng phần — không bao giờ là
+ * câu hỏi: "Thí sinh trả lời từ câu 1 đến câu 12", "Học sinh làm từ câu 1 đến
+ * câu 4", "Mỗi câu hỏi thí sinh chỉ chọn một phương án", mảnh tiêu đề phần bị
+ * tách dòng ("Câu trắc nghiệm nhiều phương án lựa chọn...")...
+ */
+export function isExamInstructionLine(raw: string): boolean {
+  const t = examLinePlainText(raw);
+  if (!t || t.length > 320) return false;
+  if (/\?\s*$/.test(t)) return false; // câu hỏi thật thường kết thúc bằng dấu ?
+  // Mảnh vỡ của tiêu đề phần bị bộ tách dòng cắt ra có thể còn dính nhãn mệnh đề ở
+  // đầu (VD "d) ở mỗi câu, thí sinh chọn đúng hoặc sai.") — xét cả dạng đã lột nhãn.
+  const u = t.replace(/^[a-dA-D]\s*[.)]\s*/, '');
+  const variants = u !== t ? [t, u] : [t];
+  for (const v of variants) {
+    if (/từ\s+câu\s+\d+\s+đến\s+câu\s+\d+/i.test(v)) return true;
+    if (/^(?:thí\s*sinh|học\s*sinh)\s+(?:trả\s*lời|làm\s*bài|làm|thực\s*hiện)\b/i.test(v)) return true;
+    if (/^mỗi\s+câu\b[\s\S]*\bthí\s*sinh\b/i.test(v)) return true;
+    if (/^ở\s+mỗi\s+câu\b[\s\S]*\bthí\s*sinh\b/i.test(v)) return true;
+    if (/^trong\s+mỗi\s+ý\b[\s\S]*\bthí\s*sinh\b[\s\S]*\bchọn\b/i.test(v)) return true;
+    if (/^câu\s+trắc\s+nghiệm\b/i.test(v)) return true; // mảnh tiêu đề phần tách dòng (không có số câu)
+    if (/\bthí\s*sinh\s+chọn\s+(?:đúng|một)\b/i.test(v)) return true;
+    if (/\bthí\s*sinh\b/i.test(v) && /(trả\s*lời|chỉ\s+chọn|không\s+được\s+sử\s+dụng|được\s+\d)/i.test(v)) return true;
+  }
+  return false;
+}
+
+/**
+ * Nhận diện dòng TIÊU ĐỀ VÙNG ĐÁP ÁN đứng riêng: "ĐÁP ÁN", "ĐÁP ÁN PHẦN I",
+ * "ĐÁP ÁN VÀ HƯỚNG DẪN CHẤM", "HƯỚNG DẪN GIẢI", "LỜI GIẢI"...
+ * KHÔNG nhận nhầm dòng đáp án của từng câu ("Đáp án: 5", "Đáp án: A",
+ * "Đáp án đúng là...") — các dòng đó thuộc về bộ phân tích chính.
+ */
+export function isAnswerSectionHeaderLine(raw: string): boolean {
+  const t = examLinePlainText(raw);
+  if (!t || t.length > 80 || /[?]/.test(t)) return false;
+  if (!/^(?:ĐÁP\s*ÁN|BẢNG\s*ĐÁP\s*ÁN|HƯỚNG\s*DẪN|LỜI\s*GIẢI)\b/i.test(t)) return false;
+  if (/^đáp\s*án\s*[:=]\s*(?:[a-d]\b|\d|đúng|sai|đ\b|s\b)/i.test(t)) return false;
+  if (/^đáp\s*án\b[\s\S]*\b(?:là|chọn)\b/i.test(t)) return false;
+  return true;
+}
+
+/** Tìm mốc kết đề "HẾT": đứng riêng/ở đầu dòng -> 'line'; dính cuối dòng sau dấu gạch -> 'split'. */
+function findExamEndMarker(raw: string): { kind: 'line' } | { kind: 'split'; index: number } | null {
+  const rawText = raw || '';
+  const t = examLinePlainText(rawText);
+  if (!t) return null;
+  const stripped = t.replace(/[—–\-.*\s()\[\]]/g, '');
+  if (/^hết$/i.test(stripped)) return { kind: 'line' };
+  if (/^[—–-]/.test(t) && /(?:HẾT|Hết)\b/.test(t.slice(0, 14))) return { kind: 'line' };
+  const idx = rawText.search(/[—–]\s*HẾT\s*[—–]/);
+  if (idx > 0) return { kind: 'split', index: idx };
+  return null;
+}
+
+/**
+ * Tách mốc "Câu N:" BỊ DÍNH GIỮA DÒNG thành dòng riêng (đường biên câu cứng).
+ * Chỉ tách ở mốc viết hoa "Câu" + số + dấu ":" / "." / ")" đứng sau khoảng trắng;
+ * "câu" thường trong thân câu (VD "kết quả câu 5 cho thấy...") không bị tách.
+ * Dòng chứa bảng/hình (HTML/media token) giữ nguyên vì mốc trong ô bảng là dữ kiện.
+ */
+export function splitEmbeddedQuestionMarkers(line: NormalizedLine): NormalizedLine[] {
+  const text = line.text || '';
+  if (/<table|<img|⟦MEDIA/i.test(text)) return [line];
+  const out: NormalizedLine[] = [];
+  let rest = text;
+  for (let guard = 0; guard < 8; guard++) {
+    const m = rest.match(/\s+(Câu\s*(?:hỏi)?\s*\d{1,3}\s*[:.)])\s+/);
+    if (!m || m.index === undefined) break;
+    const before = rest.slice(0, m.index).trim();
+    if (before) out.push({ ...line, text: before });
+    rest = rest.slice(m.index).trim();
+  }
+  if (rest.trim()) out.push({ ...line, text: rest });
+  return out.length > 0 ? out : [line];
+}
+
+export interface PreparedExamRegion {
+  lines: NormalizedLine[];
+  tailLines: NormalizedLine[];
+  /** true khi tìm thấy mốc "PHẦN I" (đề có cấu trúc chuẩn) */
+  regionApplied: boolean;
+}
+
+/**
+ * Cắt vùng đề: [PHẦN I ... HẾT). Mọi dòng trước "PHẦN I" (khối tiêu đề) bị bỏ;
+ * mọi dòng từ mốc "HẾT" (hoặc tiêu đề vùng đáp án, khi đề chuẩn không có HẾT)
+ * trở đi nằm ở tailLines để thu hoạch đáp án/lời giải, không vào bộ phân tích.
+ * Không tìm thấy mốc nào -> giữ nguyên toàn bộ (đề tự do do giáo viên tự soạn).
+ */
+export function prepareExamRegion(input: NormalizedLine[]): PreparedExamRegion {
+  const split: NormalizedLine[] = [];
+  input.forEach(l => split.push(...splitEmbeddedQuestionMarkers(l)));
+
+  let start = 0;
+  let regionApplied = false;
+  for (let i = 0; i < split.length; i++) {
+    if (detectExamSectionHeader(split[i].text) === 1) {
+      start = i;
+      regionApplied = true;
+      break;
+    }
+  }
+
+  let end = split.length;
+  let tailStart = split.length;
+  let seenQuestion = false;
+  for (let i = start; i < split.length; i++) {
+    const t = examLinePlainText(split[i].text);
+    if (/^(?:Câu|Bài|Question)\s*(?:hỏi)?\s*\d+/i.test(t)) seenQuestion = true;
+
+    const het = findExamEndMarker(split[i].text);
+    if (het) {
+      if (het.kind === 'split') {
+        const before = (split[i].text || '').slice(0, het.index).trim();
+        if (before) {
+          split[i] = { ...split[i], text: before };
+          end = i + 1;
+        } else {
+          end = i;
+        }
+      } else {
+        end = i;
+      }
+      tailStart = i + 1;
+      break;
+    }
+
+    if (regionApplied && seenQuestion && isAnswerSectionHeaderLine(t)) {
+      end = i;
+      tailStart = i;
+      break;
+    }
+  }
+
+  return { lines: split.slice(start, end), tailLines: split.slice(tailStart), regionApplied };
+}
+
+export interface TailExplanation {
+  num: number;
+  format: QuestionFormat | null;
+  text: string;
+}
+
+export interface TailHarvest {
+  answerKey: Record<number, number>;
+  explanations: TailExplanation[];
+}
+
+/**
+ * Thu hoạch vùng SAU mốc kết đề: bảng đáp án tổng hợp (cho answerKey) và các
+ * khối lời giải bắt đầu bằng "Câu N:" (cho explanation). Khối chỉ chứa mỗi đáp
+ * án ("Câu 3: A") hoặc quá ngắn thì bỏ — thà thiếu lời giải còn hơn gán sai.
+ */
+export function harvestExamTail(tailLines: NormalizedLine[]): TailHarvest {
+  const answerKey: Record<number, number> = {};
+  const blocks: { num: number; format: QuestionFormat | null; lines: string[] }[] = [];
+  let curFmt: QuestionFormat | null = null;
+  let cur: { num: number; format: QuestionFormat | null; lines: string[] } | null = null;
+  const flush = () => {
+    if (cur) {
+      blocks.push(cur);
+      cur = null;
+    }
+  };
+
+  for (const l of tailLines) {
+    const t = examLinePlainText(l.text);
+    if (!t) continue;
+    const sec = detectExamSectionHeader(t);
+    if (sec) {
+      curFmt = sec === 1 ? 'MULTIPLE_CHOICE' : sec === 2 ? 'TRUE_FALSE' : 'SHORT_ANSWER';
+      flush();
+      continue;
+    }
+    if (isAnswerSectionHeaderLine(t)) {
+      flush();
+      continue;
+    }
+    if (isExamInstructionLine(t)) continue;
+    const batch = extractBatchAnswerKeyMap(t);
+    if (batch && t.length < 220 && !/[?]/.test(t)) {
+      Object.assign(answerKey, batch);
+      continue;
+    }
+    const bm = t.match(/^Câu\s*(?:hỏi)?\s*(\d{1,3})\s*[:.)\-]?\s*([\s\S]*)$/i);
+    if (bm) {
+      flush();
+      cur = { num: parseInt(bm[1], 10), format: curFmt, lines: bm[2] ? [bm[2]] : [] };
+      continue;
+    }
+    if (cur) cur.lines.push(t);
+  }
+  flush();
+
+  const explanations: TailExplanation[] = blocks
+    .map(b => {
+      let text = b.lines.join(' ').replace(/\s+/g, ' ').trim();
+      // Bỏ tiền tố đáp án ở đầu khối ("Đáp án: A. ", "Đáp án B ") nếu phía sau còn nội dung lời giải
+      text = text.replace(/^(?:Đáp\s*án(?:\s*đúng)?|ĐA)\s*[:=.]?\s*(?:[A-D]\s*[:.)\-]\s*)?/i, '').trim();
+      return { num: b.num, format: b.format, text };
+    })
+    .filter(e => e.text.length >= 25 && !/^(?:chọn\s*)?[a-d]\.?$/i.test(e.text));
+
+  return { answerKey, explanations };
+}
+
 export function parseHTMLToQuiz(
   htmlString: string,
   forcedFormat?: QuestionFormat,
   plainTextFallback?: string
 ): QuizItem[] {
-  const parsed = extractNormalizedLines(htmlString, plainTextFallback);
+  const rawLines = extractNormalizedLines(htmlString, plainTextFallback);
+  if (rawLines.length === 0) return [];
+  // BỘ CẮT ĐỀ: chỉ phân tích vùng PHẦN I -> HẾT; vùng sau HẾT chỉ để thu hoạch
+  // đáp án tổng hợp + lời giải (gán explanation khi khớp chắc chắn).
+  const examRegion = prepareExamRegion(rawLines);
+  const parsed = examRegion.lines;
+  const tailHarvest = harvestExamTail(examRegion.tailLines);
   if (parsed.length === 0) return [];
 
   const res: (QuizItem & { _origQNum?: number })[] = [];
@@ -1899,19 +2153,23 @@ export function parseHTMLToQuiz(
     }
 
     // 0. Nhận diện tiêu đề Phần / Dạng thức (VD: "PHẦN I. Câu trắc nghiệm...", "PHẦN II. Đúng sai...", "PHẦN III. Trả lời ngắn...")
-    if (/^(?:PHẦN|DẠNG\s*THỨC)\s*(?:I|1)\b/i.test(cleanLine) && cleanLine.length < 140) {
-      if (!forcedFormat) currentSectionFormat = 'MULTIPLE_CHOICE';
+    // Bộ cắt đề 17/11: nhận cả tiêu đề DÀI kèm câu dẫn (trước đây giới hạn < 140 ký tự
+    // khiến tiêu đề phần dài bị nuốt thành câu hỏi rác).
+    const sectionPart = detectExamSectionHeader(cleanLine);
+    if (sectionPart) {
+      if (!forcedFormat) {
+        currentSectionFormat =
+          sectionPart === 1 ? 'MULTIPLE_CHOICE' : sectionPart === 2 ? 'TRUE_FALSE' : 'SHORT_ANSWER';
+      }
       continue;
     }
-    if (/^(?:PHẦN|DẠNG\s*THỨC)\s*(?:II|2)\b/i.test(cleanLine) && cleanLine.length < 140) {
-      if (!forcedFormat) currentSectionFormat = 'TRUE_FALSE';
+    // Tiêu đề vùng đáp án đứng riêng ("ĐÁP ÁN", "HƯỚNG DẪN GIẢI"...) không bao giờ là câu hỏi,
+    // và tuyệt đối không được lọt vào nhánh "Đáp án: ..." làm sai dạng câu hiện tại.
+    if (isAnswerSectionHeaderLine(cleanLine)) {
       continue;
     }
-    if (/^(?:PHẦN|DẠNG\s*THỨC)\s*(?:III|3)\b/i.test(cleanLine) && cleanLine.length < 140) {
-      if (!forcedFormat) currentSectionFormat = 'SHORT_ANSWER';
-      continue;
-    }
-    if (/^(?:BẢNG\s*ĐÁP\s*ÁN|HƯỚNG\s*DẪN\s*GIẢI|ĐÁP\s*ÁN\s*THAM\s*KHẢO)\s*[:.]?$/i.test(cleanLine)) {
+    // Dòng câu dẫn của phần ("Thí sinh trả lời từ câu 1 đến câu 12"...) không tính vào số câu.
+    if (isExamInstructionLine(cleanLine)) {
       continue;
     }
 
@@ -2074,7 +2332,7 @@ export function parseHTMLToQuiz(
     // A. B. C. D. / a. b. c. d. / A) B) C) D) / a) b) c) d) / [A] [B] [C] [D] / (A) (B) (C) (D)
     // Hỗ trợ cả trường hợp giáo viên gõ quên dấu cách sau dấu chấm (VD: "A.Hà Nội")!
     const rawBracketOrLetterOpt = cleanLine.match(
-      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\*?\s*([A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[<\-$][\s\S]*)/
+      /^(?:\[\s*([A-Da-d])\s*\]|\(\s*([A-Da-d])\s*\)|([A-Da-d])\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*\*?\s*([A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[{<\-$√][\s\S]*)/
     );
 
     const optM: [string, string, string] | null = rawBracketOrLetterOpt
@@ -2086,7 +2344,7 @@ export function parseHTMLToQuiz(
       : null;
 
     const tfM = cleanLine.match(
-      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|\(\s*([a-dA-D])\s*\)|([a-dA-D])\s*\*?\s*[\)\.\:\-])\s*\*?\s*([A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[<\-$][\s\S]*)/i
+      /^(?:Ý\s+|Mệnh\s*đề\s+|Phát\s*biểu\s+)?(?:\[\s*([a-dA-D])\s*\]|\(\s*([a-dA-D])\s*\)|([a-dA-D])\s*\*?\s*[\)\.\:\-])\s*\*?\s*([A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[{<\-$√][\s\S]*)/i
     );
 
     // Hàm trợ giúp nhìn trước (Lookahead) TRONG PHẠM VI CÂU HỎI HIỆN TẠI (tối đa 160 dòng cho câu hỏi siêu dài):
@@ -2124,9 +2382,9 @@ export function parseHTMLToQuiz(
           hasExplicitAnswerLineAhead = true;
         }
 
-        const isNextA = /^(?:\[\s*[Aa]\s*\]|\(\s*[Aa]\s*\)|[Aa]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[<\-$]/.test(nextClean);
-        const isNextBCD = /^(?:\[\s*[B-Db-d]\s*\]|\(\s*[B-Db-d]\s*\)|[B-Db-d]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[<\-$]/.test(nextClean);
-        const isNextD = /^(?:\[\s*[Dd]\s*\]|\(\s*[Dd]\s*\)|[Dd]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[<\-$]/.test(nextClean);
+        const isNextA = /^(?:\[\s*[Aa]\s*\]|\(\s*[Aa]\s*\)|[Aa]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[{<\-$√]/.test(nextClean);
+        const isNextBCD = /^(?:\[\s*[B-Db-d]\s*\]|\(\s*[B-Db-d]\s*\)|[B-Db-d]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[{<\-$√]/.test(nextClean);
+        const isNextD = /^(?:\[\s*[Dd]\s*\]|\(\s*[Dd]\s*\)|[Dd]\s*\*?\s*(?:[\.:\)]|\s+-\s+))\s*[A-ZÀ-Ỹa-zà-ỹ0-9"“'(\[{<\-$√]/.test(nextClean);
 
         if (isNextA) {
           hasOptionA = true;
@@ -2611,6 +2869,38 @@ export function parseHTMLToQuiz(
 
   pushCurrentIfValid();
 
+  // BỘ CẮT ĐỀ: gộp bảng đáp án thu hoạch từ vùng SAU mốc HẾT vào cùng bản đồ đáp án
+  if (Object.keys(tailHarvest.answerKey).length > 0) {
+    Object.assign(globalAnswerKeyMap, tailHarvest.answerKey);
+  }
+
+  // BỘ CẮT ĐỀ: gán LỜI GIẢI (vùng hướng dẫn giải sau HẾT) vào trường explanation.
+  // CHỈ gán khi khớp chắc chắn, theo 1 trong 2 cách:
+  // (a) dãy khối lời giải khớp TUẦN TỰ tuyệt đối với dãy câu hỏi (số lượng + số câu);
+  // (b) mỗi khối khớp DUY NHẤT một câu theo (số câu + phần). Khớp mơ hồ -> bỏ qua.
+  if (tailHarvest.explanations.length > 0 && res.length > 0) {
+    const seqOk =
+      tailHarvest.explanations.length === res.length &&
+      tailHarvest.explanations.every((b, i) => b.num === (res[i]._origQNum || i + 1));
+    if (seqOk) {
+      res.forEach((item, i) => {
+        if (!item.explanation) item.explanation = tailHarvest.explanations[i].text;
+      });
+    } else {
+      tailHarvest.explanations.forEach(b => {
+        const candidates = res.filter(
+          item =>
+            item._origQNum === b.num &&
+            (!b.format || item.format === b.format) &&
+            !item.explanation
+        );
+        if (candidates.length === 1) {
+          candidates[0].explanation = b.text;
+        }
+      });
+    }
+  }
+
   // Áp dụng Bảng đáp án tổng hợp cuối đề (nếu giáo viên dán kèm "1A 2B 3C 4D" ở dưới đề)
   if (Object.keys(globalAnswerKeyMap).length > 0) {
     res.forEach((item, idx) => {
@@ -2667,7 +2957,42 @@ export function parseHTMLToQuiz(
     .map((item, idx) => {
       item.qid = idx;
       item.q = cleanQuestionTitleText(item.q || '');
-      return repairQuizItemIfCorrupted(item);
+      const repaired = repairQuizItemIfCorrupted(item);
+
+      // NGHIỆM THU PHƯƠNG ÁN (17/11/2026): đường biên câu cứng + phương án hỏng phải
+      // bị gắn cờ LỖI rõ ràng, không trình ra như kết quả đạt:
+      // - Phương án còn chứa mốc "Câu N:" của câu khác -> cắt tại mốc đó.
+      // - Phương án rỗng / chữ giữ chỗ "Phương án X" / mảnh nhãn dang dở ("C.") /
+      //   công thức bị cắt cụt (kết thúc bằng dấu + - * / ^ =) -> ghi vào parseWarning.
+      if (!repaired.format || repaired.format === 'MULTIPLE_CHOICE') {
+        const badLetters: string[] = [];
+        repaired.opts = (repaired.opts || []).map((o, oi) => {
+          let t = String(o || '').trim();
+          const markerIdx = t.search(/\sCâu\s*(?:hỏi)?\s*\d{1,3}\s*[:.)]/);
+          if (markerIdx >= 0) {
+            t = markerIdx === 0 ? '' : t.slice(0, markerIdx).trim();
+            if (!badLetters.includes(String.fromCharCode(65 + oi))) {
+              badLetters.push(String.fromCharCode(65 + oi));
+            }
+          }
+          const isDangling =
+            !t ||
+            /^Phương\s*án\s*[A-D]$/i.test(t) ||
+            /^[A-Da-d]\s*[.)]$/.test(t) ||
+            /[+\-*/^=]\s*$/.test(t);
+          if (isDangling && !badLetters.includes(String.fromCharCode(65 + oi))) {
+            badLetters.push(String.fromCharCode(65 + oi));
+          }
+          return t;
+        });
+        if (badLetters.length > 0) {
+          const warn = `Cảnh báo: Phương án ${badLetters.join(
+            ', '
+          )} chưa trích xuất được nội dung gốc (rỗng/dự phòng/bị cắt cụt) — hãy kiểm tra lại file đề.`;
+          repaired.parseWarning = repaired.parseWarning ? `${repaired.parseWarning} ${warn}` : warn;
+        }
+      }
+      return repaired;
     })
     .filter(item => !isBogusWordGarbageQuestion(item) && item.q.length > 0 && item.opts.length >= 1)
     .map((item, idx) => ({
