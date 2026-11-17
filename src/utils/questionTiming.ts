@@ -20,7 +20,7 @@ export const DEFAULT_DURATION_SA_SEC = 60;
 /**
  * Dạng hiệu dụng của 1 câu hỏi: ưu tiên trường format; thiếu thì suy ra từ dữ
  * liệu (có tfItems → Đúng/Sai; có shortAnswer → trả lời ngắn) — cùng quy tắc suy
- * luận đã dùng ở TeacherSetupView (chuẩn hoá đề) và utils/speechText.ts.
+ * luận đã dùng ở TeacherSetupView (chuẩn hoá đề).
  */
 export function resolveQuestionFormat(q?: QuizItem | null): QuestionFormat {
   if (!q) return 'MULTIPLE_CHOICE';
