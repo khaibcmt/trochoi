@@ -42,6 +42,13 @@ interface Props {
   onOpenNationalDossier?: () => void;
   onNewSession?: (customRoomId?: string) => void;
   onResetClass?: () => void;
+  /**
+   * XP sau trận CHUẨN do App tính bằng planMatchXpFlush (suy từ sổ đáp án
+   * + số câu đã mở — CÙNG nguồn với đường ghi Firebase). Có mặt (kể cả
+   * bảng rỗng) thì dùng thay cách tính nội bộ bên dưới; undefined thì giữ
+   * cách tính cũ.
+   */
+  authoritativePostMatchXp?: Record<string, number>;
 }
 
 export const HostArenaView: React.FC<Props> = ({
@@ -58,7 +65,8 @@ export const HostArenaView: React.FC<Props> = ({
   onOpenKeyModal,
   onOpenNationalDossier,
   onNewSession,
-  onResetClass
+  onResetClass,
+  authoritativePostMatchXp
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1250,15 +1258,18 @@ export const HostArenaView: React.FC<Props> = ({
     return [...matchState.redPlayers, ...matchState.bluePlayers];
   }, [matchState.redPlayers, matchState.bluePlayers]);
 
-  // XP SAU TRẬN cho màn kết (Grand Finale + modal Top 10 mở từ màn kết): chỉ
-  // tính khi ENDED, từ ĐÚNG dữ kiện App dùng để ghi Firebase (đội hình + sổ
-  // điểm + hạng) qua buildPostMatchXpByDeviceId → màn kết hiện icon/tên cấp
-  // + số XP MỚI vừa ghi, không còn hiện XP cũ lúc vào phòng. Ngoài ENDED trả
+  // XP SAU TRẬN cho màn kết (Grand Finale + modal Top 10 mở từ màn kết):
+  // ƯU TIÊN bản đồ CHUẨN do App truyền xuống (planMatchXpFlush — suy từ sổ
+  // đáp án + số câu đã mở, đúng số sẽ ghi Firebase). Chỉ khi App không
+  // truyền (undefined) mới tự tính theo cách cũ qua
+  // buildPostMatchXpByDeviceId (bộ đếm trên bản ghi + cả bộ đề) → màn kết
+  // hiện icon/tên cấp + số XP MỚI vừa ghi. Ngoài ENDED cả hai đều
   // undefined → mọi nơi tự rơi về XP lúc vào phòng như cũ.
-  const postMatchXpByDeviceId = useMemo(() => {
+  const legacyPostMatchXpByDeviceId = useMemo(() => {
     if (matchState.status !== 'ENDED') return undefined;
     return buildPostMatchXpByDeviceId(allPlayers, matchState.gameType, quizList.length);
   }, [matchState.status, allPlayers, matchState.gameType, quizList.length]);
+  const postMatchXpByDeviceId = authoritativePostMatchXp !== undefined ? authoritativePostMatchXp : legacyPostMatchXpByDeviceId;
 
   // KHÔI PHỤC THIẾT KẾ GỐC (17/11/2026): tập học sinh ĐƯỢC LÊN SÂN KHẤU host —
   // số lượng lấy từ Ô CÀI ĐẶT max3DRenderCount (mặc định 10, cùng giá trị
