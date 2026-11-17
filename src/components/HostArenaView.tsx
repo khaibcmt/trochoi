@@ -1040,7 +1040,14 @@ export const HostArenaView: React.FC<Props> = ({
   useEffect(() => {
     if (!threeRef.current) return;
     const { scene, redPullers3D, bluePullers3D } = threeRef.current;
-    const max3D = Math.min(24, Math.max(12, matchState.settings?.max3DRenderCount || 20));
+    // KHÔI PHỤC ĐƯỜNG ĐỌC CÀI ĐẶT GỐC (thầy chốt 17/11/2026): trần nhân vật trên
+    // sân khấu là Ô CÀI ĐẶT "🎮 Tối đa 3D trên sân" (trường max3DRenderCount ở
+    // màn Cài Đặt GV, mặc định 10) — bản gốc (89cc4c4) đọc THẲNG giá trị này.
+    // Commit 201aa9b đã bọc nó trong Math.min(24, Math.max(12, … || 20)) khiến
+    // sân khấu phớt lờ ô cài đặt (đặt 10 vẫn dựng tối thiểu 12, tối đa 24 — cả
+    // lớp chen nhau trên sàn gây lag máy host). Nay đọc thẳng như gốc: code
+    // hiển thị KHÔNG đóng đinh con số nào, thầy chỉnh ô cài đặt là sàn nghe theo.
+    const max3D = matchState.settings?.max3DRenderCount || 10;
 
     const isBell = matchState.gameType === 'BELL';
     const isFast = matchState.gameType === 'FAST';
@@ -1126,8 +1133,10 @@ export const HostArenaView: React.FC<Props> = ({
         });
       });
     } else {
-      // Tug of war: Hiển thị tối đa mỗi đội 12 nhân vật (xếp 2 hàng dọc dây kéo nếu > 5 người)
-      const perTeamMax = Math.max(6, Math.floor(max3D / 2));
+      // Tug of war: mỗi đội dựng tối đa một nửa trần cài đặt (làm tròn xuống —
+      // tổng cả sàn không vượt giá trị ô cài đặt; bản gốc chia ceil/floor theo
+      // đúng max3D, sàn nâng cấp từng tự ý nâng mỗi đội lên tối thiểu 6)
+      const perTeamMax = Math.floor(max3D / 2);
       const sortedRed = [...matchState.redPlayers].sort((a, b) => {
         const sA = (a.fastScore || 0) + (a.correct || 0) * 100;
         const sB = (b.fastScore || 0) + (b.correct || 0) * 100;
@@ -1228,6 +1237,37 @@ export const HostArenaView: React.FC<Props> = ({
   const allPlayers = useMemo(() => {
     return [...matchState.redPlayers, ...matchState.bluePlayers];
   }, [matchState.redPlayers, matchState.bluePlayers]);
+
+  // KHÔI PHỤC THIẾT KẾ GỐC (17/11/2026): tập học sinh ĐƯỢC LÊN SÂN KHẤU host —
+  // số lượng lấy từ Ô CÀI ĐẶT max3DRenderCount (mặc định 10, cùng giá trị
+  // effect dựng 3D đọc), DÙNG CHUNG cho cả nhân vật 3D lẫn nhãn tên HTML: em
+  // ngoài nhóm dẫn đầu không dựng nhãn chút nào (nhãn cũng là tải render đáng
+  // kể phía host). Công thức xếp hạng khớp đúng effect dựng 3D ở trên (BELL:
+  // mạng → số đúng; còn lại: fastScore + đúng×100; Kéo Co: mỗi đội một nửa
+  // trần cài đặt để dây kéo vẫn cân hai phía). Thứ hạng đổi thì tập này tự
+  // tính lại, em ngoài nhóm vào/ra sàn theo điểm.
+  const stageTopIds = useMemo(() => {
+    const ids = new Set<string>();
+    const stageLimit = matchState.settings?.max3DRenderCount || 10;
+    const scoreOf = (p: Player) => (p.fastScore || 0) + (p.correct || 0) * 100;
+    if (matchState.gameType === 'TUG') {
+      const perTeamStage = Math.floor(stageLimit / 2);
+      [...matchState.redPlayers].sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, perTeamStage).forEach(p => ids.add(p.id));
+      [...matchState.bluePlayers].sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, perTeamStage).forEach(p => ids.add(p.id));
+    } else {
+      const candidates = matchState.gameType === 'BELL'
+        ? allPlayers.filter(p => !p.eliminated && (p.lives === undefined || p.lives > 0))
+        : allPlayers;
+      [...candidates].sort((a, b) => {
+        if (matchState.gameType === 'BELL') {
+          if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+          return (b.correct || 0) - (a.correct || 0);
+        }
+        return scoreOf(b) - scoreOf(a);
+      }).slice(0, stageLimit).forEach(p => ids.add(p.id));
+    }
+    return ids;
+  }, [allPlayers, matchState.redPlayers, matchState.bluePlayers, matchState.gameType, matchState.settings?.max3DRenderCount]);
 
   const bellAliveCount = useMemo(() => {
     return allPlayers.filter(x => !x.eliminated).length;
@@ -2793,6 +2833,12 @@ export const HostArenaView: React.FC<Props> = ({
         {/* 3D Label tags container */}
         <div id="labels-container">
           {allPlayers.map(p => {
+            // Thiết kế gốc: CHỈ nhóm dẫn đầu theo ô cài đặt max3DRenderCount
+            // (mặc định 10 em) mới có nhân vật + nhãn trên sân khấu host — em
+            // ngoài nhóm không dựng nhãn chút nào.
+            if (!stageTopIds.has(p.id)) {
+              return null;
+            }
             // Trong trò Rung Chuông Vàng (BELL): Khi học sinh bị loại thì không hiển thị nhân vật/nhãn tên trên màn hình chính của giáo viên
             if (matchState.gameType === 'BELL' && (p.eliminated || (p.lives !== undefined && p.lives <= 0))) {
               return null;
@@ -2848,80 +2894,7 @@ export const HostArenaView: React.FC<Props> = ({
           })}
         </div>
 
-        {/* Bảng Tin Kịch Tính Thời Gian Thực (Live Drama Kill-Feed & World Event Banner) */}
-        {(matchState.worldEventTitle || (matchState.liveFeed && matchState.liveFeed.length > 0)) && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '8px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 28,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '4px',
-              maxWidth: '58%',
-              pointerEvents: 'none'
-            }}
-          >
-            {matchState.worldEventTitle && (
-              <div
-                style={{
-                  background: 'linear-gradient(90deg, rgba(124, 58, 237, 0.94), rgba(219, 39, 119, 0.94))',
-                  border: '1.5px solid #fef08a',
-                  color: '#fef08a',
-                  padding: '4px 14px',
-                  borderRadius: '999px',
-                  fontSize: '12px',
-                  fontWeight: 900,
-                  boxShadow: '0 4px 16px rgba(219, 39, 119, 0.5)',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '100%'
-                }}
-              >
-                {matchState.worldEventTitle}
-              </div>
-            )}
-            {matchState.liveFeed && matchState.liveFeed.slice(0, 2).map((item, idx) => (
-              <div
-                key={item.id}
-                style={{
-                  background:
-                    item.type === 'FIRST_BLOOD'
-                      ? 'rgba(15, 23, 42, 0.92)'
-                      : item.type === 'JACKPOT' || item.type === 'WAGER_WIN'
-                      ? 'rgba(6, 78, 59, 0.92)'
-                      : 'rgba(30, 27, 75, 0.9)',
-                  border: `1.5px solid ${
-                    item.type === 'FIRST_BLOOD'
-                      ? '#facc15'
-                      : item.type === 'JACKPOT' || item.type === 'WAGER_WIN'
-                      ? '#34d399'
-                      : '#f97316'
-                  }`,
-                  color: '#ffffff',
-                  padding: '3px 12px',
-                  borderRadius: '999px',
-                  fontSize: idx === 0 ? '11.5px' : '10.5px',
-                  fontWeight: 800,
-                  opacity: idx === 0 ? 1 : 0.85,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.45)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '100%'
-                }}
-              >
-                {item.text}
-              </div>
-            ))}
-          </div>
-        )}
-
+        {/* Băng thông báo sự kiện (TẤT TAY / CHUỖI / Rương / Sự kiện thế giới): ĐÃ TẮT hiển thị phía host theo lệnh thầy 17/11/2026 — trạng thái liveFeed/worldEvent vẫn cập nhật bình thường cho phía học sinh, host không dựng băng tin này nữa. */}
         {/* Floating QR Badges: Chỉ hiện 2 mã Đỏ/Xanh khi chơi Kéo Co (TUG), các trò khác chỉ hiện 1 mã QR phòng chung */}
         {qrVisible && (
           <>
