@@ -195,6 +195,17 @@ export interface StudentXpUpdate {
 }
 
 /**
+ * XP SAU TRẬN của 1 HS (thuần) — NGUỒN SỰ THẬT DUY NHẤT cho cả GHI lẫn
+ * HIỂN THỊ màn kết: tổng mới = XP hiện có + delta của trận, chặn sàn 0.
+ * Đường ghi (applyXpToRecord) và đường hiển thị phía host
+ * (buildPostMatchXpByDeviceId) đều đi qua hàm này — hai nơi không bao giờ
+ * lệch nhau (lỗi cũ: màn kết hiện XP nạp lúc vào phòng thay vì XP vừa ghi).
+ */
+export function computePostMatchXp(currentXp: number, delta: number): number {
+  return Math.max(0, Math.floor(currentXp || 0) + Math.floor(delta || 0));
+}
+
+/**
  * Dựng danh sách cập nhật XP từ danh sách người chơi cuối trận (thuần):
  * chỉ HS có deviceId (client cũ không gắn thì bỏ qua — không ghi bừa), hạng
  * tính theo BXH cuối trận của host.
@@ -215,6 +226,29 @@ export function buildXpUpdates(
 }
 
 /**
+ * Bảng XP SAU TRẬN theo deviceId (thuần) — phía HOST dùng để render màn kết
+ * (Grand Finale + modal Top 10 mở từ màn kết) bằng ĐÚNG tổng XP sẽ được ghi
+ * lên Firebase (XP lúc vào phòng + delta qua computePostMatchXp), thay vì XP
+ * cũ nạp lúc ENTER. HS không có deviceId (client cũ) không có mặt trong bảng
+ * → nơi render tự rơi về XP lúc vào phòng như cũ.
+ */
+export function buildPostMatchXpByDeviceId(
+  players: Array<XpRankPlayer & { deviceId?: string; xp?: number }>,
+  gameType: string,
+  totalQuestions: number
+): Record<string, number> {
+  const enterXpByDevice = new Map<string, number>();
+  players.forEach(p => {
+    if (p.deviceId) enterXpByDevice.set(p.deviceId, p.xp || 0);
+  });
+  const out: Record<string, number> = {};
+  buildXpUpdates(players, gameType, totalQuestions).forEach(u => {
+    out[u.deviceId] = computePostMatchXp(enterXpByDevice.get(u.deviceId) || 0, u.delta);
+  });
+  return out;
+}
+
+/**
  * Áp 1 khoản cập nhật lên bản ghi hiện có (thuần) — TRÁI TIM chống ghi đúp:
  * bản ghi đã mang lastMatchId của chính trận này → trả null (bỏ qua, không
  * cộng lần 2). Tên lấy bản mới nhất; xp chặn sàn 0 (hạ cấp tự suy ra).
@@ -229,7 +263,7 @@ export function applyXpToRecord(
   const base: StudentLevelRecord = existing || { name: '', xp: 0, matches: 0, correct: 0, wrong: 0, lastMatchId: '', updatedAt: 0 };
   return {
     name: update.name || base.name || '',
-    xp: Math.max(0, (base.xp || 0) + update.delta),
+    xp: computePostMatchXp(base.xp || 0, update.delta),
     matches: (base.matches || 0) + 1,
     correct: (base.correct || 0) + update.correct,
     wrong: (base.wrong || 0) + update.wrong,
@@ -281,6 +315,43 @@ export async function fetchOwnStudentRecord(fetchFn: FetchFn, deviceId: string):
   } catch {
     return null;
   }
+}
+
+export interface RefreshOwnXpOptions {
+  /** Mốc thời gian trận kết thúc theo đồng hồ phía HS (Date.now() lúc vào màn ENDED). */
+  endedAt: number;
+  initialDelayMs?: number;
+  retryDelayMs?: number;
+  /** Tiêm để test chạy tức thì. Mặc định: setTimeout. */
+  delay?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Đọc lại XP MỚI của chính học sinh khi vào màn ENDED (phía HS): host chỉ bắt
+ * đầu ghi ~2s sau khi trận kết thúc và ghi rải theo lô, nên lần đọc đầu (sau
+ * initialDelayMs) có thể vẫn gặp bản ghi CŨ (updatedAt < endedAt) hoặc lỗi
+ * mạng → thử lại ĐÚNG 1 lần sau retryDelayMs rồi nhận kết quả lần 2. Trả XP
+ * mới; null = không đọc được → nơi gọi GIỮ nguyên hiển thị XP lúc vào phòng.
+ * Tối đa 2 GET cho chính mình và CHỈ ở màn kết — zero-tải lúc thi giữ nguyên.
+ */
+export async function refreshOwnStudentXp(
+  fetchFn: FetchFn,
+  deviceId: string,
+  opts: RefreshOwnXpOptions
+): Promise<number | null> {
+  if (!deviceId) return null;
+  const wait = opts.delay || ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  const initialDelayMs = typeof opts.initialDelayMs === 'number' ? opts.initialDelayMs : 5000;
+  const retryDelayMs = typeof opts.retryDelayMs === 'number' ? opts.retryDelayMs : 7000;
+  await wait(initialDelayMs);
+  const first = await fetchOwnStudentRecord(fetchFn, deviceId);
+  if (first && (first.updatedAt || 0) >= opts.endedAt) {
+    return Math.max(0, first.xp || 0);
+  }
+  await wait(retryDelayMs);
+  const second = await fetchOwnStudentRecord(fetchFn, deviceId);
+  if (second) return Math.max(0, second.xp || 0);
+  return first ? Math.max(0, first.xp || 0) : null;
 }
 
 /**
