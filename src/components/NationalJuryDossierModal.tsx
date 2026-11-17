@@ -34,6 +34,12 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
   const countF2 = quizList.filter(q => q.format === 'TRUE_FALSE').length;
   const countF3 = quizList.filter(q => q.format === 'SHORT_ANSWER').length;
   const totalQ = Math.max(quizList.length, 1);
+  // Ví dụ minh hoạ công thức quy đổi TT22 theo ĐÚNG tổng số câu của đề đang mở
+  // (trước đây ghi cứng theo đề ví dụ 12 câu, đề khác số câu là sai lệch hẳn).
+  const gbExampleCounts = Array.from(new Set(
+    [totalQ, Math.round(totalQ * 5 / 6), Math.round(totalQ * 3 / 4), Math.round(totalQ * 2 / 3), Math.round(totalQ * 7 / 12), Math.round(totalQ / 2)]
+      .filter(n => n > 0)
+  )).sort((a, b) => b - a);
 
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
   const rankedPlayers = [...allPlayers].sort((a, b) => {
@@ -916,12 +922,11 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   <div style={{ fontSize: '15px', color: '#cbd5e1', lineHeight: 1.65 }}>
                     • <b>Tuyệt đối không bị trừ điểm câu sai:</b> Đánh giá năng lực thực chất dựa trên tổng số câu học sinh làm đúng.<br />
                     • <b>Công thức chuẩn Thông tư 22/2021/TT-BGDĐT:</b> Tất cả trả về thang điểm 10 theo công thức: <code>Điểm = Làm tròn 1 số lẻ ((Số câu đúng / Tổng câu) * 10)</code>.<br />
-                    &nbsp;&nbsp;⭐ Đúng 12/12 câu: <b>10.0 điểm</b><br />
-                    &nbsp;&nbsp;⭐ Đúng 10/12 câu: <b>8.3 điểm</b><br />
-                    &nbsp;&nbsp;⭐ Đúng 9/12 câu: <b>7.5 điểm</b><br />
-                    &nbsp;&nbsp;⭐ Đúng 8/12 câu: <b>6.7 điểm</b><br />
-                    &nbsp;&nbsp;⭐ Đúng 7/12 câu: <b>5.8 điểm</b><br />
-                    &nbsp;&nbsp;⭐ Đúng 6/12 câu: <b>5.0 điểm</b><br />
+                    {gbExampleCounts.map(k => (
+                      <span key={k}>
+                        &nbsp;&nbsp;⭐ Đúng {k}/{totalQ} câu: <b>{getTeacherGradebookScore(k, totalQ).grade.toFixed(1)} điểm</b><br />
+                      </span>
+                    ))}
                     • <b>Xếp thứ tự thực tế từ cao xuống thấp:</b> Giúp giáo viên chỉ việc mở sổ điểm điện tử <b>vnEdu</b> hoặc <b>SMAS</b> và vào điểm ngay lập tức.<br />
                     • <b>Thống kê 100% học sinh:</b> Cả 2 BXH đều lấy trọn vẹn toàn bộ học sinh tham gia, không bỏ sót bất kỳ em nào.<br />
                     • <b>Hiển thị trực tiếp Top 10:</b> Màn hình thi đấu ưu tiên hiện Top 10 dẫn đầu để vinh danh và giữ màn hình thông thoáng, kèm nút chuyển đổi xem đầy đủ 100% học sinh.<br />
@@ -1231,7 +1236,7 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
             </button>
 
             <button
-              onClick={() => exportHonorCertificateHTML(matchState, activeRoomId)}
+              onClick={() => exportHonorCertificateHTML(matchState, activeRoomId, totalQ)}
               style={{
                 padding: '10px 16px',
                 borderRadius: '12px',
