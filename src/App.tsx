@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   MatchState,
   GamePlayType,
@@ -34,9 +34,8 @@ import {
 } from './utils/presence';
 import { questionDurationFor } from './utils/questionTiming';
 import {
-  buildXpUpdates,
-  computeMatchId,
-  flushMatchXp
+  flushMatchXp,
+  planMatchXpFlush
 } from './utils/studentLevel';
 import { applyPointsPenalty, computeWrongPenalty } from './utils/wagerPenalty';
 import { defaultFetch } from './utils/license';
@@ -869,10 +868,15 @@ export const App: React.FC = () => {
 
   // Hệ CẤP ĐỘ — GHI XP CUỐI TRẬN (phía HOST, zero-tải trong lúc thi):
   // chỉ chạy khi trạng thái vừa vào ENDED. Chờ 2s cho các tin vào phòng trễ
-  // kịp gắn deviceId vào bản ghi, rồi tính delta từ SỔ ĐIỂM HOST (correct /
-  // BXH cuối trận) và xả ghi rải theo lô lên kc3d_students — fire-and-forget,
-  // lỗi không bao giờ ảnh hưởng màn kết. Chống ghi đúp 2 lớp: mã trận tất
-  // định (F5 ở màn kết khôi phục đúng dữ liệu → cùng mã) + cờ tại máy host
+  // kịp gắn deviceId vào bản ghi, rồi lập kế hoạch ghi bằng planMatchXpFlush
+  // từ SỔ ĐÁP ÁN của host (answeredDetails — KHÔNG tin bộ đếm correct trên
+  // bản ghi người chơi nữa: nút "THI ĐẤU TRẬN MỚI" ở màn kết reset bộ đếm về
+  // 0 rồi kết thúc ngay từng sinh một "trận ma" trừ oan 28 câu sai cho cả
+  // phòng, sự cố 17/11/2026) và xả ghi rải theo lô lên kc3d_students —
+  // fire-and-forget, lỗi không bao giờ ảnh hưởng màn kết. Trận không có đáp
+  // án nào trong sổ → plan = null → bỏ qua hẳn (không ghi, không đặt dấu).
+  // Chống ghi đúp 2 lớp: mã trận tất định suy từ KẾT QUẢ SUY RA (F5 ở màn
+  // kết / bộ đếm bị reset vẫn ra cùng mã của trận thật) + cờ tại máy host
   // (localStorage) + lastMatchId trên từng bản ghi Firebase.
   const xpFlushedMatchesRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -882,10 +886,16 @@ export const App: React.FC = () => {
       try {
         const ms = matchStateRef.current;
         if (!ms || ms.status !== 'ENDED') return;
-        const players = [...ms.redPlayers, ...ms.bluePlayers];
-        const totalQ = quizListRef.current.length;
-        if (players.length === 0 || totalQ <= 0) return;
-        const matchId = computeMatchId(activeRoomId, players, totalQ, ms.gameType);
+        const plan = planMatchXpFlush({
+          roomId: activeRoomId,
+          players: [...ms.redPlayers, ...ms.bluePlayers],
+          detailsEntries: answeredDetailsRef.current.entries(),
+          deckLength: quizListRef.current.length,
+          globalQIndex: ms.globalQIndex,
+          gameType: ms.gameType
+        });
+        if (!plan) return;
+        const matchId = plan.matchId;
         if (xpFlushedMatchesRef.current.has(matchId)) return;
         const markerKey = 'kc3d_xp_written_' + activeRoomId;
         try {
@@ -895,12 +905,7 @@ export const App: React.FC = () => {
           }
         } catch { /* bỏ qua */ }
         xpFlushedMatchesRef.current.add(matchId);
-        const updates = buildXpUpdates(players, ms.gameType, totalQ);
-        if (updates.length === 0) {
-          try { localStorage.setItem(markerKey, matchId); } catch { /* bỏ qua */ }
-          return;
-        }
-        void flushMatchXp({ fetchFn: defaultFetch, now: () => Date.now() }, updates, matchId)
+        void flushMatchXp({ fetchFn: defaultFetch, now: () => Date.now() }, plan.updates, matchId)
           .then(() => {
             try { localStorage.setItem(markerKey, matchId); } catch { /* bỏ qua */ }
           })
@@ -910,6 +915,35 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchState.status, activeRoomId, isDirectStudent]);
+
+  // XP SAU TRẬN CHUẨN cho màn kết (phía HOST): cùng MỘT kế hoạch
+  // planMatchXpFlush mà đường ghi dùng (suy từ sổ đáp án + số câu đã mở)
+  // → số XP Grand Finale/Top 10 hiển thị luôn bằng đúng số sẽ ghi, kể cả
+  // khi trận kết thúc giữa chừng hay bộ đếm trên bản ghi đã bị reset.
+  // Ngoài ENDED trả undefined (HostArenaView giữ hành vi cũ); ENDED mà
+  // không lập được kế hoạch (trận không có đáp án) trả bảng RỖNG → mọi HS
+  // hiển thị XP lúc vào phòng (đúng sự thật: không có gì được ghi).
+  const authoritativePostMatchXp: Record<string, number> | undefined = useMemo(() => {
+    if (isDirectStudent || !activeRoomId) return undefined;
+    if (matchState.status !== 'ENDED') return undefined;
+    try {
+      const plan = planMatchXpFlush({
+        roomId: activeRoomId,
+        players: [...matchState.redPlayers, ...matchState.bluePlayers],
+        detailsEntries: answeredDetailsRef.current.entries(),
+        deckLength: quizList.length,
+        globalQIndex: matchState.globalQIndex,
+        gameType: matchState.gameType
+      });
+      return plan ? plan.postMatchXpByDeviceId : {};
+    } catch {
+      return {};
+    }
+    // answeredDetailsRef thực tế đã đông cứng khi ENDED (phía HS khoá gửi
+    // đáp án ngay khi nhận MATCH_ENDED; PULL_CORRECT cũng return sớm ở
+    // ENDED) nên đọc trong useMemo theo status/roster là an toàn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchState.status, matchState.redPlayers, matchState.bluePlayers, matchState.globalQIndex, matchState.gameType, quizList.length, activeRoomId, isDirectStudent]);
 
   // Nếu là phiên phục hồi sau F5, đối soát danh sách học sinh với server để không bỏ sót bạn nào
   useEffect(() => {
@@ -2336,6 +2370,7 @@ export const App: React.FC = () => {
           onOpenNationalDossier={() => setShowNationalDossier(true)}
           onNewSession={handleCreateNewSession}
           onResetClass={handleResetCurrentClass}
+          authoritativePostMatchXp={authoritativePostMatchXp}
         />
       )}
 
