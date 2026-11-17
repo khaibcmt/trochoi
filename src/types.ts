@@ -66,6 +66,19 @@ export interface AvatarConfig {
 
 export interface Player {
   id: string;
+  // Đợt 5 (4B.1): định danh BỀN của học sinh (lưu localStorage theo phòng ở phía HS).
+  // id là mã bản ghi phía host (thường trùng studentId khi HS vào bằng định danh bền);
+  // studentId là khoá GỘP bản ghi: HS quay lại với playerId mới nhưng studentId cũ
+  // vẫn được host gộp vào đúng bản ghi này, không tạo "người ma".
+  studentId?: string;
+  // Đợt 5 (4B.2): mốc host nhìn thấy HS lần cuối (ping/enter/đáp án — giờ phía HOST).
+  // Quá 15s không có tín hiệu → offline=true (xám "mất kết nối", giữ nguyên chỗ/điểm/mạng);
+  // quá 90s → giải phóng chỗ theo luật từng chế độ (xem utils/presence.ts).
+  lastSeen?: number;
+  offline?: boolean;
+  // Đã bị giải phóng chỗ sau 90s ở chế độ BELL (loại khỏi sàn, thành khán giả) —
+  // bản ghi còn giữ cho bảng điểm cuối trận; các chế độ khác thì bản ghi bị dọn hẳn.
+  holdReleased?: boolean;
   label: string;
   team: PlayerTeam;
   ready: boolean;
@@ -97,6 +110,9 @@ export interface MatchSettings {
   max3DRenderCount: number; // default 20
   questionDurationSec: number; // default 30s
   bossMaxHP: number; // default 1000
+  // Đợt 4 (GĐ3): công tắc chung của host — bật thì máy học sinh mới hiện nút 🔊
+  // và mới đáp ứng lệnh đọc đồng bộ TTS_READ. Mặc định TẮT (undefined = tắt).
+  ttsStudentEnabled?: boolean;
 }
 
 export interface MatchState {
@@ -129,11 +145,56 @@ export interface MatchState {
   settings: MatchSettings;
 }
 
+/**
+ * Đợt 5 (4B.1): định danh bền của học sinh lưu ở localStorage theo khoá
+ * `kc3d_student_<room>` — đóng tab / mở lại / F5 quá cửa sổ phiên tab cũ vẫn là MỘT người.
+ * tabSessionId (sessionStorage theo tab) chỉ còn là lớp phụ (chống trùng giữa các tab
+ * đang mở đồng thời trên cùng một máy khi giáo viên test), không quyết định danh tính.
+ */
+export interface StudentIdentity {
+  studentId: string;
+  name: string;
+  team: PlayerTeam;
+}
+
 export interface CloudMessage {
   _mid?: string;
   type: string;
+  // Đợt 8 (4C.2): chữ ký HMAC-SHA256 của lệnh ĐIỀU KHIỂN nhạy cảm, host ký bằng khoá
+  // phòng (xem utils/commandSign.ts). Chỉ các type trong SENSITIVE_COMMAND_TYPES mới
+  // mang trường này; phía HS có khoá thì bắt buộc kiểm tra trước khi thi hành.
+  sig?: string;
+  // Đợt 8 (4C.1): "broker epoch" do HOST công bố kèm tin state/heartbeat retained —
+  // brokerId = chỉ số broker host đang dùng, epoch tăng dần mỗi lần host đổi broker.
+  // Phía HS chỉ chuyển broker khi thấy epoch này thay đổi, không tự failover độc lập.
+  brokerEpoch?: { brokerId: number; epoch: number };
+  // Đợt 8 (4D): HOST_HEARTBEAT rút gọn — khi top10/playerIds không đổi so với nhịp
+  // trước, host BỎ hai trường đó và đặt cờ này; phía HS giữ nguyên trạng thái cũ.
+  top10Unchanged?: boolean;
   roomId?: string;
   playerId?: string;
+  // Đợt 5 (4B.1): định danh bền đi kèm MỌI tin vào phòng / ping / đáp án của HS để
+  // host gộp bản ghi theo studentId thay vì chỉ theo playerId của phiên tab.
+  studentId?: string;
+  tabSessionId?: string;
+  // Đợt 5 (4B.2): mốc thời gian phía HS khi gửi PLAYER_PING / PLAYER_OFFLINE (chỉ tham
+  // khảo — host luôn tính lastSeen bằng đồng hồ của chính host lúc nhận tin).
+  ts?: number;
+  // Đợt 5 (4B.3): RESYNC_REQUEST { playerId, studentId, lastQIndex } — lastQIndex là câu
+  // HS đang xem trước khi mất kết nối/F5, host đối chiếu khi dựng RESYNC_STATE.
+  lastQIndex?: number;
+  // Đợt 5 (4B.3): các trường chỉ RESYNC_STATE mang theo (host → đúng HS xin resync):
+  // canonicalPlayerId = id bản ghi host đã gộp (HS nhận làm playerId của mình nếu khác),
+  // hasPlayer = host còn bản ghi của HS hay không, holdReleased = chỗ đã bị giải phóng
+  // sau 90s ở ván hiện tại (chờ ván sau), trạng thái đã-trả-lời câu hiện tại của HS:
+  canonicalPlayerId?: string;
+  hasPlayer?: boolean;
+  holdReleased?: boolean;
+  hasAnsweredCurrentQ?: boolean;
+  answeredIsCorrect?: boolean | null;
+  selectedOptionOriginalIdx?: number | null;
+  tfAnswers?: Record<string, boolean>;
+  shortAnswerInput?: string;
   targetPlayerId?: string;
   team?: PlayerTeam;
   preferredTeam?: PlayerTeam;
@@ -184,6 +245,20 @@ export interface CloudMessage {
   chunkIndex?: number;
   totalChunks?: number;
   quizChunk?: QuizItem[];
+  // Đợt 3 (2.3–2.4): phân loại gói chunk — 'QUIZ' (mặc định, tương thích ngược) là chunk của
+  // cả bộ đề; 'SINGLE_QUESTION' là chunk riêng chứa đúng 1 câu hỏi quá lớn (thường do ảnh
+  // base64) được tách khỏi gói đơn/heartbeat, câu nằm ở quizChunk[0] và thuộc vị trí qIndex.
+  chunkKind?: 'QUIZ' | 'SINGLE_QUESTION';
+  // Đợt 3 (2.3): HS gửi QUIZ_CHUNK_REQUEST { quizHash, missingChunks } xin host phát lại
+  // đúng các gói đề còn thiếu của bộ đề có quizHash tương ứng.
+  missingChunks?: number[];
+  // Đợt 3 (2.4): khi question đầy đủ đã bị rút khỏi gói (đi đường chunk riêng), gói chỉ còn
+  // tham chiếu này — HS lấy câu thật từ bộ đề đã ghép theo quizHash + qIndex/globalQIndex.
+  questionRefOnly?: boolean;
+  // Đợt 4 (GĐ3): trạng thái công tắc "Đọc đề trên máy học sinh" của host, phát kèm
+  // HOST_HEARTBEAT để HS biết có được hiện nút 🔊 / đáp ứng TTS_READ hay không.
+  // Tin TTS_READ { qIndex } do host phát khi bấm Đọc Đề để HS đọc đồng bộ câu đó.
+  ttsStudentEnabled?: boolean;
   allRanks?: any[];
   rankings?: any[];
   avatar?: AvatarConfig;
