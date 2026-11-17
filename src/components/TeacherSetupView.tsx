@@ -1400,10 +1400,11 @@ export const TeacherSetupView: React.FC<Props> = ({
         <section
           style={{
             margin: '10px 0',
-            padding: '10px 14px',
-            background: 'linear-gradient(90deg, #1e1b4b, #0f172a)',
-            borderRadius: '12px',
-            border: '2px solid #6366f1',
+            padding: '14px 16px',
+            background: 'linear-gradient(90deg, #26206b, #111c33)',
+            borderRadius: '14px',
+            border: '2.5px solid #818cf8',
+            boxShadow: '0 0 0 3px rgba(99, 102, 241, 0.25), 0 0 22px rgba(99, 102, 241, 0.45), 0 6px 18px rgba(0, 0, 0, 0.35)',
             color: '#ffffff',
             display: 'flex',
             flexWrap: 'wrap',
@@ -1414,10 +1415,12 @@ export const TeacherSetupView: React.FC<Props> = ({
           aria-label="Cài đặt thông số trận đấu"
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 900, color: '#fef08a' }}>⚙️ Cấu Hình Thông Số:</span>
+            <span style={{ fontSize: '15px', fontWeight: 900, color: '#fef08a', textShadow: '0 0 10px rgba(254, 240, 138, 0.55)' }}>⚙️ Cấu Hình Thông Số:</span>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'stretch' }}>
+            {/* Cụm XANH DƯƠNG: sĩ số + tối đa 3D + chẩn đoán tải máy chủ */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.16)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               👥 Sĩ số phòng:
               <input
@@ -1426,7 +1429,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 max={1000}
                 value={matchSettings.roomCapacity}
                 onChange={e => onUpdateSettings({ ...matchSettings, roomCapacity: Math.max(2, parseInt(e.target.value) || 200) })}
-                style={{ width: '65px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '65px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#38bdf8', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
             </label>
 
@@ -1438,7 +1441,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 max={10}
                 value={matchSettings.max3DRenderCount}
                 onChange={e => onUpdateSettings({ ...matchSettings, max3DRenderCount: Math.min(10, Math.max(2, parseInt(e.target.value) || 10)) })}
-                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#4ade80', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#4ade80', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
             </label>
 
@@ -1451,15 +1454,18 @@ export const TeacherSetupView: React.FC<Props> = ({
               📡 Hiện dòng chẩn đoán tải máy chủ
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>(tin/s, số lần vẽ lại danh sách — tắt khi lớp đông nếu thấy vướng)</span>
             </label>
+            </div>
 
+            {/* Cụm CAM/VÀNG: Admin + Quản lý máy */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.14)', border: '1.5px solid rgba(245, 158, 11, 0.6)' }}>
             <button
               type="button"
               onClick={license.openAdmin}
               title={license.isAdmin ? 'Đang ở chế độ Admin — bấm để thoát' : 'Mở chế độ Admin (2 khoá: mã chủ + mã Admin của thầy)'}
               style={{
-                padding: '5px 12px', borderRadius: '8px', cursor: 'pointer',
+                padding: '10px 18px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer',
                 border: '1.5px solid #f59e0b', background: license.isAdmin ? '#f59e0b' : '#090d16',
-                color: license.isAdmin ? '#1c1440' : '#fbbf24', fontWeight: 900, fontSize: '12.5px'
+                color: license.isAdmin ? '#1c1440' : '#fbbf24', fontWeight: 900, fontSize: '14.5px'
               }}
             >
               {license.isAdmin ? '👑 Admin đang mở' : '🔑 Admin'}
@@ -1471,14 +1477,18 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onClick={license.openMachines}
                 title="Xem danh sách máy đã đăng ký kích hoạt, khoá lại / mở lại từng máy"
                 style={{
-                  padding: '5px 12px', borderRadius: '8px', cursor: 'pointer',
+                  padding: '10px 18px', minHeight: '42px', borderRadius: '10px', cursor: 'pointer',
                   border: '1.5px solid #818cf8', background: '#090d16',
-                  color: '#a5b4fc', fontWeight: 900, fontSize: '12.5px'
+                  color: '#a5b4fc', fontWeight: 900, fontSize: '14.5px'
                 }}
               >
                 🔐 Quản lý máy
               </button>
             )}
+            </div>
+
+            {/* Cụm XANH LÁ: thời gian 3 phần */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(22, 163, 74, 0.14)', border: '1.5px solid rgba(74, 222, 128, 0.5)' }}>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               ⏱️ Phần 1 – Trắc nghiệm:
@@ -1488,7 +1498,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 max={300}
                 value={matchSettings.questionDurationSec}
                 onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSec: Math.max(5, parseInt(e.target.value) || 30) })}
-                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f59e0b', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f59e0b', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
             </label>
@@ -1501,7 +1511,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 max={300}
                 value={matchSettings.questionDurationTfSec ?? 60}
                 onChange={e => onUpdateSettings({ ...matchSettings, questionDurationTfSec: Math.max(5, parseInt(e.target.value) || 60) })}
-                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#c4b5fd', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#c4b5fd', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
             </label>
@@ -1514,11 +1524,14 @@ export const TeacherSetupView: React.FC<Props> = ({
                 max={300}
                 value={matchSettings.questionDurationSaSec ?? 60}
                 onChange={e => onUpdateSettings({ ...matchSettings, questionDurationSaSec: Math.max(5, parseInt(e.target.value) || 60) })}
-                style={{ width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#6ee7b7', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '60px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#6ee7b7', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>giây/câu</span>
             </label>
+            </div>
 
+            {/* Cụm ĐỎ/HỒNG: máu Boss */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(225, 29, 72, 0.14)', border: '1.5px solid rgba(251, 113, 133, 0.55)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               🐉 Máu Quái vật Boss:
               <input
@@ -1528,10 +1541,11 @@ export const TeacherSetupView: React.FC<Props> = ({
                 step={100}
                 value={matchSettings.bossMaxHP}
                 onChange={e => onUpdateSettings({ ...matchSettings, bossMaxHP: Math.max(200, parseInt(e.target.value) || 1000) })}
-                style={{ width: '70px', padding: '4px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f87171', fontWeight: 900, textAlign: 'center' }}
+                style={{ width: '70px', padding: '7px 6px', borderRadius: '6px', border: '1px solid #94a3b8', background: '#090d16', color: '#f87171', fontWeight: 900, fontSize: '13.5px', textAlign: 'center' }}
               />
               <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>HP</span>
             </label>
+            </div>
           </div>
         </section>
 
