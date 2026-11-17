@@ -19,6 +19,7 @@ import {
 import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
 import { getOrCreateRoomKey } from '../utils/commandSign';
+import { questionDurationFor, computeRemainingSec } from '../utils/questionTiming';
 import {
   buildSpeechText,
   speakVietnameseText,
@@ -85,8 +86,11 @@ export const HostArenaView: React.FC<Props> = ({
   const [reviewQIdx, setReviewQIdx] = useState(0);
   const [skyTheme, setSkyTheme] = useState(1);
 
-  // 30-Second Question Timer (Applies to ALL 4 MODES)
-  const durationSec = matchState.settings?.questionDurationSec || 30;
+  // Đồng hồ câu hỏi (áp cho cả 4 chế độ): thời lượng lấy theo PHẦN của câu hiện
+  // tại — Phần 1 trắc nghiệm / Phần 2 Đúng-Sai / Phần 3 trả lời ngắn — từ 3 ô cài
+  // đặt của giáo viên (mặc định 30 / 60 / 60 giây).
+  const durationQ = quizList[Math.min(Math.max(0, matchState.globalQIndex), Math.max(0, quizList.length - 1))];
+  const durationSec = questionDurationFor(matchState.settings, durationQ);
   const [remainingSec, setRemainingSec] = useState<number>(durationSec);
   const timerIntervalRef = useRef<any>(null);
   const timerStartMsRef = useRef<number>(0);
@@ -1288,12 +1292,50 @@ export const HostArenaView: React.FC<Props> = ({
 
   const activeTimerQuestionKeyRef = useRef<string>('');
 
-  // 30-Second Countdown Timer Implementation:
-  // Bắt đầu tính giờ ngay khi hiện câu hỏi, KHÔNG BAO GIỜ reset khi học sinh trả lời đúng/sai, hết 30s là tự động qua câu khác (không chọn coi như sai)
+  // Chạy interval đếm ngược cho MỘT ĐOẠN thời gian của câu hiện tại: đoạn đầu =
+  // đủ thời lượng theo phần của câu; đoạn sau TẠM DỪNG = đúng số giây còn lại đã
+  // chốt lúc dừng. timerStartMsRef phải được đặt TRƯỚC khi gọi hàm này.
+  function armSegmentInterval(segSec: number) {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
+      const elapsedMs = Date.now() - timerStartMsRef.current;
+      const rem = Math.max(0, segSec - elapsedMs / 1000);
+      setRemainingSec(rem);
+
+      if (rem <= 0 && !isTransitioningRef.current) {
+        isTransitioningRef.current = true;
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        handleQuestionTimeout();
+      }
+    }, 100);
+  }
+
+  // Countdown Timer Implementation:
+  // Bắt đầu tính giờ ngay khi hiện câu hỏi, KHÔNG BAO GIỜ reset khi học sinh trả lời đúng/sai, hết giờ là tự động qua câu khác (không chọn coi như sai)
   useEffect(() => {
+    // TẠM DỪNG theo câu: đồng hồ host ĐÔNG CỨNG ở số giây còn lại đã chốt — không
+    // timeout, không phát lại QUESTION_START. KHÔNG xoá activeTimerQuestionKeyRef
+    // để khi Tiếp tục, effect không khởi động lại câu từ đầu (đoạn còn lại do
+    // handlePauseMatch chạy tiếp ngay trong handler).
+    if (matchState.status === 'PAUSED') {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      const qp = matchState.questionPause;
+      if (qp && qp.qIndex === matchState.globalQIndex) {
+        setRemainingSec(qp.remainingSec);
+      }
+      return;
+    }
     if (matchState.status !== 'PLAYING') {
       activeTimerQuestionKeyRef.current = '';
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      return;
+    }
+    // PLAYING nhưng dấu tạm dừng của chính câu này vẫn còn (trạng thái chưa kịp
+    // gỡ): vẫn đông cứng, chờ handlePauseMatch gỡ dấu và chạy tiếp đoạn còn lại.
+    const qpNow = matchState.questionPause;
+    if (qpNow && qpNow.qIndex === matchState.globalQIndex) {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setRemainingSec(qpNow.remainingSec);
       return;
     }
 
@@ -1352,7 +1394,11 @@ export const HostArenaView: React.FC<Props> = ({
       firstBloodPlayerId: null,
       firstBloodPlayerName: null,
       activeWorldEvent: nextWorldEv,
-      worldEventTitle: nextWorldTitle
+      worldEventTitle: nextWorldTitle,
+      // Ghi lại mốc đoạn câu vừa công bố (RESYNC_STATE ưu tiên lấy từ đây để trả
+      // đúng deadline) và gỡ mọi dấu tạm dừng còn sót của câu trước.
+      currentTiming: { qIndex: safeIdx, serverStartTime: timerStartMsRef.current, durationSec },
+      questionPause: null
     }));
 
     if (isMilestoneGoldenQ) {
@@ -1374,24 +1420,12 @@ export const HostArenaView: React.FC<Props> = ({
       quiz: safeIdx === 0 ? currentDeck : undefined
     });
 
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-
-    timerIntervalRef.current = setInterval(() => {
-      const elapsedMs = Date.now() - timerStartMsRef.current;
-      const rem = Math.max(0, durationSec - elapsedMs / 1000);
-      setRemainingSec(rem);
-
-      if (rem <= 0 && !isTransitioningRef.current) {
-        isTransitioningRef.current = true;
-        clearInterval(timerIntervalRef.current);
-        handleQuestionTimeout();
-      }
-    }, 100);
+    armSegmentInterval(durationSec);
 
     return () => {
       // Chỉ dọn interval khi unmount hoặc khi đổi sang câu hỏi mới / đổi trạng thái trận đấu
     };
-  }, [matchState.status, matchState.globalQIndex, durationSec]);
+  }, [matchState.status, matchState.globalQIndex, durationSec, matchState.questionPause]);
 
   // Clean up timer interval on component unmount
   useEffect(() => {
@@ -1511,14 +1545,17 @@ export const HostArenaView: React.FC<Props> = ({
           status: 'ENDED',
           globalQIndex: totalCount - 1,
           redAnsweredIds: [],
-          blueAnsweredIds: []
+          blueAnsweredIds: [],
+          questionPause: null
         };
       }
       return {
         ...prev,
         globalQIndex: prev.globalQIndex + 1,
         redAnsweredIds: [],
-        blueAnsweredIds: []
+        blueAnsweredIds: [],
+        // Qua câu mới thì dấu tạm dừng của câu cũ hết hiệu lực.
+        questionPause: null
       };
     });
   };
@@ -2040,6 +2077,8 @@ export const HostArenaView: React.FC<Props> = ({
       onUpdateQuizList(orderedDeck);
     }
     const firstQ = orderedDeck[0] ? { ...orderedDeck[0], qIndex: 0, totalQuestions: orderedDeck.length } : undefined;
+    // Thời lượng câu đầu tiên tính theo PHẦN của chính câu đó sau khi đã xáo thứ tự.
+    const firstDurationSec = questionDurationFor(matchState.settings, orderedDeck[0]);
 
     // 1. Cập nhật trạng thái PLAYING ngay lập tức trước khi gửi tin để nhịp tim không bao giờ gửi nhầm trạng thái LOBBY cũ
     onUpdateMatchState(prev => ({
@@ -2047,7 +2086,10 @@ export const HostArenaView: React.FC<Props> = ({
       status: 'PLAYING',
       globalQIndex: 0,
       bossHP: prev.settings?.bossMaxHP || 1000,
-      maxBossHP: prev.settings?.bossMaxHP || 1000
+      maxBossHP: prev.settings?.bossMaxHP || 1000,
+      // Trận mới: xoá sạch dấu tạm dừng / mốc đoạn của trận trước.
+      questionPause: null,
+      currentTiming: null
     }));
     setQrVisible(false);
 
@@ -2056,7 +2098,7 @@ export const HostArenaView: React.FC<Props> = ({
       type: 'FORCE_START_MATCH',
       status: 'PLAYING',
       qIndex: 0,
-      durationSec: durationSec,
+      durationSec: firstDurationSec,
       serverStartTime: nowTs,
       question: firstQ,
       quiz: orderedDeck
@@ -2068,7 +2110,7 @@ export const HostArenaView: React.FC<Props> = ({
       type: 'FORCE_START_MATCH' as const,
       status: 'PLAYING' as const,
       qIndex: 0,
-      durationSec: durationSec,
+      durationSec: firstDurationSec,
       serverStartTime: nowTs,
       question: firstQ
     };
@@ -2080,21 +2122,61 @@ export const HostArenaView: React.FC<Props> = ({
     }, 550);
   };
 
-  // Pause / Resume
+  // ⏸ Tạm dừng / ▶ Tiếp tục THEO CÂU (lệnh PAUSE_TOGGLE đã nằm trong danh sách
+  // lệnh nhạy cảm — network.ts tự ký bằng khoá phòng, phía HS kiểm chữ ký trước
+  // khi thi hành — và nay đi QoS 1):
+  // - Dừng: chốt số giây CÒN LẠI của câu hiện tại theo đồng hồ host, đông cứng
+  //   đồng hồ hai phía, HS khoá gửi đáp án (không đá về phòng chờ như bản cũ).
+  // - Tiếp tục: công bố deadline MỚI = mốc tiếp tục + số giây còn lại đã chốt —
+  //   học sinh không mất giây nào (và không được cộng thêm như bản cũ, vốn phát
+  //   lại QUESTION_START với đầy đủ thời gian).
   const handlePauseMatch = () => {
-    const nextStatus = matchState.status === 'PLAYING' ? 'PAUSED' : 'PLAYING';
-    const curQ = quizList[matchState.globalQIndex % (quizList.length || 1)];
-    onUpdateMatchState(prev => ({
-      ...prev,
-      status: nextStatus
-    }));
-    CloudNetwork.sendMessage({
-      type: 'PAUSE_TOGGLE',
-      status: nextStatus,
-      qIndex: matchState.globalQIndex,
-      question: curQ ? ({ ...curQ, qIndex: matchState.globalQIndex } as any) : undefined,
-      quiz: quizList
-    });
+    if (matchState.status === 'PLAYING') {
+      const timerKey = `PLAYING_Q_${matchState.globalQIndex}_${durationSec}`;
+      const rem =
+        activeTimerQuestionKeyRef.current === timerKey
+          ? computeRemainingSec(timerStartMsRef.current, durationSec, Date.now())
+          : durationSec;
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setRemainingSec(rem);
+      onUpdateMatchState(prev => ({
+        ...prev,
+        status: 'PAUSED',
+        questionPause: { qIndex: matchState.globalQIndex, remainingSec: rem }
+      }));
+      CloudNetwork.sendMessage({
+        type: 'PAUSE_TOGGLE',
+        status: 'PAUSED',
+        qIndex: matchState.globalQIndex,
+        remainingSec: rem,
+        serverTs: Date.now()
+      });
+    } else if (matchState.status === 'PAUSED') {
+      const qp = matchState.questionPause;
+      const rem = qp && qp.qIndex === matchState.globalQIndex ? qp.remainingSec : durationSec;
+      const resumeTs = Date.now();
+      onUpdateMatchState(prev => ({
+        ...prev,
+        status: 'PLAYING',
+        questionPause: null,
+        currentTiming: { qIndex: matchState.globalQIndex, serverStartTime: resumeTs, durationSec: rem }
+      }));
+      CloudNetwork.sendMessage({
+        type: 'PAUSE_TOGGLE',
+        status: 'PLAYING',
+        qIndex: matchState.globalQIndex,
+        serverStartTime: resumeTs,
+        durationSec: rem,
+        serverTs: resumeTs
+      });
+      // Chạy tiếp đồng hồ host với đúng đoạn còn lại ngay trong handler: effect
+      // đếm ngược sẽ KHÔNG tự khởi động lại vì timerKey của câu không đổi (đó là
+      // chủ đích để không phát lại QUESTION_START từ đầu).
+      isTransitioningRef.current = false;
+      timerStartMsRef.current = resumeTs;
+      setRemainingSec(rem);
+      armSegmentInterval(rem);
+    }
   };
 
   // End match
@@ -2534,7 +2616,7 @@ export const HostArenaView: React.FC<Props> = ({
                 }}
                 onClick={handlePauseMatch}
               >
-                {matchState.status === 'PLAYING' ? '⏸ Dừng' : '▶ Tiếp'}
+                {matchState.status === 'PLAYING' ? '⏸ Tạm dừng' : '▶ Tiếp tục'}
               </button>
             </>
           )}
