@@ -1438,6 +1438,16 @@ export const TeacherSetupView: React.FC<Props> = ({
             </label>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={matchSettings.showHostDiag !== false}
+                onChange={e => onUpdateSettings({ ...matchSettings, showHostDiag: e.target.checked })}
+              />
+              📡 Hiện dòng chẩn đoán tải máy chủ
+              <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>(tin/s, số lần vẽ lại danh sách — tắt khi lớp đông nếu thấy vướng)</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
               ⏱️ Phần 1 – Trắc nghiệm:
               <input
                 type="number"
