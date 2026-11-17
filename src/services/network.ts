@@ -404,6 +404,7 @@ class NetworkService {
   // Bộ lọc khử trùng lặp gói tin (Deduplication Guard)
   private seenMsgIds = new Set<string>();
   private seenMsgQueue: string[] = [];
+  private deliveredCount = 0;
 
   private localBus: BroadcastChannel | null = null;
   private worker: Worker | null = null;
@@ -764,6 +765,8 @@ class NetworkService {
     };
   }
 
+  public getDeliveredCount(): number { return this.deliveredCount; }
+
   /** Đợt 3 (2.3): đăng ký nhận thông báo mỗi khi publish chunk/state thất bại. */
   public onPublishError(cb: (info: PublishErrorInfo) => void): () => void {
     this.publishErrorListeners.add(cb);
@@ -1095,6 +1098,7 @@ class NetworkService {
       }
       this.recordMsgId(data._mid);
     }
+    this.deliveredCount++;
 
     // Đợt 8 (4C.1): phía HS đi theo broker epoch do host công bố trong state/heartbeat —
     // xử lý ở tầng mạng TRƯỚC khi chuyển tin lên trên để lần chuyển broker diễn ra ngay.
@@ -2120,22 +2124,14 @@ class NetworkService {
     // HOST_HEARTBEAT live + PLAYER_PING + feed giữ QoS 0 như quyết định Đợt 5.
     const liveQos: 0 | 1 = qosForMessageType(effectivePayload.type);
 
-    // Đợt GIA CỐ TẢI: PLAYER_PING là tin CHỈ host tiêu thụ (ghi lastSeen giữ
-    // chỗ) — phát thẳng vào topic players/<playerId> thay vì topic phòng, để
-    // broker chỉ giao cho host (đăng ký players/+) chứ KHÔNG fan-out tới mọi
-    // máy HS. Trước gia cố, ở 200 HS: 40 ping/s × phát kép 2 client × ~402
-    // subscription ≈ 32.000 lượt giao/s chỉ riêng ping — nghẽn wifi lớp +
-    // broker công cộng trước mọi điểm nghẽn khác. Sau gia cố: ~13 lượt/s.
-    // SỬA SỰ CỐ 17/11/2026: phát KÈM một bản lên topic phòng (cùng _mid, host
-    // khử trùng tuyệt đối). Đường host-only lệ thuộc subscription players/+ của
-    // host phải sống đúng trên broker mà ping hạ cánh — một điểm gãy mà đáp án
-    // (đi topic phòng) không có; trong cả 3 lần test thật, đáp án đi topic phòng
-    // về đều trong khi tín hiệu sống bị kẹt. Topic phòng là đường đã được chứng
-    // minh thông suốt nên cho ping đi ké làm đường dự phòng: chi phí fan-out ở
-    // 200 HS ≈ 13 ping/s × ~200 máy ≈ 2,6k lượt/s, nằm trong dư địa test tải
-    // đã đo (đỉnh bùng nổ ~22k lượt/s vẫn gánh được); phía HS nhận ping của bạn
-    // khác trên topic phòng thì bỏ qua hoàn toàn (không có handler cho
-    // PLAYER_PING ở phía HS).
+    // Đợt GIA CỐ TẢI + đợt cắt tải host 17/11: PLAYER_PING là tin CHỈ host
+    // tiêu thụ (ghi lastSeen giữ chỗ) — ping chỉ đi đường host-only
+    // players/<playerId>, để broker chỉ giao cho host (đăng ký players/+)
+    // chứ KHÔNG fan-out tới mọi máy HS.
+    // Lý do bỏ bản sao backup lên topic phòng (thêm ở đợt sửa sự cố 17/11):
+    // mỗi ping nhân 4 bản ở tầng MQTT khiến máy host phải parse ~4× số gói,
+    // trong khi đường players/+ đã ổn định. Đáp án vẫn đi topic phòng như
+    // cũ, không đổi.
     if (effectivePayload.type === 'PLAYER_PING' && effectivePayload.playerId) {
       const pingTopic = `${this.currentRoomTopic}/players/${effectivePayload.playerId}`;
       activeClients.forEach(c => {
@@ -2145,13 +2141,6 @@ class NetworkService {
           mqttLivePayload,
           { qos: liveQos },
           'MQTT live PLAYER_PING (host-only)'
-        );
-        this.publishWithErrorReport(
-          c,
-          this.currentRoomTopic,
-          mqttLivePayload,
-          { qos: liveQos },
-          'MQTT live PLAYER_PING (room-topic backup)'
         );
       });
       return;
