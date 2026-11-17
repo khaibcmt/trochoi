@@ -38,8 +38,10 @@ import {
  *  - guardAction(fn) (Chuyện 2): máy chưa kích hoạt (và không phải Admin)
  *    bấm 2 nút Thêm Đề Mới / Lưu Đề Này → mở modal đăng ký thay vì chạy fn;
  *    kích hoạt xong thì chạy fn đang chờ.
- *  - Cả 2 điểm trên dùng CHUNG một màn hình xác thực lớn "ĐẤU TRƯỜNG
- *    ONLINE PRO" (mẫu thầy chốt 17/11) — cùng component, cùng luồng gửi.
+ *  - HAI KHUNG TÁCH BẠCH (thầy chốt 17/11): điểm-vào dùng KHUNG A — màn
+ *    hình xác thực lớn "ĐẤU TRƯỜNG ONLINE PRO"; 2 nút dùng KHUNG B —
+ *    modal gốc "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" giữ nguyên 100%.
+ *    Chỉ khác hình thức; cả hai cùng một luồng auto-duyệt kc3d.
  *  - openAdmin(): đăng nhập Admin 2 khoá (mã chủ + mã cá nhân của thầy).
  *  - openMachines(): panel 🔐 Quản lý máy (chỉ Admin).
  *  - modals: JSX của cả 3 modal + toast — render một lần ở cuối màn hình.
@@ -139,8 +141,14 @@ export function useLicenseGate(): LicenseGateApi {
     return () => { cancelled = true; };
   }, [machineId]);
 
-  /* ----- Cửa đăng ký ----- */
+  /* ----- Cửa đăng ký — HAI KHUNG TÁCH BẠCH (thầy chốt 17/11) -----
+   * 'entry' = KHUNG A điểm-vào khu giáo viên: màn hình xác thực lớn
+   *   "ĐẤU TRƯỜNG ONLINE PRO" (đăng nhập lần đầu, điền 1 lần nhớ vĩnh viễn).
+   * 'guard' = KHUNG B ở 2 nút Thêm Đề Mới / Lưu Đề Này: modal gốc
+   *   "🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D" — giữ nguyên 100%, không restyle.
+   * Cả hai cùng ghi về một luồng auto-duyệt kc3d duy nhất (submitRegistration). */
   const [showReg, setShowReg] = useState(false);
+  const [regSource, setRegSource] = useState<'entry' | 'guard'>('guard');
   const [regDone, setRegDone] = useState(false);
   const [regBusy, setRegBusy] = useState(false);
   const [regError, setRegError] = useState('');
@@ -150,6 +158,7 @@ export function useLicenseGate(): LicenseGateApi {
   const guardAction = useCallback(
     (fn: () => void) => {
       if (gateAllows({ isAdmin, activated })) { fn(); return; }
+      setRegSource('guard'); // bấm 2 nút → KHUNG B (modal gốc)
       pendingAction.current = fn;
       const info = readLocalActivation(safeStore).info;
       if (info) setRegForm({ email: info.email || '', name: info.name || '', school: info.school || '' });
@@ -316,6 +325,7 @@ export function useLicenseGate(): LicenseGateApi {
     if (showReg || adminStep || showMachines) return;
     if (!shouldPromptEntryGate({ isAdmin, activated })) return;
     entryPromptedRef.current = true;
+    setRegSource('entry'); // vào khu giáo viên → KHUNG A (màn hình xác thực lớn)
     pendingAction.current = null;
     const info = readLocalActivation(safeStore).info;
     if (info) setRegForm({ email: info.email || '', name: info.name || '', school: info.school || '' });
@@ -334,8 +344,8 @@ export function useLicenseGate(): LicenseGateApi {
     <>
       {showReg && (
         <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) setShowReg(false); }}>
-          <div style={{ ...cardStyle, maxWidth: '560px', padding: '28px 30px' }}>
-            {!regDone ? (
+          <div style={regSource === 'entry' ? { ...cardStyle, maxWidth: '560px', padding: '28px 30px' } : cardStyle}>
+            {!regDone ? (regSource === 'entry' ? (
               <>
                 <div style={{ textAlign: 'center', fontSize: '27px', fontWeight: 900, letterSpacing: '0.5px', color: '#facc15', lineHeight: 1.2 }}>
                   ĐẤU TRƯỜNG ONLINE PRO
@@ -376,6 +386,35 @@ export function useLicenseGate(): LicenseGateApi {
                 </div>
               </>
             ) : (
+              <>
+                <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: 900, color: '#facc15' }}>
+                  🔓 ĐĂNG KÝ KÍCH HOẠT ĐẤU TRƯỜNG 3D
+                </div>
+                <p style={{ fontSize: '14.5px', lineHeight: 1.6, margin: '10px 0 0' }}>
+                  Hai nút <b>➕ Thêm Đề Mới</b> và <b>💾 Lưu Đề Này</b> cần đăng ký kích hoạt cho máy này.
+                  Thầy cô chỉ cần <b>điền form đúng 1 lần duy nhất</b> — hệ thống <b>tự động kích hoạt ngay</b>,
+                  từ đó dùng thoải mái, không phải đăng ký lại.
+                </p>
+                <p style={{ fontSize: '14px', margin: '12px 0 0', color: '#94a3b8' }}>Mã máy của máy này (cố định):</p>
+                <p style={{ textAlign: 'center', fontSize: '23px', fontWeight: 900, letterSpacing: '1px', color: '#facc15', margin: '2px 0 0' }}>{machineId}</p>
+                <label style={labelStyle}>Địa chỉ email</label>
+                <input style={inputStyle} type="email" placeholder="vd: nguyenvana@gmail.com" value={regForm.email}
+                  onChange={e => setRegForm({ ...regForm, email: e.target.value })} />
+                <label style={labelStyle}>Họ và tên giáo viên</label>
+                <input style={inputStyle} type="text" placeholder="vd: Nguyễn Văn A" value={regForm.name}
+                  onChange={e => setRegForm({ ...regForm, name: e.target.value })} />
+                <label style={labelStyle}>Trường</label>
+                <input style={inputStyle} type="text" placeholder="vd: THPT Mang Thít" value={regForm.school}
+                  onChange={e => setRegForm({ ...regForm, school: e.target.value })} />
+                {regError && <p style={{ color: '#fca5a5', fontWeight: 700, fontSize: '14px', margin: '10px 0 0' }}>{regError}</p>}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+                  <button type="button" style={ghostBtn} onClick={() => setShowReg(false)}>Để sau</button>
+                  <button type="button" style={primaryBtn} disabled={regBusy} onClick={handleRegSubmit}>
+                    {regBusy ? '⏳ Đang gửi...' : '📩 Gửi đăng ký & kích hoạt ngay'}
+                  </button>
+                </div>
+              </>
+            )) : (
               <>
                 <div style={{ textAlign: 'center', fontSize: '21px', fontWeight: 900, color: '#4ade80' }}>🎉 KÍCH HOẠT THÀNH CÔNG!</div>
                 <p style={{ fontSize: '15px', lineHeight: 1.65, margin: '12px 0 0', textAlign: 'center' }}>
