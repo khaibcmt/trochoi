@@ -1041,9 +1041,12 @@ body, html {
   background: linear-gradient(90deg, rgba(217, 119, 6, 0.32), rgba(30, 41, 59, 0.9));
   border-color: #fdba74;
 }
-.flb-rank { font-weight: 900; text-align: center; font-size: 12.5px; }
-.flb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.flb-pts { font-weight: 900; color: #38bdf8; font-size: 12px; white-space: nowrap; }
+.flb-rank { font-weight: 900; text-align: center; font-size: 13.5px; }
+.flb-name { font-size: 13.5px; font-weight: 900; color: #f8fafc; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.2; word-break: break-word; min-width: 0; }
+.flb-row.rank-1 .flb-name { font-size: 15px; color: #fef08a; }
+.flb-row.rank-2 .flb-name { font-size: 14px; color: #ffffff; }
+.flb-row.rank-3 .flb-name { font-size: 13.5px; color: #ffedd5; }
+.flb-pts { font-weight: 900; color: #38bdf8; font-size: 11.5px; white-space: nowrap; }
 
 /* Modals */
 #round-modal, #victory-modal {
