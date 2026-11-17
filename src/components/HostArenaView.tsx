@@ -3683,15 +3683,15 @@ export const HostArenaView: React.FC<Props> = ({
                 </div>
               </div>
 
-            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) */}
+            {/* Khung Câu Hỏi Nổi Bật (Tích hợp số câu + dạng thức THPT 2018 + đồng hồ đếm ngược gọn đẹp) — nền XANH nổi bật như thẻ đáp án (lệnh thầy 12:48, 17/11/2026) */}
             <div
               style={{
-                background: 'linear-gradient(180deg, #111c35 0%, #0f172a 100%)',
-                border: isAutoRevealed ? '1.5px solid #facc15' : '1.5px solid rgba(56, 189, 248, 0.4)',
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                border: isAutoRevealed ? '2.5px solid #facc15' : '2.5px solid #7dd3fc',
                 borderRadius: '16px',
                 padding: '10px 18px',
                 marginBottom: '10px',
-                boxShadow: isAutoRevealed ? '0 0 20px rgba(250, 204, 21, 0.35)' : '0 6px 20px rgba(0, 0, 0, 0.45)',
+                boxShadow: isAutoRevealed ? '0 0 20px rgba(250, 204, 21, 0.35)' : '0 8px 20px rgba(0, 0, 0, 0.55), inset 0 2px 3px rgba(255, 255, 255, 0.4)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '6px',
@@ -3708,6 +3708,7 @@ export const HostArenaView: React.FC<Props> = ({
                   lineHeight: 1.32,
                   fontWeight: 900,
                   color: '#ffffff',
+                  textShadow: '0 2px 4px rgba(0, 0, 0, 0.45)',
                   wordBreak: 'break-word',
                   overflowWrap: 'break-word',
                   whiteSpace: 'normal'
