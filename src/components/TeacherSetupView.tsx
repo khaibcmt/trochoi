@@ -1660,19 +1660,23 @@ export const TeacherSetupView: React.FC<Props> = ({
                 type="button"
                 className="btn-action-sm"
                 style={{
-                  height: '34px',
-                  background: '#ffffff',
-                  borderColor: '#38bdf8',
-                  color: '#0369a1',
+                  height: '40px',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                  borderColor: '#fde68a',
+                  borderWidth: '2px',
+                  color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: '13px',
-                  padding: '0 14px',
-                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.18)'
+                  fontSize: '14.5px',
+                  letterSpacing: '0.3px',
+                  padding: '0 20px',
+                  boxShadow:
+                    '0 4px 16px rgba(234, 88, 12, 0.5), 0 0 0 2px rgba(251, 191, 36, 0.55)',
+                  textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)'
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                title="Mở thẳng file đề: Word .docx (giữ nguyên công thức Equation), .json, .txt hoặc .html"
+                title="Tải đề lên từ file: Word .docx (giữ nguyên công thức Equation), .json, .txt hoặc .html"
               >
-                📂 Mở file (.docx/.json/.txt)
+                📤 Tải Đề Lên
               </button>
 
               <button
@@ -1721,7 +1725,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 onChange={handleInlineMediaFileSelect}
               />
 
-              {/* Đợt 7 (1.2): input ẩn cho nút "📂 Mở file" — nạp đề từ .docx/.json/.txt/.html qua handleFileChange */}
+              {/* Đợt 7 (1.2): input ẩn cho nút "📤 Tải Đề Lên" — nạp đề từ .docx/.json/.txt/.html qua handleFileChange */}
               <input
                 type="file"
                 ref={fileInputRef}
