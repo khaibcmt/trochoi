@@ -21,6 +21,8 @@ import {
   readCachedStudentXp,
   writeCachedStudentXp
 } from '../utils/studentLevel';
+import { applyPointsPenalty, computeWrongPenalty } from '../utils/wagerPenalty';
+import { chestPoolForGameType, rollChestReward } from '../utils/chestReward';
 import { defaultFetch } from '../utils/license';
 import {
   extractRoomKeyFromUrlParts,
@@ -131,8 +133,10 @@ export const StudentMobileView: React.FC<Props> = ({
         sessionStorage.removeItem(`kc3d_qidx_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_safe_shield_used_${tabSessionId}`);
       } catch {}
       clearPersistedAnsweredStates();
+      resetSafeShield();
       hasJoinedArenaRef.current = false;
       waitingRoomLockedRef.current = false;
       hasFinishedAllQuestionsRef.current = false;
@@ -151,6 +155,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setEliminated(false);
       eliminatedRef.current = false;
       setIsFrozen(false);
+      resetSafeShield();
       setTop10List([]);
       setScreen('LOBBY');
     }
@@ -253,6 +258,35 @@ export const StudentMobileView: React.FC<Props> = ({
       return false;
     }
   });
+
+  // LÁ CHẮN AN TOÀN 1 lần/trận (luật cược mới, thầy chốt 17/11/2026): câu sai
+  // đầu tiên ở mức An Toàn (x1) được miễn phạt ĐIỂM (BELL vẫn mất mạng), từ
+  // câu sai thứ hai ở x1 phạt chuẩn 1000đ. Gương tại máy (sessionStorage như
+  // mẫu kc3d_wager_used_) chỉ để HIỂN THỊ + tự tính khớp host; sổ HOST là
+  // chuẩn — RESYNC_STATE trả lại trạng thái host để gương đồng bộ lại.
+  // Xem utils/wagerPenalty.ts.
+  const [safeShieldUsed, setSafeShieldUsed] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(`kc3d_safe_shield_used_${tabSessionId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const safeShieldUsedRef = useRef<boolean>(safeShieldUsed);
+  const markSafeShieldUsed = () => {
+    safeShieldUsedRef.current = true;
+    setSafeShieldUsed(true);
+    try {
+      sessionStorage.setItem(`kc3d_safe_shield_used_${tabSessionId}`, 'true');
+    } catch {}
+  };
+  const resetSafeShield = () => {
+    safeShieldUsedRef.current = false;
+    setSafeShieldUsed(false);
+    try {
+      sessionStorage.removeItem(`kc3d_safe_shield_used_${tabSessionId}`);
+    } catch {}
+  };
 
   // Cơ chế Mở Rương Bí Ẩn Định Mệnh (Bắt buộc đúng 5 câu liên tiếp, 4 giây chọn 1 rương, dùng 1 lần duy nhất)
   const [hasOpenedMysteryChest, setHasOpenedMysteryChest] = useState<boolean>(() => {
@@ -361,6 +395,9 @@ export const StudentMobileView: React.FC<Props> = ({
   const myXpRef = useRef<number>((() => {
     try { return readCachedStudentXp(localStorage); } catch { return 0; }
   })());
+  // State gương của myXpRef để chip cấp (icon + tên cấp có màu) re-render được
+  // khi XP nạp xong — set ở đúng 2 điểm nạp XP (cache lúc mount + GET về).
+  const [myXp, setMyXp] = useState<number>(() => myXpRef.current);
   useEffect(() => {
     const deviceId = studentDeviceIdRef.current;
     if (!deviceId) return;
@@ -370,6 +407,7 @@ export const StudentMobileView: React.FC<Props> = ({
       const freshXp = Math.max(0, rec.xp || 0);
       if (freshXp !== myXpRef.current) {
         myXpRef.current = freshXp;
+        setMyXp(freshXp);
         try { writeCachedStudentXp(localStorage, freshXp); } catch { /* bỏ qua */ }
         if (hasJoinedArenaRef.current) {
           sendEnter(studentNameRef.current);
@@ -386,6 +424,18 @@ export const StudentMobileView: React.FC<Props> = ({
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
   const [eliminated, setEliminated] = useState(false);
+
+  // Ref gương cho đường HẾT GIỜ (handleTimeoutFail chạy trong closure của
+  // interval đếm ngược — state trong closure có thể cũ nếu HS vừa đổi mức
+  // cược giữa câu): ma trận phạt phải đọc đúng wager/mạng/khiên HIỆN TẠI.
+  const wagerLevelRef = useRef<WagerLevel>(1);
+  const livesRef = useRef<number>(3);
+  const shieldUpRef = useRef<boolean>(false);
+  const specialWagerUsedRef = useRef<boolean>(false);
+  useEffect(() => { wagerLevelRef.current = wagerLevel; }, [wagerLevel]);
+  useEffect(() => { livesRef.current = lives; }, [lives]);
+  useEffect(() => { shieldUpRef.current = hasImmunityShield || activeShield; }, [hasImmunityShield, activeShield]);
+  useEffect(() => { specialWagerUsedRef.current = hasUsedSpecialWager; }, [hasUsedSpecialWager]);
   const [matchStatText, setMatchStatText] = useState('Đang kết nối thông suốt...');
   const hasJoinedArenaRef = useRef<boolean>((() => {
     try {
@@ -1215,39 +1265,70 @@ export const StudentMobileView: React.FC<Props> = ({
     const curIdx = currentGlobalQIndexRef.current;
     const totalCount = Math.max(1, quizDeckRef.current.length || 1);
     const isFinalQ = curIdx + 1 >= totalCount;
-    let nextScoreAfterTimeout = fastScoreRef.current;
 
-    if (activeGM === 'BELL') {
-      setLives(prev => {
-        const nextL = Math.max(0, prev - 1);
-        setLastLockedResult({
-          isCorrect: false,
-          text: nextL <= 0
-            ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI • Bạn đã hết 3 ❤️ và chuyển sang làm Khán giả cổ vũ!`
-            : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Mất 1 ❤️ Mạng (Còn ${nextL} ❤️)`
-        });
-        if (nextL <= 0) {
-          setEliminated(true);
-          setScreen('ELIMINATED');
-        }
-        return nextL;
-      });
-    } else if (activeGM === 'FAST' || activeGM === 'BOSS') {
-      nextScoreAfterTimeout = fastScoreRef.current - 1000;
+    // LUẬT CƯỢC MỚI (17/11/2026): hết giờ = trả lời sai — đi qua CÙNG ma
+    // trận wagerPenalty như đường chốt sai, ở cả hai phía. (Bản cũ: máy HS
+    // tự trừ −1000đ ở FAST/BOSS nhưng tin FREEZE_WRONG không kèm wagerLevel
+    // → host tính phạt 0 → hai sổ lệch nhau.) Đọc wager/mạng/khiên qua ref
+    // gương vì hàm này chạy trong closure của interval đếm ngược.
+    const activeWager = wagerLevelRef.current || 1;
+    if (activeWager > 1) {
+      setHasUsedSpecialWager(true);
+      try {
+        sessionStorage.setItem(`kc3d_wager_used_${tabSessionId}`, 'true');
+      } catch {}
+    }
+    const pen = computeWrongPenalty({
+      gameType: activeGM,
+      wagerLevel: activeWager,
+      specialWagerUsed: specialWagerUsedRef.current,
+      safeShieldUsed: safeShieldUsedRef.current,
+      shieldProtected: shieldUpRef.current
+    });
+    if (pen.consumeShield) {
+      setHasImmunityShield(false);
+      setActiveShield(false);
+    }
+    if (pen.consumeSafeShield) markSafeShieldUsed();
+
+    let nextScoreAfterTimeout = fastScoreRef.current;
+    if (pen.pointsPenalty > 0) {
+      nextScoreAfterTimeout = applyPointsPenalty(fastScoreRef.current, pen.pointsPenalty, activeGM);
       fastScoreRef.current = nextScoreAfterTimeout;
       setFastScore(nextScoreAfterTimeout);
+    }
+    const nextLivesAfterTimeout = Math.max(0, livesRef.current - pen.livesLoss);
+    const durTxt = Math.round(questionDurationSecRef.current);
+    const penaltyNote = pen.consumeShield
+      ? '🛡️ Khiên Bất Tử đã bảo vệ bạn: không trừ điểm, không mất mạng!'
+      : pen.pointsPenalty > 0
+      ? `Trừ -${pen.pointsPenalty} điểm`
+      : pen.consumeSafeShield
+      ? 'Lá chắn An Toàn đã che phạt điểm lần này (chỉ 1 lần/trận)'
+      : 'Không trừ điểm';
+
+    if (activeGM === 'BELL') {
+      if (pen.livesLoss > 0) {
+        setLives(nextLivesAfterTimeout);
+        livesRef.current = nextLivesAfterTimeout;
+      }
       setLastLockedResult({
         isCorrect: false,
-        text: isFinalQ
-          ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (-1000 điểm) • Đang tổng kết kết quả cuối cùng!`
-          : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI • Trừ -1000 điểm (Số câu đúng ghi sổ điểm vẫn bảo lưu)!`
+        text: nextLivesAfterTimeout <= 0 && pen.livesLoss > 0
+          ? `⏰ HẾT ${durTxt} GIÂY! Không chọn đáp án coi như SAI • Bạn đã hết 3 ❤️ và chuyển sang làm Khán giả cổ vũ!`
+          : `⏰ HẾT ${durTxt} GIÂY! Không chọn đáp án coi như SAI • ${penaltyNote}${pen.livesLoss > 0 ? ` • Mất 1 ❤️ Mạng (Còn ${nextLivesAfterTimeout} ❤️)` : ''}`
       });
+      if (nextLivesAfterTimeout <= 0 && pen.livesLoss > 0) {
+        setEliminated(true);
+        eliminatedRef.current = true;
+        setScreen('ELIMINATED');
+      }
     } else {
       setLastLockedResult({
         isCorrect: false,
         text: isFinalQ
-          ? `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI (0 điểm) • Đang tổng kết kết quả cuối cùng!`
-          : `⏰ HẾT ${Math.round(questionDurationSecRef.current)} GIÂY! Không chọn đáp án coi như SAI (0 điểm) • Đang chuyển qua câu tiếp theo!`
+          ? `⏰ HẾT ${durTxt} GIÂY CÂU CUỐI! Không chọn đáp án coi như SAI • ${penaltyNote} • Đang tổng kết kết quả cuối cùng!`
+          : `⏰ HẾT ${durTxt} GIÂY! Không chọn đáp án coi như SAI • ${penaltyNote} (Số câu đúng ghi sổ điểm vẫn bảo lưu)!`
       });
     }
 
@@ -1257,8 +1338,14 @@ export const StudentMobileView: React.FC<Props> = ({
       studentId: studentIdRef.current,
       team: teamRef.current,
       globalQIndex: curIdx,
+      // Luật cược mới: kèm wagerLevel + cờ khiên + mạng sau trừ để host tính
+      // phạt qua cùng ma trận — điểm HS và sổ host khớp tuyệt đối.
+      wagerLevel: activeWager,
+      shieldProtected: pen.consumeShield,
+      lives: nextLivesAfterTimeout,
       totalScore: nextScoreAfterTimeout,
-      savedCorrect: myCorrectCountRef.current
+      savedCorrect: myCorrectCountRef.current,
+      hasUsedSpecialWager: activeWager > 1
     });
 
     if (isFinalQ) {
@@ -1414,6 +1501,13 @@ export const StudentMobileView: React.FC<Props> = ({
         myCorrectCountRef.current = d.savedCorrect;
         setMyCorrectCount(d.savedCorrect);
       }
+      // Luật cược mới (17/11/2026): lá chắn An Toàn theo sổ HOST là chuẩn —
+      // đồng bộ lại gương tại máy từ RESYNC (host đã tiêu hao mà gương chưa
+      // kịp, hoặc phía host đã làm mới lá chắn cho trận mới).
+      if (typeof d.safeShieldUsed === 'boolean') {
+        if (d.safeShieldUsed) markSafeShieldUsed();
+        else resetSafeShield();
+      }
       if (typeof d.bossHP === 'number') setBossHP(d.bossHP);
       if (typeof d.maxBossHP === 'number') setMaxBossHP(d.maxBossHP);
 
@@ -1537,6 +1631,7 @@ export const StudentMobileView: React.FC<Props> = ({
         sessionStorage.removeItem(`kc3d_qidx_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_wager_used_${tabSessionId}`);
         sessionStorage.removeItem(`kc3d_chest_opened_${tabSessionId}`);
+        sessionStorage.removeItem(`kc3d_safe_shield_used_${tabSessionId}`);
         // Đợt 5 (4B.1): phiên mới = lớp mới — xoá luôn định danh bền của phòng này để
         // người tiếp theo dùng cùng máy không thừa hưởng danh tính/điểm của HS trước,
         // và sinh định danh mới cho lần vào phòng kế tiếp.
@@ -1567,6 +1662,7 @@ export const StudentMobileView: React.FC<Props> = ({
       setEliminated(false);
       eliminatedRef.current = false;
       setIsFrozen(false);
+      resetSafeShield();
       setTop10List([]);
       setScreen('LOBBY');
       AudioFX.bonusLifeChime();
@@ -1815,6 +1911,8 @@ export const StudentMobileView: React.FC<Props> = ({
       setLastLockedResult(null);
       setEliminatedOptions([]);
       setWagerLevel(1);
+      // Trận mới: lá chắn An Toàn làm mới (khớp reset phía host).
+      resetSafeShield();
       const startIdx = typeof d.qIndex === 'number' ? d.qIndex : 0;
       currentGlobalQIndexRef.current = startIdx;
       maxReachedQIndexRef.current = startIdx;
@@ -1915,6 +2013,8 @@ export const StudentMobileView: React.FC<Props> = ({
       setLastLockedResult(null);
       // Đổi trò chơi = trận mới: xoá trạng thái đã-trả-lời đã lưu của trận cũ
       clearPersistedAnsweredStates();
+      // Trận mới: lá chắn An Toàn làm mới (khớp reset phía host).
+      resetSafeShield();
 
       if (hasJoinedArenaRef.current && !isPlaceholderOrEmptyName(studentNameRef.current)) {
         waitingRoomLockedRef.current = false;
@@ -2589,29 +2689,34 @@ export const StudentMobileView: React.FC<Props> = ({
 
     AudioFX.jackpotSpin();
 
-    const roll = Math.random();
-    let icon = '💎';
+    // Luật rương THEO MODE (thầy chốt 17/11/2026) — quay qua hàm thuần
+    // rollChestReward (utils/chestReward.ts) dùng chung cho cả mở tay và tự
+    // mở sau 4 giây: BELL giữ pool 4 vật phẩm ×25%; FAST/BOSS/TUG pool chỉ
+    // 3 vật phẩm chia đều 1/3, KHÔNG bao giờ ra 💖 Tim Vàng (ngoài Rung
+    // Chuông Vàng thì "+1 mạng" vô nghĩa).
+    const reward = rollChestReward(gameType, Math.random());
+    let icon = reward.icon;
     let title = 'NỔ HŨ KIM CƯƠNG (+1.500Đ)!';
     let desc = 'Bạn mở trúng Nổ Hũ Kim Cương: Thưởng nóng ngay +1.500 điểm thưởng!';
-    let bonusDelta = 1500;
+    let bonusDelta = reward.bonusDelta;
     let specialPower: string | undefined = undefined;
     let nextLives = lives;
 
-    if (roll < 0.25) {
+    if (reward.id === 'DIAMOND') {
       // 1. 💎 Nổ Hũ Kim Cương: +1.500 điểm thưởng
       icon = '💎';
       title = 'NỔ HŨ KIM CƯƠNG (+1.500Đ)!';
       desc = `Rương Kho Báu #${chestIndex + 1} phát nổ Kim Cương: Thưởng nóng ngay +1.500 điểm thưởng!`;
       bonusDelta = 1500;
-    } else if (roll < 0.50) {
+    } else if (reward.id === 'STEAL') {
       // 2. 🥷 Đạo Chích: +900đ và hút 500đ của bạn đang dẫn đầu Top 1
       icon = '🥷';
       title = 'ĐẠO CHÍCH (+900Đ & HÚT 500Đ TOP 1)!';
       desc = `Rương #${chestIndex + 1}: Kích hoạt Đạo Chích +900đ và xuất chiêu hút 500đ từ đối thủ đang dẫn đầu Top 1!`;
       bonusDelta = 900;
       specialPower = 'STEAL_LEADER';
-    } else if (roll < 0.75) {
-      // 3. 💖 Tim Vàng: +1 Mạng hồi sinh trong Rung Chuông Vàng
+    } else if (reward.id === 'HEART') {
+      // 3. 💖 Tim Vàng: +1 Mạng hồi sinh — CHỈ có trong pool của Rung Chuông Vàng
       icon = '💖';
       title = 'TIM VÀNG (+1 MẠNG HỒI SINH & +500Đ)!';
       desc = `Rương #${chestIndex + 1}: Nhận ngay +1 ❤️ Mạng hồi sinh quý giá trong Rung Chuông Vàng và +500 điểm!`;
@@ -2806,36 +2911,42 @@ export const StudentMobileView: React.FC<Props> = ({
         chestTimerRef.current = null;
       }
 
-      // Kiểm tra Khiên Bất Tử (từ Rương Bí Ẩn) hoặc Khiên Bảo Vệ
-      const isProtectedByShield = hasImmunityShield || activeShield;
-      if (hasImmunityShield) setHasImmunityShield(false);
-      if (activeShield) setActiveShield(false);
-
-      // Mức trừ điểm theo đúng quy tắc cược bản lĩnh:
-      // • 🛡️ An Toàn (x1): Sai không bị trừ điểm (penalty = 0)
-      // • ⚡ Liều Lĩnh (x1.5): Sai bị trừ -300đ
-      // • 🔥 Tất Tay (x2.5): Sai bị trừ -800đ
-      let penaltyPts = 0;
-      if (activeWager === 2.5) {
-        penaltyPts = 800;
-      } else if (activeWager === 1.5) {
-        penaltyPts = 300;
-      } else {
-        penaltyPts = 0;
+      // LUẬT CƯỢC MỚI (thầy chốt 17/11/2026) — tính phạt qua ma trận dùng
+      // chung utils/wagerPenalty.ts, ĐÚNG hàm phía host dùng trên sổ chuẩn:
+      // • Khiên Bất Tử / Khiên Bảo Vệ che tuyệt đối câu sai này (0đ, 0 mạng).
+      // • Liều Lĩnh x1.5 −300đ / Tất Tay x2.5 −800đ (khoá 1 lần/trận).
+      // • An Toàn x1: câu sai ĐẦU TIÊN được lá chắn An Toàn che phạt điểm
+      //   (BELL vẫn mất mạng); từ câu sai thứ hai: −1000đ (BELL thêm −1 mạng).
+      // • TUG không còn đóng băng khi trả lời sai.
+      const shieldUp = hasImmunityShield || activeShield;
+      const pen = computeWrongPenalty({
+        gameType,
+        wagerLevel: activeWager,
+        specialWagerUsed: hasUsedSpecialWager,
+        safeShieldUsed: safeShieldUsedRef.current,
+        shieldProtected: shieldUp
+      });
+      if (pen.consumeShield) {
+        if (hasImmunityShield) setHasImmunityShield(false);
+        if (activeShield) setActiveShield(false);
       }
+      if (pen.consumeSafeShield) markSafeShieldUsed();
+      const penaltyPts = pen.pointsPenalty;
+      const effWager = pen.effectiveWager;
 
       let nextTotalScore = fastScoreRef.current;
       let nextLivesVal = lives;
 
-      if (isProtectedByShield) {
+      if (pen.consumeShield) {
         // Được Khiên Bất Tử bảo vệ -> Tuyệt đối không bị trừ điểm và không mất mạng!
         setLastLockedResult({
           isCorrect: false,
           text: '🛡️ KHIÊN BẤT TỬ ĐÃ BẢO VỆ BẠN! Câu này trả lời sai nhưng bạn hoàn toàn không bị phạt điểm / mất mạng!'
         });
       } else if (gameType === 'BELL') {
-        // Rung Chuông Vàng: Mất 1 mạng, kèm trừ điểm nếu chọn cược Liều Lĩnh / Tất Tay
-        nextLivesVal = Math.max(0, lives - 1);
+        // Rung Chuông Vàng: mất mạng theo ma trận (mọi câu sai đều −1 mạng,
+        // lá chắn An Toàn chỉ che điểm); trừ điểm theo ma trận (sàn 0).
+        nextLivesVal = Math.max(0, lives - pen.livesLoss);
         setLives(nextLivesVal);
         if (nextLivesVal <= 0) {
           setEliminated(true);
@@ -2843,47 +2954,53 @@ export const StudentMobileView: React.FC<Props> = ({
           setScreen('ELIMINATED');
         }
         if (penaltyPts > 0) {
-          nextTotalScore = fastScoreRef.current - penaltyPts;
+          nextTotalScore = applyPointsPenalty(fastScoreRef.current, penaltyPts, 'BELL');
           fastScoreRef.current = nextTotalScore;
           setFastScore(nextTotalScore);
         }
         setLastLockedResult({
           isCorrect: false,
-          text: activeWager === 2.5
+          text: effWager === 2.5
             ? '❌ ĐÁP ÁN SAI! Cược Tất Tay x2.5 thất bại: Mất 1 ❤️ và bị phạt -800đ!'
-            : activeWager === 1.5
+            : effWager === 1.5
             ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh x1.5 thất bại: Mất 1 ❤️ và bị phạt -300đ!'
-            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Mất 1 ❤️ (Không bị phạt điểm)!'
+            : pen.consumeSafeShield
+            ? '🛡️ LÁ CHẮN AN TOÀN ĐÃ CHE PHẠT ĐIỂM! Bạn mất 1 ❤️ (lá chắn chỉ che điểm, 1 lần/trận — câu sai sau ở An Toàn sẽ trừ -1000đ và vẫn mất mạng)!'
+            : '❌ ĐÁP ÁN SAI! An Toàn (x1) nhưng lá chắn đã dùng rồi: Mất 1 ❤️ và trừ -1000đ!'
         });
       } else if (gameType === 'FAST' || gameType === 'BOSS') {
         // Đua Tốc Độ / Diệt Boss
         if (penaltyPts > 0) {
-          nextTotalScore = fastScoreRef.current - penaltyPts;
+          nextTotalScore = applyPointsPenalty(fastScoreRef.current, penaltyPts, gameType);
           fastScoreRef.current = nextTotalScore;
           setFastScore(nextTotalScore);
         }
         setLastLockedResult({
           isCorrect: false,
-          text: activeWager === 2.5
+          text: effWager === 2.5
             ? '❌ ĐÁP ÁN SAI! Cược Tất Tay x2.5 thất bại: Trừ -800 điểm!'
-            : activeWager === 1.5
+            : effWager === 1.5
             ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh x1.5 thất bại: Trừ -300 điểm!'
-            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Bạn không bị trừ điểm!'
+            : pen.consumeSafeShield
+            ? '🛡️ LÁ CHẮN AN TOÀN ĐÃ CHE PHẠT ĐIỂM LẦN NÀY! (Chỉ 1 lần/trận — câu sai sau ở An Toàn sẽ trừ -1000đ)'
+            : '❌ ĐÁP ÁN SAI! An Toàn (x1) nhưng lá chắn đã dùng rồi: Trừ -1000 điểm!'
         });
       } else {
-        // Kéo Co (TUG)
+        // Kéo Co (TUG): chỉ trừ điểm theo ma trận — KHÔNG còn đóng băng khi sai.
         if (penaltyPts > 0) {
-          nextTotalScore = fastScoreRef.current - penaltyPts;
+          nextTotalScore = applyPointsPenalty(fastScoreRef.current, penaltyPts, 'TUG');
           fastScoreRef.current = nextTotalScore;
           setFastScore(nextTotalScore);
         }
         setLastLockedResult({
           isCorrect: false,
-          text: activeWager === 2.5
-            ? '❌ ĐÁP ÁN SAI! Cược Tất Tay thất bại: Trừ -800đ & đóng băng!'
-            : activeWager === 1.5
-            ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh thất bại: Trừ -300đ & đóng băng!'
-            : '❌ ĐÁP ÁN SAI! Mức cược An Toàn (x1): Không bị trừ điểm • Đã khóa câu trả lời!'
+          text: effWager === 2.5
+            ? '❌ ĐÁP ÁN SAI! Cược Tất Tay thất bại: Trừ -800đ!'
+            : effWager === 1.5
+            ? '❌ ĐÁP ÁN SAI! Cược Liều Lĩnh thất bại: Trừ -300đ!'
+            : pen.consumeSafeShield
+            ? '🛡️ LÁ CHẮN AN TOÀN ĐÃ CHE PHẠT ĐIỂM LẦN NÀY! (Chỉ 1 lần/trận — câu sai sau ở An Toàn sẽ trừ -1000đ) • Đã khóa câu trả lời!'
+            : '❌ ĐÁP ÁN SAI! An Toàn (x1) nhưng lá chắn đã dùng rồi: Trừ -1000đ • Đã khóa câu trả lời!'
         });
       }
 
@@ -2896,6 +3013,9 @@ export const StudentMobileView: React.FC<Props> = ({
         team,
         globalQIndex: currentGlobalQIndexRef.current,
         wagerLevel: activeWager,
+        // Luật cược mới: câu sai này có được Khiên Bất Tử/Khiên Bảo Vệ che
+        // hay không — host tính phạt qua cùng ma trận wagerPenalty.
+        shieldProtected: pen.consumeShield,
         lives: nextLivesVal,
         totalScore: nextTotalScore,
         savedCorrect: myCorrectCountRef.current,
@@ -3474,6 +3594,29 @@ export const StudentMobileView: React.FC<Props> = ({
       ? '🐉 DIỆT BOSS KIẾN THỨC 3D'
       : '⚔️ ĐẤU TRƯỜNG KÉO CO 3D';
 
+  // Chip CẤP của chính học sinh (yêu cầu của thầy 17/11): "icon + tên cấp"
+  // với tên cấp tô MÀU RIÊNG theo cấp — gắn NGAY SAU TÊN ở mọi thẻ tên phía
+  // HS (WAITING / HUD QUIZ / ELIMINATED / ENDED / LOBBY). flexShrink: 0 +
+  // nowrap để không bị tên dài chèn ép ở màn 360px; 👑 phát sáng nhẹ.
+  const renderMyLevelChip = (fontSize: string = '12.5px') => {
+    const lv = levelFromXp(myXp);
+    return (
+      <span
+        title={`${lv.name} • ${myXp} XP`}
+        style={{
+          color: lv.color,
+          fontWeight: 900,
+          fontSize,
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+          textShadow: lv.glow ? '0 0 9px rgba(251, 191, 36, 0.9)' : undefined
+        }}
+      >
+        {lv.icon} {lv.name}
+      </span>
+    );
+  };
+
   const renderTop10Board = () => (
     <div
       style={{
@@ -3553,12 +3696,23 @@ export const StudentMobileView: React.FC<Props> = ({
                   >
                     {rankBadge}
                   </span>
-                  {/* Hệ CẤP ĐỘ: icon cấp — cột riêng bề rộng cố định, không bị tên chèn ép */}
+                  {/* Hệ CẤP ĐỘ: icon cấp + TÊN CẤP CÓ MÀU theo cấp (thầy chốt 17/11) — cột riêng, không bị tên chèn ép */}
                   <span
-                    title={levelFromXp(item.xp || 0).name}
-                    style={{ fontSize: '16px', minWidth: '24px', textAlign: 'center', flexShrink: 0, lineHeight: 1 }}
+                    title={`${levelFromXp(item.xp || 0).name} • ${item.xp || 0} XP`}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0, lineHeight: 1 }}
                   >
-                    {levelFromXp(item.xp || 0).icon}
+                    <span style={{ fontSize: '16px' }}>{levelFromXp(item.xp || 0).icon}</span>
+                    <span
+                      style={{
+                        fontSize: '10.5px',
+                        fontWeight: 800,
+                        whiteSpace: 'nowrap',
+                        color: levelFromXp(item.xp || 0).color,
+                        textShadow: levelFromXp(item.xp || 0).glow ? '0 0 8px rgba(251, 191, 36, 0.9)' : undefined
+                      }}
+                    >
+                      {levelFromXp(item.xp || 0).name}
+                    </span>
                   </span>
                   <span
                     style={{
@@ -3845,6 +3999,13 @@ export const StudentMobileView: React.FC<Props> = ({
               }}
             />
 
+            {/* Cấp hiện tại của em (bám mã máy — đổi tên vẫn giữ cấp) ở thẻ hồ sơ */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800, color: '#94a3b8', marginBottom: '12px', flexWrap: 'wrap' }}>
+              <span>Cấp của em:</span>
+              {renderMyLevelChip('13px')}
+              <span>• {myXp} XP</span>
+            </div>
+
             {gameType === 'TUG' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                 <button
@@ -3988,7 +4149,7 @@ export const StudentMobileView: React.FC<Props> = ({
               {gameTitleDisplay}
             </h1>
             <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#4ade80', marginBottom: '4px' }}>
-              ✅ Thí sinh: {studentName}
+              ✅ Thí sinh: {studentName} {renderMyLevelChip('13px')}
             </div>
             <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#fde047', marginBottom: '12px' }}>
               ⏳ Đã vào phòng thi • Đang chờ Giáo viên bấm Bắt đầu
@@ -4062,8 +4223,10 @@ export const StudentMobileView: React.FC<Props> = ({
                 )}
               </div>
               <div>
-                <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#fef08a', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span>{studentName}</span>
+                  {/* Cấp của em — hiện ngay sau tên, cả khi đang tạm dừng (HUD nằm dưới lớp phủ) */}
+                  {renderMyLevelChip('12.5px')}
                   {gameType === 'TUG' && (
                     <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '6px', background: team === 'RED' ? '#dc2626' : '#0284c7', color: '#fff' }}>
                       {team === 'RED' ? 'Đội Đỏ' : 'Đội Xanh'}
@@ -4251,7 +4414,12 @@ export const StudentMobileView: React.FC<Props> = ({
                   <div style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '12px', lineHeight: 1.5 }}>
                     🔥 Chúc mừng chuỗi <b>5 câu đúng liên tiếp</b>! Bạn có <b>4 giây</b> để chọn 1 rương ngẫu nhiên:<br />
                     • 💎 <b>Nổ Hũ Kim Cương:</b> +1.500đ &nbsp;|&nbsp; • 🥷 <b>Đạo Chích:</b> +900đ &amp; hút 500đ Top 1<br />
-                    • 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh &nbsp;|&nbsp; • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ câu sau sai!
+                    {/* 💖 Tim Vàng CHỈ có ở Rung Chuông Vàng — mode khác pool chỉ 3 vật phẩm (luật 17/11/2026) */}
+                    {chestPoolForGameType(gameType).includes('HEART') ? (
+                      <>• 💖 <b>Tim Vàng:</b> +1 Mạng hồi sinh &nbsp;|&nbsp; • 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ câu sau sai!</>
+                    ) : (
+                      <>• 🛡️ <b>Khiên Bất Tử:</b> Bảo vệ câu sau sai!</>
+                    )}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                     {[0, 1, 2].map(cIdx => (
@@ -4440,6 +4608,10 @@ export const StudentMobileView: React.FC<Props> = ({
                       🛡️ Khiên Bất Tử Đang Bật (Bảo vệ câu này)
                     </span>
                   )}
+                  {/* Trạng thái LÁ CHẮN AN TOÀN 1 lần/trận (luật cược mới 17/11/2026) */}
+                  <span style={{ fontSize: '11px', background: safeShieldUsed ? '#475569' : '#0e7490', color: '#fff', padding: '2px 8px', borderRadius: '999px', fontWeight: 900 }}>
+                    {safeShieldUsed ? '🛡️ Lá chắn An Toàn: đã dùng' : '🛡️ Lá chắn An Toàn: còn 1 lần'}
+                  </span>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
@@ -4462,7 +4634,9 @@ export const StudentMobileView: React.FC<Props> = ({
                     }}
                   >
                     <span style={{ fontSize: '11.5px', fontWeight: 900 }}>🛡️ An Toàn (x1)</span>
-                    <span style={{ fontSize: '9.5px', color: '#93c5fd', fontWeight: 700 }}>Sai: 0đ (không trừ)</span>
+                    <span style={{ fontSize: '9.5px', color: '#93c5fd', fontWeight: 700 }}>
+                      {safeShieldUsed ? 'Sai: -1000đ (lá chắn đã hết)' : 'Sai: lá chắn che 1 lần'}
+                    </span>
                   </button>
 
                   {/* Liều Lĩnh (x1.5) */}
@@ -4841,6 +5015,9 @@ export const StudentMobileView: React.FC<Props> = ({
           <h2 style={{ fontSize: '21px', color: '#fbbf24', fontWeight: 900, margin: '0 0 8px 0' }}>
             📣 BẠN ĐÃ TRỞ THÀNH KHÁN GIẢ CỔ VŨ!
           </h2>
+          <div style={{ fontSize: '14.5px', fontWeight: 900, color: '#e2e8f0', marginBottom: '8px' }}>
+            Học sinh: {studentName} {renderMyLevelChip('13px')}
+          </div>
           <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: 1.55, margin: '0 0 14px 0' }}>
             Trong trò <b>Rung Chuông Vàng</b>, bạn đã dùng hết 3 mạng (❤️❤️❤️) và rời sàn đấu.<br />
             Thành tích của bạn đã được bảo lưu: <b style={{ color: '#4ade80' }}>{fastScore} điểm ({myCorrectCount} câu đúng)</b>.
@@ -4930,7 +5107,7 @@ export const StudentMobileView: React.FC<Props> = ({
               🏆 KẾT QUẢ CUỐI CÙNG CỦA BẠN
             </h2>
             <p style={{ fontSize: '14.5px', color: '#e2e8f0', fontWeight: 800, margin: '0 0 18px 0' }}>
-              Học sinh: <b style={{ color: '#38bdf8' }}>{studentName || 'Học sinh'}</b> • Phòng <b style={{ color: '#4ade80' }}>{roomId}</b>
+              Học sinh: <b style={{ color: '#38bdf8' }}>{studentName || 'Học sinh'}</b> {renderMyLevelChip('13px')} • Phòng <b style={{ color: '#4ade80' }}>{roomId}</b>
             </p>
 
             {/* Bảng thông số kết quả */}
