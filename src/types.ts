@@ -108,6 +108,7 @@ export interface Player {
 export interface MatchSettings {
   roomCapacity: number; // e.g. 50
   max3DRenderCount: number; // default 10 — ô "🎮 Tối đa 3D trên sân" ở màn Cài Đặt GV; sân khấu + nhãn host đọc thẳng giá trị này
+  showHostDiag?: boolean; // dòng chẩn đoán tải host cạnh nhãn bản dựng; undefined = hiện, chỉ tắt khi false
   // Thời gian trả lời theo TỪNG PHẦN câu hỏi (giây/câu) — giáo viên chỉnh trong
   // màn hình cài đặt: Phần 1 trắc nghiệm nhiều lựa chọn (MULTIPLE_CHOICE) mặc định
   // 30s, Phần 2 Đúng/Sai (TRUE_FALSE) mặc định 60s, Phần 3 trả lời ngắn
