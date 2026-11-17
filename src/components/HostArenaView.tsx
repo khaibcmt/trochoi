@@ -20,6 +20,11 @@ import { QRZoomModal } from './QRZoomModal';
 import { MathRenderer } from '../utils/katexHelper';
 import { getOrCreateRoomKey } from '../utils/commandSign';
 import { questionDurationFor, computeRemainingSec } from '../utils/questionTiming';
+import {
+  buildSpeechText,
+  speakVietnameseText,
+  subscribeVietnameseVoice
+} from '../utils/speechText';
 import { explainQuestionClientSide, getStoredGeminiKey } from '../services/geminiClient';
 import { Top10LeaderboardModal } from './Top10LeaderboardModal';
 import { GrandFinaleScreen } from './GrandFinaleScreen';
@@ -105,9 +110,39 @@ export const HostArenaView: React.FC<Props> = ({
   const [aiExplainText, setAiExplainText] = useState<string>('');
   const [aiExplainLoading, setAiExplainLoading] = useState<boolean>(false);
 
-  // National Contest Demo Bots State
+  // National Contest Demo Bots & Vietnamese TTS Voice Read-Aloud State
   const [demoBotsActive, setDemoBotsActive] = useState<boolean>(false);
+  const [isSpeakingTTS, setIsSpeakingTTS] = useState<boolean>(false);
   const demoBotIntervalRef = useRef<any>(null);
+
+  // Đợt 4 (GĐ3.2): tốc độ đọc + tự động đọc câu mới (mặc định tắt) + trạng thái giọng Việt.
+  // hasViVoice = null nghĩa là trình duyệt chưa nạp xong danh sách giọng (chưa kết luận).
+  const [ttsRate, setTtsRate] = useState<number>(1.0);
+  const [ttsAutoRead, setTtsAutoRead] = useState<boolean>(false);
+  const [hasViVoice, setHasViVoice] = useState<boolean | null>(null);
+  const ttsRateRef = useRef<number>(1.0);
+  const ttsAutoReadRef = useRef<boolean>(false);
+  const lastAutoReadQIndexRef = useRef<number>(-1);
+  useEffect(() => {
+    ttsRateRef.current = ttsRate;
+  }, [ttsRate]);
+  useEffect(() => {
+    ttsAutoReadRef.current = ttsAutoRead;
+    if (ttsAutoRead) {
+      // Vừa bật: không đọc lại câu đang hiển thị, chỉ đọc từ câu MỚI tiếp theo.
+      lastAutoReadQIndexRef.current = matchState.globalQIndex;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsAutoRead]);
+  useEffect(() => {
+    return subscribeVietnameseVoice((voice) => {
+      const voicesLoaded =
+        typeof window !== 'undefined' &&
+        'speechSynthesis' in window &&
+        window.speechSynthesis.getVoices().length > 0;
+      setHasViVoice(voicesLoaded ? !!voice : null);
+    });
+  }, []);
 
   // Floating cheers & Multi-Server Network Telemetry
   const [floatingCheers, setFloatingCheers] = useState<{ id: string; emoji: string; left: number }[]>([]);
@@ -1733,6 +1768,48 @@ export const HostArenaView: React.FC<Props> = ({
     }
   };
 
+  // MC Voice Read-Aloud (Vietnamese TTS) for National Contest Classroom Presentation
+  // Đợt 4 (GĐ3.1): toàn bộ lời đọc do buildSpeechText (src/utils/speechText.ts) dựng —
+  // bóc HTML/bảng/ảnh, chuyển LaTeX → lời Việt, đọc cả câu dẫn + phương án + mệnh đề Đ-S,
+  // không lộ đáp án. Giọng đọc do getVietnameseVoice() chọn (giọng Việt thật nếu máy có).
+  const speakQuestionAloud = (broadcastToStudents: boolean) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const script = buildSpeechText(currentQItem, currentQIndex + 1);
+    if (!script) return;
+    const started = speakVietnameseText(script, {
+      rate: ttsRateRef.current,
+      onEnd: () => setIsSpeakingTTS(false)
+    });
+    if (started) {
+      setIsSpeakingTTS(true);
+      if (broadcastToStudents) {
+        // Đợt 4 (GĐ3.3): phát lệnh đọc đồng bộ — máy HS nào được host bật TTS sẽ tự đọc câu này.
+        CloudNetwork.sendMessage({ type: 'TTS_READ', qIndex: currentQIndex });
+      }
+    }
+  };
+
+  const handleReadQuestionAloud = () => {
+    if (!('speechSynthesis' in window)) return;
+    if (isSpeakingTTS) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingTTS(false);
+      return;
+    }
+    speakQuestionAloud(true);
+  };
+
+  // Đợt 4 (GĐ3.2): tự động đọc khi sang câu mới (chỉ khi GV bật, mặc định tắt)
+  useEffect(() => {
+    if (!ttsAutoReadRef.current) return;
+    if (matchState.status !== 'PLAYING' || isReviewMode) return;
+    if (lastAutoReadQIndexRef.current === currentQIndex) return;
+    lastAutoReadQIndexRef.current = currentQIndex;
+    speakQuestionAloud(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQIndex, matchState.status]);
+
   // Toggle National Jury Classroom Simulation (Spawns 40 realistic 3D students with unique random Vietnamese full names each time)
   const handleToggleDemoBots = () => {
     const familyNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Lý', 'Đinh', 'Lương', 'Mai', 'Trương'];
@@ -2175,7 +2252,7 @@ export const HostArenaView: React.FC<Props> = ({
 
   // Export CSV toàn bộ học sinh tham gia (cả 2 BXH: Điểm Trò Chơi & Sổ Điểm Giáo Viên theo Thông tư 22/BGDĐT)
   const handleDownloadCSV = () => {
-    const totalQ = Math.max(1, quizList.length || 12);
+    const totalQ = Math.max(1, quizList.length);
     let csv = '\uFEFFSTT,Hạng Sổ GV (Từ cao xuống thấp),Hạng Trò Chơi (Điểm),Họ và Tên Học Sinh,Số Câu Đúng,Tổng Số Câu,Điểm Sổ Điểm GV (Thang 10 - TT22),Xếp Loại TT22,Tổng Điểm Thi Đấu,Số Câu Sai,Đội,Trạng Thái\n';
     
     // BXH 1: Trò chơi (giữ nguyên cấu trúc)
@@ -2186,8 +2263,8 @@ export const HostArenaView: React.FC<Props> = ({
 
     // BXH 2: Sổ điểm GV (chuẩn Thông tư 22/BGDĐT - xếp thực tế từ cao xuống thấp)
     const byCorrect = [...allPlayers].sort((a, b) => {
-      const scoreA = Number((((a.correct || 0) / totalQ) * 10).toFixed(1));
-      const scoreB = Number((((b.correct || 0) / totalQ) * 10).toFixed(1));
+      const scoreA = getTeacherGradebookScore(a.correct || 0, totalQ).grade;
+      const scoreB = getTeacherGradebookScore(b.correct || 0, totalQ).grade;
       if (scoreB !== scoreA) return scoreB - scoreA;
       if ((b.fastScore || 0) !== (a.fastScore || 0)) return (b.fastScore || 0) - (a.fastScore || 0);
       return (a.wrongTotal || 0) - (b.wrongTotal || 0);
@@ -2273,10 +2350,10 @@ export const HostArenaView: React.FC<Props> = ({
 
   // 2. Bảng xếp hạng Sổ Điểm Giáo Viên (Thông tư 22/BGDĐT - Thang điểm 10, làm tròn 1 số lẻ, xếp thứ tự từ cao đến thấp)
   const top10ByCorrectLeaderboard = useMemo(() => {
-    const totalQ = Math.max(1, quizList.length || 12);
+    const totalQ = Math.max(1, quizList.length);
     return [...allPlayers].sort((a, b) => {
-      const scoreA = Number((((a.correct || 0) / totalQ) * 10).toFixed(1));
-      const scoreB = Number((((b.correct || 0) / totalQ) * 10).toFixed(1));
+      const scoreA = getTeacherGradebookScore(a.correct || 0, totalQ).grade;
+      const scoreB = getTeacherGradebookScore(b.correct || 0, totalQ).grade;
       if (scoreB !== scoreA) {
         return scoreB - scoreA;
       }
@@ -3169,9 +3246,9 @@ export const HostArenaView: React.FC<Props> = ({
               {(liveRankMode === 'SCORE' ? top10Leaderboard : top10ByCorrectLeaderboard).slice(0, 10).map((p, idx) => {
                 const rank = idx + 1;
                 const medal = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : `#${rank}`));
-                const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length || 12);
+                const gbScore = getTeacherGradebookScore(p.correct || 0, quizList.length);
                 const scoreDisplay = liveRankMode === 'CORRECT'
-                  ? `✅ ${p.correct || 0}/${quizList.length || 12} • 📒 ${gbScore.grade.toFixed(1)}đ`
+                  ? `✅ ${p.correct || 0}/${quizList.length} • 📒 ${gbScore.grade.toFixed(1)}đ`
                   : matchState.gameType === 'BELL'
                   ? `${p.correct || 0} đúng • ${p.eliminated ? 'Khán giả' : `${p.lives || 0}❤️`}`
                   : `${p.fastScore || 0}đ (${p.correct || 0} đúng)`;
@@ -3403,7 +3480,7 @@ export const HostArenaView: React.FC<Props> = ({
         <GrandFinaleScreen
           matchState={matchState}
           activeRoomId={activeRoomId}
-          totalQuestions={quizList.length || 12}
+          totalQuestions={quizList.length}
           onReviewMatch={() => {
             setIsReviewMode(true);
             setReviewQIdx(0);
@@ -3523,6 +3600,71 @@ export const HostArenaView: React.FC<Props> = ({
                   <button className="hq-nav-btn" style={{ padding: '3px 9px', fontSize: '12px' }} onClick={() => handleStepQ(1)}>
                     Tiếp ▶
                   </button>
+                  <button
+                    className="hq-nav-btn"
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: '12px',
+                      background: isSpeakingTTS ? '#dc2626' : '#0284c7',
+                      borderColor: '#7dd3fc',
+                      color: '#fff',
+                      fontWeight: 800
+                    }}
+                    onClick={handleReadQuestionAloud}
+                    title={
+                      hasViVoice === false
+                        ? 'Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành, nếu không giọng đọc sẽ sai dấu'
+                        : 'Đọc to câu hỏi và phương án bằng giọng MC Tiếng Việt'
+                    }
+                  >
+                    {isSpeakingTTS ? '🔇 Dừng Đọc' : '🔊 Đọc Đề'}
+                  </button>
+                  {/* Đợt 4 (GĐ3.2 + 3.3): tốc độ đọc, tự động đọc câu mới, công tắc TTS phía học sinh */}
+                  <select
+                    value={ttsRate}
+                    onChange={(e) => setTtsRate(parseFloat(e.target.value))}
+                    title="Tốc độ đọc đề"
+                    style={{ padding: '3px 4px', fontSize: '12px', borderRadius: '6px', background: '#0f172a', color: '#e2e8f0', border: '1px solid #475569' }}
+                  >
+                    <option value={0.9}>0.9×</option>
+                    <option value={1.0}>1.0×</option>
+                    <option value={1.1}>1.1×</option>
+                  </select>
+                  <label
+                    title="Tự động đọc đề mỗi khi sang câu mới"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ttsAutoRead}
+                      onChange={(e) => setTtsAutoRead(e.target.checked)}
+                    />
+                    Tự đọc câu mới
+                  </label>
+                  <label
+                    title="Bật: máy học sinh hiện nút 🔊 và tự đọc đồng bộ khi thầy bấm Đọc Đề. Tắt (mặc định): học sinh không nghe đọc đề."
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#cbd5e1', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={matchState.settings?.ttsStudentEnabled === true}
+                      onChange={(e) =>
+                        onUpdateMatchState((prev) => ({
+                          ...prev,
+                          settings: { ...prev.settings, ttsStudentEnabled: e.target.checked }
+                        }))
+                      }
+                    />
+                    Đọc đề trên máy học sinh
+                  </label>
+                  {hasViVoice === false && (
+                    <span
+                      style={{ fontSize: '11.5px', fontWeight: 800, color: '#fbbf24' }}
+                      title="Máy tính này chưa cài giọng đọc tiếng Việt nên TTS sẽ đọc sai dấu. Hãy cài giọng tiếng Việt trong Cài đặt hệ điều hành (Windows: Settings → Time & language → Speech; Android: Cài đặt → Văn bản thành giọng nói)."
+                    >
+                      ⚠️ Máy chưa có giọng tiếng Việt — cần cài trong cài đặt hệ điều hành
+                    </span>
+                  )}
                   <button
                     className="hq-nav-btn"
                     id="hq-reveal-btn"
@@ -3999,7 +4141,7 @@ export const HostArenaView: React.FC<Props> = ({
         gameType={matchState.gameType}
         allPlayers={allPlayers}
         activeRoomId={activeRoomId}
-        totalQuestions={quizList.length || 12}
+        totalQuestions={quizList.length}
         onDownloadCSV={handleDownloadCSV}
         onPrintPDFEvidence={onPrintPDFEvidence}
       />
