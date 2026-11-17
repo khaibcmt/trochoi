@@ -23,6 +23,7 @@ import { AudioFX } from './services/audio';
 import { CloudNetwork } from './services/network';
 import { getOrCreateRoomKey } from './utils/commandSign';
 import {
+  answerKeyFor,
   buildResyncStateMessage,
   findPlayerByIdentity,
   mergePlayerRecord,
@@ -1160,8 +1161,8 @@ export const App: React.FC = () => {
 
       let answer: { hasAnswered: boolean; isCorrect?: boolean | null; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string } = { hasAnswered: false };
       if (player) {
-        const key = `${player.id}_q_${ms.globalQIndex}`;
-        const altKey = `${d.playerId}_q_${ms.globalQIndex}`;
+        const key = answerKeyFor(player.id, ms.globalQIndex);
+        const altKey = answerKeyFor(d.playerId, ms.globalQIndex);
         const has = answeredQKeysRef.current.has(key) || answeredQKeysRef.current.has(altKey);
         const det = answeredDetailsRef.current.get(key) || answeredDetailsRef.current.get(altKey);
         answer = {
@@ -1242,7 +1243,7 @@ export const App: React.FC = () => {
                       ? prev.questionPause.remainingSec
                       : undefined,
                   serverTs: nowR,
-                  answer: { hasAnswered: answeredQKeysRef.current.has(`${existing.id}_q_${prev.globalQIndex}`) },
+                  answer: { hasAnswered: answeredQKeysRef.current.has(answerKeyFor(existing.id, prev.globalQIndex)) },
                   holdReleased: true
                 })
               );
@@ -1435,14 +1436,17 @@ export const App: React.FC = () => {
             team: assignedTeam,
             ready: isReady,
             spawned: false,
-            correct: typeof d.savedCorrect === 'number' ? d.savedCorrect : 0,
+            // Sổ điểm của HOST bắt đầu từ 0 cho bản ghi mới — không khởi tạo từ
+            // savedCorrect/savedScore phía HS báo lên (có thể là tổng cũ của
+            // trận/phòng trước còn lưu trên máy HS; sự cố BXH 17/11/2026).
+            correct: 0,
             freeze: 0,
             role: 'PULLER',
             lives: 3,
             wrongTotal: 0,
             streak: 0,
             eliminated: false,
-            fastScore: typeof d.savedScore === 'number' ? d.savedScore : 0,
+            fastScore: 0,
             avatar: d.avatar
           };
           lastSeenByIdRef.current.set(newP.id, newP.lastSeen || Date.now());
@@ -1548,7 +1552,7 @@ export const App: React.FC = () => {
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
-        const answerKey = `${pObj.id}_q_${targetQIdx}`;
+        const answerKey = answerKeyFor(pObj.id, targetQIdx);
         if (answeredQKeysRef.current.has(answerKey)) return prev;
         answeredQKeysRef.current.add(answerKey);
         // Đợt 5 (4B.2/4B.3): đáp án là bằng chứng HS đang sống + lưu lựa chọn để RESYNC.
@@ -1570,10 +1574,11 @@ export const App: React.FC = () => {
           AudioFX.pullHeave();
         }
 
+        // Sổ HOST là nguồn sự thật duy nhất: đáp án đã qua khử trùng ở trên nên
+        // mỗi HS × mỗi câu cộng ĐÚNG 1 lần. TUYỆT ĐỐI không nhận d.savedCorrect /
+        // d.totalScore phía HS báo lên — máy HS có thể mang tổng cũ của trận trước
+        // (sự cố 17/11/2026: câu 15 đã có HS "24 đúng", điểm cũng bị nhận theo).
         pObj.correct = (pObj.correct || 0) + 1;
-        if (typeof d.savedCorrect === 'number' && d.savedCorrect > pObj.correct) {
-          pObj.correct = d.savedCorrect;
-        }
         pObj.streak = (pObj.streak || 0) + 1;
 
         const studentElapsedSec = typeof d.elapsedSec === 'number' ? d.elapsedSec : 2.0;
@@ -1583,9 +1588,7 @@ export const App: React.FC = () => {
         const baseGained = typeof d.gainedPts === 'number' && d.gainedPts > 0 ? d.gainedPts : 1000;
         const gainedScore = Math.round(baseGained * worldEventMultiplier) + firstBloodBonus;
 
-        pObj.fastScore = typeof d.totalScore === 'number'
-          ? d.totalScore + firstBloodBonus + (worldEventMultiplier > 1 ? baseGained : 0)
-          : (pObj.fastScore || 0) + gainedScore;
+        pObj.fastScore = (pObj.fastScore || 0) + gainedScore;
         pObj.lastDelta = gainedScore;
         pObj.lastTimeSec = studentElapsedSec;
         pObj.totalTimeMs = (pObj.totalTimeMs || 0) + Math.round(studentElapsedSec * 1000);
@@ -1765,7 +1768,9 @@ export const App: React.FC = () => {
         lastSeenByIdRef.current.set(pObj.id, Date.now());
 
         const delta = typeof d.bonusScoreDelta === 'number' ? d.bonusScoreDelta : 0;
-        pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) + delta;
+        // Cộng PHẦN THƯỞNG do host tự cộng dồn — không nhận d.totalScore tuyệt đối
+        // phía HS (cùng lý do sự cố BXH 17/11/2026).
+        pObj.fastScore = (pObj.fastScore || 0) + delta;
         if (typeof d.lives === 'number' && prev.gameType === 'BELL') {
           pObj.lives = Math.min(5, d.lives);
           if (pObj.lives > 0) {
@@ -1832,7 +1837,7 @@ export const App: React.FC = () => {
         if (!pObj || (prev.gameType === 'BELL' && pObj.eliminated)) return prev;
 
         const targetQIdx = typeof d.globalQIndex === 'number' ? d.globalQIndex : prev.globalQIndex;
-        const answerKey = `${pObj.id}_q_${targetQIdx}`;
+        const answerKey = answerKeyFor(pObj.id, targetQIdx);
         if (answeredQKeysRef.current.has(answerKey)) return prev;
         answeredQKeysRef.current.add(answerKey);
         // Đợt 5 (4B.2/4B.3): đáp án sai cũng là tín hiệu sống + lưu lựa chọn cho RESYNC.
@@ -1871,7 +1876,8 @@ export const App: React.FC = () => {
         if (prev.gameType === 'BELL') {
           AudioFX.freezeCrack();
           pObj.lives = typeof d.lives === 'number' ? d.lives : Math.max(0, (pObj.lives ?? 3) - 1);
-          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : Math.max(0, (pObj.fastScore || 0) - penalty);
+          // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
+          pObj.fastScore = Math.max(0, (pObj.fastScore || 0) - penalty);
           pObj.lastDelta = -penalty;
           if (pObj.lives <= 0) {
             pObj.eliminated = true;
@@ -1891,7 +1897,8 @@ export const App: React.FC = () => {
           AudioFX.freezeCrack();
           pObj.lives = 3;
           pObj.eliminated = false;
-          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - penalty;
+          // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
+          pObj.fastScore = (pObj.fastScore || 0) - penalty;
           pObj.lastDelta = -penalty;
 
           CloudNetwork.sendMessage({
@@ -1907,7 +1914,8 @@ export const App: React.FC = () => {
           // Trò Kéo Co (TUG)
           pObj.lives = 3;
           pObj.eliminated = false;
-          pObj.fastScore = typeof d.totalScore === 'number' ? d.totalScore : (pObj.fastScore || 0) - penalty;
+          // Trừ phạt trên sổ HOST — không nhận d.totalScore phía HS (sự cố 17/11/2026).
+          pObj.fastScore = (pObj.fastScore || 0) - penalty;
           pObj.lastDelta = -penalty;
           if (prev.gameType === 'TUG') {
             AudioFX.freezeCrack();
