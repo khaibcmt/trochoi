@@ -39,11 +39,6 @@ import {
   PRESENCE_FLUSH_INTERVAL_MS,
   type PresencePatchQueue
 } from './utils/presenceFlush';
-import {
-  recordRosterFlush,
-  recordSweepLag,
-  setFreshnessProvider
-} from './utils/hostDiag';
 import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
@@ -210,7 +205,7 @@ export const App: React.FC = () => {
     questionDurationSec: 30,
     questionDurationTfSec: 60,
     questionDurationSaSec: 60,
-    bossMaxHP: 1000
+    bossMaxHP: 10000
   });
 
   // Google Gemini API Key Modal & National Contest Dossier Modal
@@ -328,15 +323,15 @@ export const App: React.FC = () => {
       redPlayers: [],
       bluePlayers: [],
       spectators: 0,
-      bossHP: 1000,
-      maxBossHP: 1000,
+      bossHP: 10000,
+      maxBossHP: 10000,
       settings: {
         roomCapacity: 200,
         max3DRenderCount: 10,
         questionDurationSec: 30,
         questionDurationTfSec: 60,
         questionDurationSaSec: 60,
-        bossMaxHP: 1000
+        bossMaxHP: 10000
       }
     };
 
@@ -1069,14 +1064,7 @@ export const App: React.FC = () => {
   // còn đặt cờ (handler đã trung tính) — xem lý do ngưỡng 90s ở utils/presence.ts.
   useEffect(() => {
     if (isDirectStudent) return;
-    // ĐO ĐỘ TRỄ VÒNG QUÉT (chẩn đoán tải host): vòng hẹn 5s mà chạy trễ nhiều
-    // nghĩa là luồng JS phía host đang bão hoà — ghi vào kho hostDiag để dòng
-    // chẩn đoán cạnh nhãn 🏷️ hiện số thật thay vì đoán.
-    let sweepExpectedAt = Date.now() + 5000;
     const sweepTimer = setInterval(() => {
-      const sweepNow = Date.now();
-      recordSweepLag(Math.max(0, sweepNow - sweepExpectedAt));
-      sweepExpectedAt = sweepNow + 5000;
       const ms = matchStateRef.current;
       if (!ms || ms.status === 'ENDED') return;
       if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
@@ -1167,34 +1155,6 @@ export const App: React.FC = () => {
     if (isDirectStudent) return;
     const t = setInterval(() => flushPresencePatchesRef.current(), PRESENCE_FLUSH_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [isDirectStudent]);
-
-  // ĐẾM FLUSH ROSTER cho dòng chẩn đoán: một commit React làm thay đổi danh
-  // tính mảng redPlayers/bluePlayers = một lần "vẽ lại danh sách".
-  const prevRosterRef = useRef<{ red: Player[]; blue: Player[] } | null>(null);
-  useEffect(() => {
-    const prev = prevRosterRef.current;
-    if (prev && (prev.red !== matchState.redPlayers || prev.blue !== matchState.bluePlayers)) {
-      recordRosterFlush();
-    }
-    prevRosterRef.current = { red: matchState.redPlayers, blue: matchState.bluePlayers };
-  }, [matchState]);
-
-  // ĐĂNG KÝ HÀM ĐẾM ĐỘ TƯƠI cho dòng chẩn đoán: HS có lastSeen <15s / tổng HS.
-  useEffect(() => {
-    if (isDirectStudent) return;
-    setFreshnessProvider(() => {
-      const now = Date.now();
-      const ms = matchStateRef.current;
-      const all = [...ms.redPlayers, ...ms.bluePlayers];
-      let fresh = 0;
-      all.forEach(p => {
-        const ls = lastSeenByIdRef.current.get(p.id);
-        if (ls && now - ls < 15000) fresh++;
-      });
-      return { fresh, total: all.length };
-    });
-    return () => setFreshnessProvider(null);
   }, [isDirectStudent]);
 
   // Host incoming message handler
