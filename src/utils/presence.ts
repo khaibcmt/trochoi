@@ -1,5 +1,5 @@
 /**
- * Đợt 5 (Giai đoạn 4B) — LOGIC THUẦN về định danh bền, nhịp tim & giữ chỗ 90 giây,
+ * Đợt 5 (Giai đoạn 4B) — LOGIC THUẦN về định danh bền, nhịp tim & giữ chỗ 5 phút,
  * gộp bản ghi theo studentId và dựng RESYNC_STATE.
  *
  * File này KHÔNG chạm React/storage/mạng: mọi hàm đều thuần (đầu vào → đầu ra) để
@@ -18,14 +18,17 @@ import {
 } from '../types';
 
 // ---------------------------------------------------------------------------
-// Hằng số giữ chỗ (quyết định đã chốt: GIỮ CHỖ 90 GIÂY)
+// Hằng số giữ chỗ (quyết định đã chốt: GIỮ CHỖ 5 PHÚT)
 // ---------------------------------------------------------------------------
 /** HS gửi PLAYER_PING mỗi 5 giây (gọn, tách khỏi tin gửi điểm). */
 export const PLAYER_PING_INTERVAL_MS = 5000;
 /** Quá 15s không thấy tín hiệu → hiển thị "mất kết nối" (xám) nhưng GIỮ chỗ/điểm/mạng. */
 export const PLAYER_OFFLINE_AFTER_MS = 15000;
-/** Quá 90s không quay lại → giải phóng chỗ, coi như rời ván hiện tại. */
-export const PLAYER_HOLD_MS = 90000;
+/** Quá 5 phút (300s) không quay lại → giải phóng chỗ, coi như rời ván hiện tại. */
+export const PLAYER_HOLD_MS = 300000;
+/** Host không nhận được BẤT KỲ tin nào quá 45s → nghi host đang mất thu (wifi/broker
+ * chập chờn), KHÔNG phải cả lớp cùng rời — vòng quét giữ chỗ phải dừng giải phóng oan. */
+export const HOST_RX_OUTAGE_MS = 45000;
 /** HS quay lại từ nền: mất kết nối (ẩn trang) quá 5s thì xin RESYNC tường minh. */
 export const RESYNC_BACKGROUND_THRESHOLD_MS = 5000;
 
@@ -36,10 +39,10 @@ export type PresenceStatus = 'ONLINE' | 'HELD' | 'RELEASED';
  * - chưa từng có lastSeen (undefined/<=0) → ONLINE (chưa có bằng chứng mất kết nối,
  *   không phạt oan — vd bản ghi vừa khôi phục từ snapshot sau khi host F5);
  * - tuổi < 15s → ONLINE;
- * - 15s ≤ tuổi ≤ 90s → HELD (mất kết nối hiển thị xám, giữ nguyên chỗ);
- * - tuổi > 90s → RELEASED (giải phóng chỗ theo luật từng chế độ chơi).
+ * - 15s ≤ tuổi ≤ 300s → HELD (mất kết nối hiển thị xám, giữ nguyên chỗ);
+ * - tuổi > 300s → RELEASED (giải phóng chỗ theo luật từng chế độ chơi).
  * knownOffline = host đã nhận PLAYER_OFFLINE (Last-Will) → coi như HELD ngay dù
- * tuổi chưa tới 15s (nhưng RELEASED vẫn phải chờ đủ 90s tính từ lastSeen đóng băng).
+ * tuổi chưa tới 15s (nhưng RELEASED vẫn phải chờ đủ 5 phút tính từ lastSeen đóng băng).
  */
 export function getPresenceStatus(
   lastSeen: number | undefined | null,
@@ -61,6 +64,17 @@ export function isPresenceHeld(lastSeen: number | undefined | null, now: number,
 
 export function shouldReleasePlayer(lastSeen: number | undefined | null, now: number, knownOffline = false): boolean {
   return getPresenceStatus(lastSeen, now, knownOffline) === 'RELEASED';
+}
+
+/**
+ * Host có đang MẤT THU hay không: lastRxAt là mốc host nhận tin gần nhất (bất kỳ loại
+ * tin nào từ HS). Chỉ kết luận mất thu khi có mốc hợp lệ (> 0, hữu hạn) và đã quá
+ * HOST_RX_OUTAGE_MS không có tin mới; chưa từng nhận tin nào (0/undefined/không hợp
+ * lệ) → false, không phạt oan lúc host vừa khởi động.
+ */
+export function isHostReceptionOutage(lastRxAt: number | undefined | null, now: number): boolean {
+  if (typeof lastRxAt !== 'number' || !isFinite(lastRxAt) || lastRxAt <= 0) return false;
+  return now - lastRxAt > HOST_RX_OUTAGE_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +215,7 @@ export function mergePlayerRecord(existing: Player, incoming: IncomingPlayerIden
 }
 
 // ---------------------------------------------------------------------------
-// Giải phóng chỗ sau 90s — theo luật sẵn có của từng chế độ chơi
+// Giải phóng chỗ sau 5 phút — theo luật sẵn có của từng chế độ chơi
 // ---------------------------------------------------------------------------
 
 /**
