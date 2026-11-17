@@ -2,6 +2,35 @@ import React, { useState } from 'react';
 import { Player, GamePlayType } from '../types';
 import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defaultSubjects';
 import { rankNameColor } from '../utils/rankNameColor';
+import { levelFromXp } from '../utils/studentLevel';
+
+/**
+ * Cột BIỂU TƯỢNG CẤP riêng trong mỗi hàng BXH (yêu cầu của thầy 17/11):
+ * bề rộng CỐ ĐỊNH 54px, icon to 27px + tên cấp nhỏ bên dưới — không bao giờ
+ * bị tên học sinh dài chèn ép hay cắt mất. Dùng chung cho cả 2 bảng.
+ */
+const LevelBadgeColumn: React.FC<{ xp?: number }> = ({ xp }) => {
+  const lv = levelFromXp(xp || 0);
+  return (
+    <div
+      title={`${lv.name} • ${xp || 0} XP`}
+      style={{
+        width: '54px',
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1px'
+      }}
+    >
+      <span style={{ fontSize: '27px', lineHeight: 1.1 }}>{lv.icon}</span>
+      <span style={{ fontSize: '9.5px', fontWeight: 800, color: '#cbd5e1', textAlign: 'center', lineHeight: 1.15 }}>
+        {lv.name}
+      </span>
+    </div>
+  );
+};
 
 interface Props {
   isOpen: boolean;
@@ -138,7 +167,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
           Chưa có học sinh tham gia phòng {activeRoomId}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', maxHeight: '480px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 'min(560px, 56vh)', overflowY: 'auto' }}>
           {displayedScoreList.map((player, idx) => {
             const rank = idx + 1;
             const badge = getRankBadge(rank);
@@ -153,7 +182,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: '10px',
-                  padding: '9px 12px',
+                  padding: '12px 14px',
                   borderRadius: '12px',
                   background: rank <= 3
                     ? 'linear-gradient(90deg, rgba(30, 41, 59, 0.96), rgba(51, 65, 85, 0.9))'
@@ -177,8 +206,9 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   }}>
                     {badge.medal}
                   </div>
+                  <LevelBadgeColumn xp={player.xp} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 900, color: rankNameColor(rank), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: rankNameColor(rank), whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {player.label}
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 700, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -279,7 +309,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
           Chưa có học sinh tham gia phòng {activeRoomId}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', maxHeight: '480px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 'min(560px, 56vh)', overflowY: 'auto' }}>
           {displayedCorrectList.map((player, idx) => {
             const rankByCorrect = idx + 1;
             const badge = getRankBadge(rankByCorrect);
@@ -293,7 +323,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: '10px',
-                  padding: '9px 12px',
+                  padding: '12px 14px',
                   borderRadius: '12px',
                   background: rankByCorrect <= 3
                     ? 'linear-gradient(90deg, rgba(6, 78, 59, 0.75), rgba(15, 23, 42, 0.94))'
@@ -317,8 +347,9 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
                   }}>
                     {badge.medal}
                   </div>
+                  <LevelBadgeColumn xp={player.xp} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 900, color: rankNameColor(rankByCorrect), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: rankNameColor(rankByCorrect), whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {player.label}
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#a7f3d0', fontWeight: 800, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -376,7 +407,7 @@ export const Top10LeaderboardModal: React.FC<Props> = ({
         boxShadow: '0 25px 60px rgba(0,0,0,0.85), 0 0 35px rgba(245, 158, 11, 0.35)',
         borderRadius: '24px',
         width: '100%',
-        maxWidth: '1160px',
+        maxWidth: '1280px',
         maxHeight: '92vh',
         display: 'flex',
         flexDirection: 'column',
