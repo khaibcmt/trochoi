@@ -26,7 +26,9 @@ import {
   answerKeyFor,
   buildResyncStateMessage,
   findPlayerByIdentity,
+  isHostReceptionOutage,
   mergePlayerRecord,
+  PLAYER_HOLD_MS,
   sweepPlayerPresence
 } from './utils/presence';
 import { questionDurationFor } from './utils/questionTiming';
@@ -249,8 +251,14 @@ export const App: React.FC = () => {
   const answeredDetailsRef = useRef<Map<string, { isCorrect: boolean; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string }>>(new Map());
   // Đợt 5 (4B.2): lastSeen theo đồng hồ HOST cho từng bản ghi — PLAYER_PING chỉ cập nhật
   // ref này (không ghi state mỗi 5s để tránh re-render liên tục với 50+ HS); vòng quét
-  // giữ chỗ 5s đọc ref này để bật/tắt cờ offline và giải phóng chỗ sau 90s.
+  // giữ chỗ 5s đọc ref này để bật/tắt cờ offline và giải phóng chỗ sau 5 phút.
   const lastSeenByIdRef = useRef<Map<string, number>>(new Map());
+  // Van an toàn mất-thu phía host: mốc nhận tin gần nhất (bất kỳ loại tin nào) +
+  // trạng thái đang mất thu — vòng quét giữ chỗ dùng để không giải phóng oan cả lớp
+  // khi chính host đang điếc (wifi thầy chập chờn / broker hiccup).
+  const lastHostRxAtRef = useRef<number>(Date.now());
+  const rxOutageRef = useRef<boolean>(false);
+  const rxOutageSinceRef = useRef<number>(0);
   // Đợt 5 (4B.2): khoá định danh (studentId/playerId) đã bị giải phóng chỗ ở ván hiện
   // tại (chế độ không phải BELL — bản ghi đã bị dọn): còn đang PLAYING thì chưa cho
   // vào lại, trận về LOBBY (ván sau) mới vào lại bình thường.
@@ -1006,7 +1014,7 @@ export const App: React.FC = () => {
   }, [matchState.status, matchState.globalQIndex, matchState.currentRound, matchState.settings?.questionDurationSec, matchState.settings?.questionDurationTfSec, matchState.settings?.questionDurationSaSec, isDirectStudent]);
 
   // Đợt 5 (4B.2): VÒNG QUÉT GIỮ CHỖ mỗi 5s — quá 15s không tín hiệu: bật cờ offline
-  // (host hiển thị xám "mất kết nối") nhưng giữ nguyên chỗ/điểm/mạng; quá 90s: giải
+  // (host hiển thị xám "mất kết nối") nhưng giữ nguyên chỗ/điểm/mạng; quá 5 phút: giải
   // phóng chỗ theo luật từng chế độ (BELL: loại khỏi sàn giữ bản ghi khán giả;
   // TUG/FAST/BOSS: dọn bản ghi + khoá định danh tới hết ván đang PLAYING).
   useEffect(() => {
@@ -1016,6 +1024,16 @@ export const App: React.FC = () => {
       if (!ms || ms.status === 'ENDED') return;
       if (ms.redPlayers.length === 0 && ms.bluePlayers.length === 0) return;
       const now = Date.now();
+      const rxOutage = isHostReceptionOutage(lastHostRxAtRef.current, now);
+      if (rxOutage) {
+        if (!rxOutageRef.current) { rxOutageRef.current = true; rxOutageSinceRef.current = lastHostRxAtRef.current; }
+        if (now - rxOutageSinceRef.current <= PLAYER_HOLD_MS) return; // host đang điếc: không giải phóng ai oan
+        rxOutageRef.current = false; // mất thu quá cả thời gian giữ chỗ → quay lại quét bình thường
+      } else if (rxOutageRef.current) {
+        rxOutageRef.current = false;
+        // Vừa hồi phục thu: ân hạn — làm mới lastSeen cho mọi bản ghi CHƯA bị will đánh dấu offline và chưa bị giải phóng
+        [...ms.redPlayers, ...ms.bluePlayers].forEach(p => { if (p.offline !== true && !p.holdReleased) lastSeenByIdRef.current.set(p.id, now); });
+      }
       const result = sweepPlayerPresence(ms.redPlayers, ms.bluePlayers, ms.gameType, now, lastSeenByIdRef.current);
       if (result.releasedIds.length > 0) {
         const allBefore = [...ms.redPlayers, ...ms.bluePlayers];
@@ -1052,6 +1070,7 @@ export const App: React.FC = () => {
   // Host incoming message handler
   const handleHostIncomingMessage = (d: CloudMessage) => {
     if (!d || !d.type) return;
+    lastHostRxAtRef.current = Date.now();
 
     if (d.type === 'QUIZ_CHUNK_REQUEST') {
       // Đợt 3 (2.3): HS xin phát lại gói đề thiếu — tầng mạng (network.ts) đã tự phát lại
@@ -1092,7 +1111,7 @@ export const App: React.FC = () => {
     if (d.type === 'PLAYER_OFFLINE') {
       // Đợt 5 (4B.2): Last-Will của HS vừa bắn (rớt hẳn) — ĐÓNG BĂNG lastSeen tại thời
       // điểm host nhận tin và bật cờ offline ngay, KHÔNG xoá bản ghi: vòng quét giữ
-      // chỗ sẽ đếm đủ 90s từ mốc đóng băng này mới giải phóng chỗ.
+      // chỗ sẽ đếm đủ 5 phút từ mốc đóng băng này mới giải phóng chỗ.
       if (!d.playerId) return;
       const offlineNow = Date.now();
       setMatchState(prev => {
