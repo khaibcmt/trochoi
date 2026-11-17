@@ -1419,6 +1419,8 @@ export const TeacherSetupView: React.FC<Props> = ({
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'stretch' }}>
+            {/* Hàng gộp 1: XANH DƯƠNG (sĩ số + tối đa 3D + chẩn đoán) + CAM/VÀNG (Admin + Quản lý máy) — một hàng ngang duy nhất */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'stretch' }}>
             {/* Cụm XANH DƯƠNG: sĩ số + tối đa 3D + chẩn đoán tải máy chủ */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '8px 10px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.16)', border: '1.5px solid rgba(56, 189, 248, 0.55)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 800 }}>
@@ -1485,6 +1487,7 @@ export const TeacherSetupView: React.FC<Props> = ({
                 🔐 Quản lý máy
               </button>
             )}
+            </div>
             </div>
 
             {/* Cụm XANH LÁ: thời gian 3 phần */}
