@@ -21,6 +21,7 @@ import { MathRenderer } from '../utils/katexHelper';
 import { readFileAsText } from '../utils/fileText';
 import { getOrCreateRoomKey } from '../utils/commandSign';
 import { docxToHtml } from '../utils/docxImport';
+import { getCachedImage, resolveImagesInHtml } from '../utils/imageStore';
 import { CloudNetwork, getStudentShareBaseUrl } from '../services/network';
 import { useLicenseGate } from './LicenseGate';
 
@@ -750,7 +751,12 @@ export const TeacherSetupView: React.FC<Props> = ({
   useEffect(() => {
     if (subjectsDB[currentSubjectKey] && lastLoadedSubjectKeyRef.current !== currentSubjectKey) {
       lastLoadedSubjectKeyRef.current = currentSubjectKey;
-      const parsed = parseHTMLToQuiz(subjectsDB[currentSubjectKey].html);
+      // 🖼️ Kho đề lưu dạng tham chiếu imgref:<hash> — nhúng lại ảnh thật
+      // trước khi parse để 3 khung soạn thảo làm việc với ảnh thật như cũ
+      // (khi lưu, saveSubjects ở App sẽ tách hình trở lại kho hình riêng).
+      const parsed = parseHTMLToQuiz(
+        resolveImagesInHtml(subjectsDB[currentSubjectKey].html, getCachedImage).html
+      );
       populate3BoxesFromItems(parsed);
     }
   }, [currentSubjectKey, subjectsDB]);
