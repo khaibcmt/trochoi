@@ -22,6 +22,9 @@ interface Props {
   activeQuizList?: QuizItem[];
   onApplyBackup: (backup: CloudBackupData) => void;
   initialTab?: 'GOOGLE' | 'PASSWORD';
+  // 💾 KHO ĐỀ BỀN (18/11/2026): dấu thời gian sửa từng bộ đề — đính kèm vào
+  // mọi bản sao lưu để hợp nhất union theo từng bộ đề ở mọi đường nạp.
+  deckUpdatedAt?: Record<string, number>;
 }
 
 export const CloudSyncModal: React.FC<Props> = ({
@@ -32,6 +35,7 @@ export const CloudSyncModal: React.FC<Props> = ({
   matchSettings,
   activeQuizList,
   onApplyBackup,
+  deckUpdatedAt,
   initialTab = 'GOOGLE'
 }) => {
   const [activeTab, setActiveTab] = useState<'GOOGLE' | 'PASSWORD' | 'DIRECT_CODE'>(initialTab);
@@ -52,6 +56,36 @@ export const CloudSyncModal: React.FC<Props> = ({
 
   // Local stats
   const localStats = calculateBackupStats(subjectsDB);
+
+  // 💾 DUNG LƯỢNG KHO ĐỀ (18/11/2026): cho giáo viên THẤY hạn mức thật của
+  // trình duyệt — đã dùng ~bao nhiêu MB / được cấp ~bao nhiêu MB, và trình
+  // duyệt đã đồng ý giữ bền dữ liệu hay chưa (navigator.storage).
+  const [storageInfo, setStorageInfo] = useState<{ usageMB: number; quotaMB: number; persisted: boolean } | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const st: any = (navigator as any).storage;
+        if (!st || typeof st.estimate !== 'function') return;
+        const est = await st.estimate();
+        let persisted = false;
+        try {
+          persisted = typeof st.persisted === 'function' ? await st.persisted() : false;
+        } catch {}
+        if (!cancelled && est) {
+          setStorageInfo({
+            usageMB: (est.usage || 0) / (1024 * 1024),
+            quotaMB: (est.quota || 0) / (1024 * 1024),
+            persisted
+          });
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -96,14 +130,14 @@ export const CloudSyncModal: React.FC<Props> = ({
     setProfile(newProfile);
     saveStoredSyncProfile(newProfile);
 
-    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const result = await saveBackupToCloud(newProfile, payload);
 
     setLoading(false);
     if (result.ok) {
       setStatusMessage({
         type: 'success',
-        text: `✅ ${result.message} (${payload.stats?.totalSubjects} môn học, ${payload.stats?.totalQuestions} câu hỏi đã được bảo vệ).`
+        text: `✅ ${result.message} (${result.mergedBackup?.stats?.totalSubjects ?? payload.stats?.totalSubjects} môn học, ${result.mergedBackup?.stats?.totalQuestions ?? payload.stats?.totalQuestions} câu hỏi đã được bảo vệ — đã hợp nhất an toàn với bản mây, không bộ đề nào bị mất).`
       });
       checkCurrentStatus(newProfile, 'GOOGLE');
     } else {
@@ -162,7 +196,7 @@ export const CloudSyncModal: React.FC<Props> = ({
     setProfile(newProfile);
     saveStoredSyncProfile(newProfile);
 
-    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const result = await saveBackupToCloud(newProfile, payload);
 
     setLoading(false);
@@ -212,7 +246,7 @@ export const CloudSyncModal: React.FC<Props> = ({
 
   // 5. Sao chép mã 1 chạm
   const handleCopyOneClickCode = () => {
-    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const code = exportSyncCodeString(payload);
     navigator.clipboard?.writeText(code).then(() => {
       setCopiedCode(true);
@@ -251,7 +285,7 @@ export const CloudSyncModal: React.FC<Props> = ({
 
   // 7. Xuất file JSON
   const handleDownloadBackupFile = () => {
-    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList);
+    const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
     const dl = document.createElement('a');
     dl.setAttribute('href', dataStr);
@@ -436,6 +470,11 @@ export const CloudSyncModal: React.FC<Props> = ({
                   <div className="text-sm font-bold text-indigo-300 mt-1">
                     {localStats.totalSubjects} môn học • {localStats.totalQuestions} câu hỏi
                   </div>
+                  {storageInfo && (
+                    <div className="text-slate-400 mt-1.5 leading-normal">
+                      💾 Kho đề trên máy: đã dùng ~{storageInfo.usageMB.toFixed(1)} MB / hạn mức trình duyệt cấp ~{storageInfo.quotaMB >= 1024 ? `${(storageInfo.quotaMB / 1024).toFixed(1)} GB` : `${storageInfo.quotaMB.toFixed(0)} MB`} — còn trống rất nhiều{storageInfo.persisted ? ', trình duyệt đã đồng ý GIỮ BỀN dữ liệu (không tự dọn)' : ''}.
+                    </div>
+                  )}
                 </div>
                 <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
                   <div className="text-slate-400">Bản sao lưu trên Google:</div>
@@ -524,6 +563,11 @@ export const CloudSyncModal: React.FC<Props> = ({
                   <div className="text-sm font-bold text-amber-300 mt-1">
                     {localStats.totalSubjects} môn học • {localStats.totalQuestions} câu hỏi
                   </div>
+                  {storageInfo && (
+                    <div className="text-slate-400 mt-1.5 leading-normal">
+                      💾 Kho đề trên máy: đã dùng ~{storageInfo.usageMB.toFixed(1)} MB / hạn mức trình duyệt cấp ~{storageInfo.quotaMB >= 1024 ? `${(storageInfo.quotaMB / 1024).toFixed(1)} GB` : `${storageInfo.quotaMB.toFixed(0)} MB`} — còn trống rất nhiều{storageInfo.persisted ? ', trình duyệt đã đồng ý GIỮ BỀN dữ liệu (không tự dọn)' : ''}.
+                    </div>
+                  )}
                 </div>
                 <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
                   <div className="text-slate-400">Đám mây với mật khẩu này:</div>
