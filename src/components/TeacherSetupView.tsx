@@ -68,6 +68,11 @@ interface Props {
   onNewSession?: (customRoomId?: string) => void;
   onResetClass?: () => void;
   onOpenCoffeeModal?: () => void;
+  // 💾 KHO ĐỀ BỀN (18/11/2026): thông báo trạng thái lưu kho đề từ App —
+  // MỌI lỗi ghi lưu trữ đều hiện ở đây, không nuốt im lặng.
+  deckSaveNotice?: { kind: 'success' | 'warning' | 'error' | 'info'; text: string } | null;
+  onDismissDeckNotice?: () => void;
+  onStorageError?: (message: string) => void;
 }
 
 export const TeacherSetupView: React.FC<Props> = ({
@@ -100,7 +105,10 @@ export const TeacherSetupView: React.FC<Props> = ({
   connectedPlayers = [],
   onNewSession,
   onResetClass,
-  onOpenCoffeeModal
+  onOpenCoffeeModal,
+  deckSaveNotice,
+  onDismissDeckNotice,
+  onStorageError
 }) => {
   // Bản quyền (17/11/2026): cửa đăng ký kích hoạt cho 2 nút Thêm Đề Mới /
   // Lưu Đề Này + Admin 2 khoá + Quản lý máy — logic ở utils/license.ts.
@@ -276,7 +284,15 @@ export const TeacherSetupView: React.FC<Props> = ({
     setLivePreviewItems(items);
     try {
       localStorage.setItem('custom_Active_Quiz_V31', JSON.stringify(items));
-    } catch {}
+    } catch (e: any) {
+      // 💾 KHÔNG NUỐT LỖI (18/11/2026): hết quota ở bộ nhớ đệm câu đang chơi
+      // phải báo cho giáo viên biết (trước đây nuốt im lặng như vụ mất đề).
+      if (onStorageError) {
+        onStorageError(
+          `⚠️ Không ghi được danh sách câu đang chơi vào bộ nhớ đệm của trình duyệt (${e?.message || 'hết quota'}) — bấm "💾 Lưu Đề Này" để ghi bền vào kho đề trước khi tải lại trang.`
+        );
+      }
+    }
     if (items.length > 0 && onSyncQuizLive) {
       onSyncQuizLive(items);
     }
@@ -1271,6 +1287,69 @@ export const TeacherSetupView: React.FC<Props> = ({
   return (
     <main id="teacher-view">
       <div className="setup-box" style={{ marginBottom: '64px' }}>
+        {/* 💾 Banner trạng thái KHO ĐỀ BỀN (18/11/2026): kết quả lưu/hợp
+            nhất/khôi phục kho đề + mọi lỗi ghi lưu trữ hiện ở đây. */}
+        {deckSaveNotice && (
+          <div
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              marginBottom: '12px',
+              padding: '10px 12px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 700,
+              lineHeight: 1.45,
+              border: '1.5px solid',
+              background:
+                deckSaveNotice.kind === 'error'
+                  ? '#fef2f2'
+                  : deckSaveNotice.kind === 'warning'
+                    ? '#fffbeb'
+                    : deckSaveNotice.kind === 'success'
+                      ? '#f0fdf4'
+                      : '#eff6ff',
+              borderColor:
+                deckSaveNotice.kind === 'error'
+                  ? '#ef4444'
+                  : deckSaveNotice.kind === 'warning'
+                    ? '#f59e0b'
+                    : deckSaveNotice.kind === 'success'
+                      ? '#22c55e'
+                      : '#3b82f6',
+              color:
+                deckSaveNotice.kind === 'error'
+                  ? '#991b1b'
+                  : deckSaveNotice.kind === 'warning'
+                    ? '#92400e'
+                    : deckSaveNotice.kind === 'success'
+                      ? '#166534'
+                      : '#1e40af'
+            }}
+          >
+            <span style={{ flex: 1 }}>{deckSaveNotice.text}</span>
+            {onDismissDeckNotice && (
+              <button
+                type="button"
+                onClick={onDismissDeckNotice}
+                aria-label="Đóng thông báo lưu kho đề"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: 900,
+                  color: 'inherit',
+                  padding: '0 2px'
+                }}
+              >
+                ✖
+              </button>
+            )}
+          </div>
+        )}
         {/* Top Header */}
         <div className="flex-between" style={{ marginBottom: '14px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>
