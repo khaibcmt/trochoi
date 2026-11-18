@@ -12,6 +12,12 @@ import {
   importSyncCodeString
 } from '../services/cloudSync';
 import { readFileAsText } from '../utils/fileText';
+import {
+  createIndexedDbImageBackend,
+  ensureImagesForDB,
+  getImageCacheStats
+} from '../utils/imageStore';
+import { defaultFetch, getMachineId } from '../utils/license';
 
 interface Props {
   isOpen: boolean;
@@ -66,10 +72,20 @@ export const CloudSyncModal: React.FC<Props> = ({
   // trình duyệt — đã dùng ~bao nhiêu MB / được cấp ~bao nhiêu MB, và trình
   // duyệt đã đồng ý giữ bền dữ liệu hay chưa (navigator.storage).
   const [storageInfo, setStorageInfo] = useState<{ usageMB: number; quotaMB: number; persisted: boolean } | null>(null);
+  // 🖼️ KHO HÌNH TÁCH RIÊNG (18/11/2026): số ảnh + dung lượng của kho hình
+  // (mỗi ảnh duy nhất chỉ lưu 1 bản theo hash nội dung; kho đề chỉ giữ mã
+  // tham chiếu) — đọc từ bộ đệm kho hình đã nạp lúc boot.
+  const [imageStoreInfo, setImageStoreInfo] = useState<{ count: number; sizeMB: number } | null>(null);
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
     (async () => {
+      try {
+        const stats = getImageCacheStats();
+        if (!cancelled) {
+          setImageStoreInfo({ count: stats.count, sizeMB: stats.totalChars / (1024 * 1024) });
+        }
+      } catch {}
       try {
         const st: any = (navigator as any).storage;
         if (!st || typeof st.estimate !== 'function') return;
@@ -91,6 +107,22 @@ export const CloudSyncModal: React.FC<Props> = ({
       cancelled = true;
     };
   }, [isOpen]);
+
+  // 🖼️ Trước khi dựng BẤT KỲ bản sao lưu nào (mây/mã/file): bảo đảm mọi
+  // ảnh mà kho đề tham chiếu đều đã có trong bộ đệm (nạp từ kho hình máy /
+  // mây theo mã máy khi thiếu) để prepareBackupPayload nhúng lại được ảnh
+  // thật — bản sao lưu luôn tự chứa ảnh. Lỗi ở bước này không chặn sao
+  // lưu: phần resolve trong prepareBackupPayload vẫn chạy với những gì
+  // đang có trong bộ đệm.
+  const ensureImagesReady = async () => {
+    try {
+      await ensureImagesForDB(subjectsDB, {
+        backend: createIndexedDbImageBackend(),
+        fetchFn: defaultFetch,
+        machineId: getMachineId(localStorage)
+      });
+    } catch {}
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -135,6 +167,7 @@ export const CloudSyncModal: React.FC<Props> = ({
     setProfile(newProfile);
     saveStoredSyncProfile(newProfile);
 
+    await ensureImagesReady();
     const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const result = await saveBackupToCloud(newProfile, payload);
 
@@ -201,6 +234,7 @@ export const CloudSyncModal: React.FC<Props> = ({
     setProfile(newProfile);
     saveStoredSyncProfile(newProfile);
 
+    await ensureImagesReady();
     const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const result = await saveBackupToCloud(newProfile, payload);
 
@@ -250,7 +284,8 @@ export const CloudSyncModal: React.FC<Props> = ({
   };
 
   // 5. Sao chép mã 1 chạm
-  const handleCopyOneClickCode = () => {
+  const handleCopyOneClickCode = async () => {
+    await ensureImagesReady();
     const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const code = exportSyncCodeString(payload);
     navigator.clipboard?.writeText(code).then(() => {
@@ -289,7 +324,8 @@ export const CloudSyncModal: React.FC<Props> = ({
   };
 
   // 7. Xuất file JSON
-  const handleDownloadBackupFile = () => {
+  const handleDownloadBackupFile = async () => {
+    await ensureImagesReady();
     const payload = prepareBackupPayload(subjectsDB, currentSubjectKey, matchSettings, activeQuizList, deckUpdatedAt);
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
     const dl = document.createElement('a');
@@ -480,6 +516,11 @@ export const CloudSyncModal: React.FC<Props> = ({
                       💾 Kho đề trên máy: đã dùng ~{storageInfo.usageMB.toFixed(1)} MB / hạn mức trình duyệt cấp ~{storageInfo.quotaMB >= 1024 ? `${(storageInfo.quotaMB / 1024).toFixed(1)} GB` : `${storageInfo.quotaMB.toFixed(0)} MB`} — còn trống rất nhiều{storageInfo.persisted ? ', trình duyệt đã đồng ý GIỮ BỀN dữ liệu (không tự dọn)' : ''}.
                     </div>
                   )}
+                  {imageStoreInfo && imageStoreInfo.count > 0 && (
+                    <div className="text-slate-400 mt-1 leading-normal">
+                      🖼️ Kho hình tách riêng: {imageStoreInfo.count} hình • ~{imageStoreInfo.sizeMB.toFixed(1)} MB — mỗi hình chỉ lưu đúng 1 bản, các bộ đề chỉ giữ mã tham chiếu nên kho đề nhẹ và bền.
+                    </div>
+                  )}
                 </div>
                 <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
                   <div className="text-slate-400">Bản sao lưu trên Google:</div>
@@ -571,6 +612,11 @@ export const CloudSyncModal: React.FC<Props> = ({
                   {storageInfo && (
                     <div className="text-slate-400 mt-1.5 leading-normal">
                       💾 Kho đề trên máy: đã dùng ~{storageInfo.usageMB.toFixed(1)} MB / hạn mức trình duyệt cấp ~{storageInfo.quotaMB >= 1024 ? `${(storageInfo.quotaMB / 1024).toFixed(1)} GB` : `${storageInfo.quotaMB.toFixed(0)} MB`} — còn trống rất nhiều{storageInfo.persisted ? ', trình duyệt đã đồng ý GIỮ BỀN dữ liệu (không tự dọn)' : ''}.
+                    </div>
+                  )}
+                  {imageStoreInfo && imageStoreInfo.count > 0 && (
+                    <div className="text-slate-400 mt-1 leading-normal">
+                      🖼️ Kho hình tách riêng: {imageStoreInfo.count} hình • ~{imageStoreInfo.sizeMB.toFixed(1)} MB — mỗi hình chỉ lưu đúng 1 bản, các bộ đề chỉ giữ mã tham chiếu nên kho đề nhẹ và bền.
                     </div>
                   )}
                 </div>
