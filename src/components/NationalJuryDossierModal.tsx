@@ -517,6 +517,9 @@ export const NationalJuryDossierModal: React.FC<Props> = ({
                   <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
                     <b style={{ color: '#fed7aa' }}>📊 Chuẩn Thông Tư 22/BGDĐT:</b> Thang điểm 10 = <code>(Đúng / Tổng câu) * 10</code> làm tròn 1 số lẻ, xếp thứ tự từ cao xuống thấp để vào sổ vnEdu / SMAS.
                   </div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(244,63,94,0.3)' }}>
+                    <b style={{ color: '#fca5a5' }}>🛡️ Chống AI Ngoài:</b> Đang làm bài mà vi phạm quy chế (rời màn hình, thoát toàn màn hình, chia đôi màn hình, dùng trợ lý giọng nói...) là câu đó TÍNH SAI NGAY. Không dùng trợ lý giọng nói (Google Assistant, Gemini Live...) để hỏi đáp án — khi cửa sổ thi mất tiêu điểm quá 1 giây, hệ thống ghi nhận như rời màn hình.
+                  </div>
                 </div>
               </div>
             </div>
