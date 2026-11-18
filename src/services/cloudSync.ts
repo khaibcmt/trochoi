@@ -2,6 +2,7 @@ import mqtt, { MqttClient } from 'mqtt';
 import { CloudBackupData, CloudSyncProfile, SubjectData, MatchSettings, QuizItem } from '../types';
 import { parseHTMLToQuiz } from '../data/defaultSubjects';
 import { unionMergeBackupData } from '../utils/deckStore';
+import { getCachedImage, resolveImagesInDB, resolveImagesInHtml } from '../utils/imageStore';
 import { QUIZ_CHUNK_BUDGET_BYTES, serializedByteLength } from './network';
 
 const SYNC_PROFILE_KEY = 'thpt_cloud_sync_profile_v1';
@@ -34,7 +35,10 @@ export function calculateBackupStats(subjectsDB: Record<string, SubjectData>) {
   Object.values(subjectsDB || {}).forEach(s => {
     if (s && s.html) {
       try {
-        const qList = parseHTMLToQuiz(s.html);
+        // 🖼️ Đếm câu trên bản ĐÃ NHÚNG LẠI ẢNH THẬT: html lưu dạng tham
+        // chiếu imgref:<hash> mà đem parse thẳng thì bộ parse sẽ loại thẻ
+        // <img> lạ src → đếm lệch/sai cấu trúc câu có hình.
+        const qList = parseHTMLToQuiz(resolveImagesInHtml(s.html, getCachedImage).html);
         totalQuestions += qList.length;
       } catch {}
     }
@@ -54,7 +58,12 @@ export function prepareBackupPayload(
     version: 1,
     lastUpdated: Date.now(),
     deviceLabel: typeof navigator !== 'undefined' ? `${navigator.platform || 'Thiết bị'} (${new Date().toLocaleDateString('vi-VN')})` : 'Web',
-    subjectsDB,
+    // 🖼️ MỌI bản sao lưu rời khỏi máy (mây MQTT / mã 1 chạm / file .json)
+    // đều phải TỰ CHỨA ẢNH: kho đề trong máy chỉ giữ tham chiếu
+    // imgref:<hash> nên tại đây nhúng lại data URL thật từ bộ đệm kho
+    // hình. Máy nhận (kể cả bản app cũ) mở ra là đủ ảnh, không cần kho
+    // hình của máy gửi; phía nạp sẽ tách + khử trùng trở lại khi áp vào.
+    subjectsDB: resolveImagesInDB(subjectsDB, getCachedImage),
     currentSubjectKey,
     matchSettings,
     activeQuizList,
