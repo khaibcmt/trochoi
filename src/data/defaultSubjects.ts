@@ -2040,8 +2040,26 @@ export function parseHTMLToQuiz(
     if (pendingOptionPrefix && cur) {
       const activeFmt = forcedFormat || cur.format;
       const pref = pendingOptionPrefix;
-      pendingOptionPrefix = null;
-      if (activeFmt === 'TRUE_FALSE') {
+      // CHẶN NUỐT DÒNG CẤU TRÚC (sửa tận gốc 18/11/2026 — ca CN11-78): nhãn rời chỉ
+      // được ghép với dòng VĂN BẢN THƯỜNG làm nội dung. Nếu dòng hiện tại tự nó là
+      // tiêu đề câu hỏi / tiêu đề phần / dòng mang nhãn phương án–mệnh đề khác /
+      // dòng "Đáp án:", TUYỆT ĐỐI không nuốt nó làm nội dung — trước đây cơ chế này
+      // ăn mất tiêu đề câu kế tiếp mỗi khi có dòng nhãn rỗng (khối đầu đề/tựa phần
+      // sinh ra), làm lệch cả dãy parse phía sau và sinh phương án giữ chỗ.
+      // Khi gặp dòng cấu trúc: chốt nhãn rời thành phương án rỗng (MC) rồi để dòng
+      // hiện tại đi tiếp quy trình nhận diện bình thường ở các bước dưới.
+      const lineIsStructuralForPending =
+        /^(?:Câu\s*(?:hỏi)?\s*\d|Bài\s*(?:tập)?\s*\d|Question\s*\d|(?:PHẦN|DẠNG\s*THỨC)\s*(?:I|II|III|1|2|3)\b)/i.test(cleanLine) ||
+        /^(?:\[\s*[A-Da-d]\s*\]|\(\s*[A-Da-d]\s*\)|[A-Da-d]\s*\*?\s*[\.:\)\-])/.test(cleanLine) ||
+        /^(?:Đáp\s*án|Đáp\s*số|ĐA|ĐS|Kết\s*quả|KQ)\s*[:=]/i.test(cleanLine);
+      if (lineIsStructuralForPending) {
+        pendingOptionPrefix = null;
+        if (activeFmt !== 'TRUE_FALSE' && cur.opts.length < 4) {
+          cur.opts.push('');
+        }
+        // Không continue: dòng hiện tại được xử lý tiếp ở các bước dưới.
+      } else if (activeFmt === 'TRUE_FALSE') {
+        pendingOptionPrefix = null;
         const isLineUnderlined = pref.isU || p.isU;
         if (isLineUnderlined) cur._tfHasRealUnderline = true;
         const { textContent, isTrue } = detectStatementTrueFalse(cleanLine, isLineUnderlined, false, Boolean(cur._tfHasRealUnderline));
@@ -2054,6 +2072,7 @@ export function parseHTMLToQuiz(
         }
         continue;
       } else {
+        pendingOptionPrefix = null;
         const letterIdx = pref.letter.toUpperCase().charCodeAt(0) - 65;
         if (letterIdx >= 0 && letterIdx < 4) {
           const oIdx = Math.min(cur.opts.length, 3);
