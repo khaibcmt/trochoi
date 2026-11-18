@@ -689,6 +689,9 @@ export function buildResyncStateMessage(
     // Luật cược mới (17/11/2026): trạng thái lá chắn An Toàn theo sổ HOST —
     // HS đồng bộ lại gương tại máy từ đây để hai phía không lệch nhau.
     msg.safeShieldUsed = player.safeShieldUsed === true;
+    // 🛡️ CHỐNG AI NGOÀI (18/11/2026): số vi phạm quy chế thi THEO SỔ HOST —
+    // HS đồng bộ gương tại máy từ đây (sau F5 vẫn giữ đúng số lần).
+    msg.awayViolations = player.awayViolations || 0;
   }
   return msg;
 }
