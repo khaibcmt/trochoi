@@ -72,6 +72,18 @@ import {
   PRESENCE_FLUSH_INTERVAL_MS,
   type PresencePatchQueue
 } from './utils/presenceFlush';
+import {
+  createIndexedDbImageBackend,
+  extractImagesFromDB,
+  getCachedImage,
+  loadImageCacheFromBackend,
+  normalizeSnapshotImages,
+  pushImagesToCloud,
+  resolveImagesInDB,
+  resolveImagesInHtml,
+  storeExtractedImages,
+  type ImageStorageBackend
+} from './utils/imageStore';
 import { TopAuthorBanner } from './components/TopAuthorBanner';
 import { TeacherSetupView } from './components/TeacherSetupView';
 import { HostArenaView } from './components/HostArenaView';
@@ -196,7 +208,24 @@ export const App: React.FC = () => {
     // isDeckAlive qua pruneDeadDecks — bộ lọc cũ chép tay ở đây dùng
     // `updatedAt > (tombstone || 0)` nên bộ đề legacy dấu 0 bị loại oan
     // toàn bộ (sự cố kho hiện 0 môn • 0 câu sáng 18/11).
-    const merged: DeckSnapshot = pruneDeadDecks(mergedIn);
+    const pruned: DeckSnapshot = pruneDeadDecks(mergedIn);
+    // 🖼️ TÁCH HÌNH (18/11/2026): di trú tại chỗ SAU prune (bộ đã xoá tường
+    // minh không hồi sinh vì di trú) — ảnh data: còn sót trong các bộ đề
+    // được đưa vào kho hình riêng, bản ghi đề chỉ còn tham chiếu
+    // imgref:<hash>; đồng thời bảo đảm mọi tham chiếu của bản chụp đều tra
+    // cứu được trong bộ đệm (nạp từ kho hình máy / mây theo mã máy). Di trú
+    // lỗi (kho hình ghi không được...) thì LÙI về bản chụp chưa tách — dạng
+    // data: vẫn hiển thị/phát đề đúng như trước, lần boot/lưu sau thử lại.
+    let merged: DeckSnapshot = pruned;
+    try {
+      merged = await normalizeSnapshotImages(pruned, {
+        backend: getImageBackend(),
+        fetchFn: defaultFetch,
+        machineId: getMachineId(localStorage)
+      });
+    } catch {
+      merged = pruned;
+    }
     const prev = deckSnapshotRef.current;
     deckSnapshotRef.current = merged;
     setSubjectsDB({ ...resolveVisibleDecks(merged) });
@@ -241,6 +270,12 @@ export const App: React.FC = () => {
     } catch {}
     (async () => {
       const backend = getDeckBackend();
+      // 🖼️ Nạp bộ đệm KHO HÌNH từ IndexedDB trước khi hợp nhất kho đề —
+      // mọi đường resolve tham chiếu imgref:<hash> (hiển thị, phát đề,
+      // xuất file) tra cứu đồng bộ ở bộ đệm này.
+      try {
+        await loadImageCacheFromBackend(getImageBackend());
+      } catch {}
       try {
         const idbSnap = await backend.loadAll();
         const legacySnap = readLegacySubjectsSnapshot(localStorage);
@@ -335,6 +370,14 @@ export const App: React.FC = () => {
   const getDeckBackend = (): DeckStorageBackend => {
     if (!deckBackendRef.current) deckBackendRef.current = createIndexedDbBackend();
     return deckBackendRef.current;
+  };
+  // 🖼️ KHO HÌNH TÁCH RIÊNG (18/11/2026): IndexedDB riêng kc3d_img_store —
+  // mỗi ảnh duy nhất chỉ lưu 1 bản theo hash nội dung; kho đề chỉ giữ tham
+  // chiếu imgref:<hash> (xem utils/imageStore.ts).
+  const imageBackendRef = useRef<ImageStorageBackend | null>(null);
+  const getImageBackend = (): ImageStorageBackend => {
+    if (!imageBackendRef.current) imageBackendRef.current = createIndexedDbImageBackend();
+    return imageBackendRef.current;
   };
   const deckSnapshotRef = useRef<DeckSnapshot>(snapshotFromSubjects(subjectsDB, {}));
   // Thông báo trạng thái lưu kho đề (hiện ở khu Cài Đặt giáo viên) — MỌI lỗi
@@ -537,7 +580,11 @@ export const App: React.FC = () => {
         broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
       }, 50);
     } else if (backup.currentSubjectKey && backup.subjectsDB && backup.subjectsDB[backup.currentSubjectKey]) {
-      const parsed = parseHTMLToQuiz(backup.subjectsDB[backup.currentSubjectKey].html);
+      // Bản sao lưu chuẩn luôn TỰ CHỨA ẢNH (đường xuất đã resolve); resolve
+      // ở đây là lớp bảo hiểm cho file lạ còn sót tham chiếu imgref.
+      const parsed = parseHTMLToQuiz(
+        resolveImagesInHtml(backup.subjectsDB[backup.currentSubjectKey].html, getCachedImage).html
+      );
       if (parsed.length > 0) {
         const normalized = parsed.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
         setQuizList(normalized);
@@ -694,26 +741,45 @@ export const App: React.FC = () => {
   const saveSubjects = async (
     newDB: Record<string, SubjectData>
   ): Promise<{ localOk: boolean; fbError?: string }> => {
+    // 🖼️ TÁCH HÌNH (18/11/2026): bộ đề mới/sửa còn mang ảnh data: nhúng
+    // thẳng (nạp từ Word, dán, nhập JSON...) được tách NGAY tại đây — ảnh
+    // vào kho hình riêng theo hash nội dung (1 ảnh duy nhất chỉ 1 bản),
+    // bản ghi đề chỉ giữ tham chiếu imgref:<hash>. AN TOÀN TUYỆT ĐỐI: kho
+    // hình ghi lỗi thì lùi về lưu NGUYÊN dạng data: như trước — không bao
+    // giờ để đề mang tham chiếu mà ảnh chưa nằm trong kho.
+    let effectiveDB = newDB;
+    let extractedImages = new Map<string, string>();
+    const extraction = extractImagesFromDB(newDB);
+    if (extraction.images.size > 0) {
+      try {
+        await storeExtractedImages(getImageBackend(), extraction.images);
+        effectiveDB = extraction.db;
+        extractedImages = extraction.images;
+      } catch {
+        effectiveDB = newDB;
+        extractedImages = new Map<string, string>();
+      }
+    }
     const prevDB = subjectsDBRef.current;
-    setSubjectsDB(newDB);
-    subjectsDBRef.current = newDB;
+    setSubjectsDB(effectiveDB);
+    subjectsDBRef.current = effectiveDB;
 
     // Dập dấu thời gian: bộ đề thay đổi (khác tham chiếu) -> updatedAt = now;
     // bộ đề biến mất -> tombstone = now (để hợp nhất không hồi sinh nhầm).
     const now = Date.now();
     const prevSnap = deckSnapshotRef.current;
     const nextDecks: Record<string, DeckRecord> = {};
-    for (const key of Object.keys(newDB)) {
+    for (const key of Object.keys(effectiveDB)) {
       const prevRec = prevSnap.decks[key];
-      const changed = !prevDB[key] || prevDB[key] !== newDB[key] || !prevRec;
+      const changed = !prevDB[key] || prevDB[key] !== effectiveDB[key] || !prevRec;
       nextDecks[key] = {
-        subject: newDB[key],
+        subject: effectiveDB[key],
         updatedAt: changed ? now : prevRec!.updatedAt
       };
     }
     const nextTombstones = { ...prevSnap.tombstones };
     for (const key of Object.keys(prevDB)) {
-      if (!(key in newDB)) nextTombstones[key] = now;
+      if (!(key in effectiveDB)) nextTombstones[key] = now;
     }
     const nextSnap: DeckSnapshot = { decks: nextDecks, tombstones: nextTombstones };
     deckSnapshotRef.current = nextSnap;
@@ -737,14 +803,23 @@ export const App: React.FC = () => {
     // lưu — giáo viên chỉ cần biết kết quả của kho chính IndexedDB và
     // bản sao mây theo mã máy (kc3d_decks).
     try {
-      attemptSubjectsMirror(localStorage, newDB);
+      // Bản gương là kênh cho ĐƯỜNG ĐỌC CŨ (chưa biết tham chiếu imgref)
+      // nên phải ghi dạng TỰ CHỨA ẢNH (resolve từ bộ đệm kho hình) như
+      // trước; luật đo-trước-chống-chôn-legacy của attemptSubjectsMirror
+      // vẫn áp nguyên — kho nhiều ảnh thì bản gương tự bỏ qua như cũ.
+      attemptSubjectsMirror(localStorage, resolveImagesInDB(effectiveDB, getCachedImage));
     } catch {}
 
-    // Đẩy phần chênh lên Firebase theo mã máy (bản sao dự phòng tự động).
+    // Đẩy phần chênh lên Firebase theo mã máy (bản sao dự phòng tự động):
+    // đề lên subtree kc3d_decks, ảnh mới tách lên subtree kc3d_images —
+    // lỗi ở một trong hai đều tính là "bản sao mây chưa lên được".
     let fbError: string | undefined;
     if (localOk) {
       try {
         await pushDeckDiffToCloud(defaultFetch, getMachineId(localStorage), prevSnap, nextSnap);
+        if (extractedImages.size > 0) {
+          await pushImagesToCloud(defaultFetch, getMachineId(localStorage), extractedImages);
+        }
       } catch (e: any) {
         fbError = e?.message || 'không rõ';
       }
@@ -763,7 +838,7 @@ export const App: React.FC = () => {
     // nền; trạng thái của nó từ nay CHỈ ghi chú lặng trong modal Đồng bộ,
     // không leo lên banner/alert lưu (triggerAutoCloudSync tự lo việc đó).
     // Trạng thái sao lưu CHÍNH của lần lưu này là kc3d_decks ở trên.
-    triggerAutoCloudSync(newDB, currentSubjectKeyRef.current, quizListRef.current);
+    triggerAutoCloudSync(effectiveDB, currentSubjectKeyRef.current, quizListRef.current);
     return { localOk, fbError };
   };
 
@@ -771,7 +846,10 @@ export const App: React.FC = () => {
     if (subjectsDB[key]) {
       setCurrentSubjectKey(key);
       currentSubjectKeyRef.current = key;
-      const parsed = parseHTMLToQuiz(subjectsDB[key].html);
+      // 🖼️ Kho đề lưu dạng tham chiếu imgref:<hash> — nhúng lại ảnh thật
+      // TRƯỚC khi parse để danh sách câu (và payload phát xuống học sinh
+      // qua MQTT) mang data URL thật y hệt trước đây.
+      const parsed = parseHTMLToQuiz(resolveImagesInHtml(subjectsDB[key].html, getCachedImage).html);
       if (parsed.length > 0) {
         const normalized = parsed.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
         setQuizList(normalized);
