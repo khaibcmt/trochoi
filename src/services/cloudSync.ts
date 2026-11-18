@@ -489,10 +489,49 @@ function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
   });
 }
 
+export interface CloudSaveOutcome {
+  ok: boolean;
+  /** Kênh máy chủ /api/sync/* có tồn tại ở bản triển khai này không (response null = không có). */
+  backendAvailable: boolean;
+  /** Kênh bị phán là lỗi khi ok=false (để chọn thông điệp đúng bản chất). */
+  failedVia: 'mqtt' | 'mqtt+backend' | null;
+}
+
+/**
+ * Phán kết quả sao lưu từ kết quả từng kênh (THUẦN — test được):
+ * - Chế độ TỰ ĐỘNG (auto): CHỈ phán theo kênh MQTT. Kênh "máy chủ"
+ *   /api/sync/* là ĐƯỜNG CHẾT-BY-DESIGN trên GitHub Pages tĩnh (không có
+ *   backend nào nghe ở đó — endpoint chỉ tồn tại khi tự chạy server.ts),
+ *   nên bị loại hẳn khỏi tiêu chí phán lỗi của auto-sync: trước đây nó
+ *   luôn "thất bại" và kéo cả lần sao lưu thành banner "cả 2 kênh đều
+ *   thất bại" dù kênh MQTT mới là kênh thật duy nhất.
+ * - Chế độ THỦ CÔNG (nút bấm trong modal): giữ nguyên — thành công khi
+ *   MQTT hoặc backend (nếu thật sự có) xác nhận đã lưu.
+ */
+export function evaluateCloudSaveOutcome(
+  mqttSuccess: boolean,
+  backendData: any | null | undefined,
+  auto: boolean
+): CloudSaveOutcome {
+  if (auto) {
+    return { ok: mqttSuccess, backendAvailable: false, failedVia: mqttSuccess ? null : 'mqtt' };
+  }
+  const backendOk = !!(backendData && backendData.ok);
+  const ok = mqttSuccess || backendOk;
+  return {
+    ok,
+    backendAvailable: backendData !== null && backendData !== undefined,
+    failedVia: ok ? null : 'mqtt+backend'
+  };
+}
+
 // API CHÍNH: Sao lưu lên Đám mây (Đa kênh: MQTT Retained + HTTP Backend nếu có)
+// opts.auto = đường TỰ ĐỘNG sau mỗi lần lưu: bỏ qua hẳn kênh máy chủ chết
+// (xem evaluateCloudSaveOutcome) và thông điệp lỗi gọn theo kênh MQTT.
 export async function saveBackupToCloud(
   profile: CloudSyncProfile,
-  backupData: CloudBackupData
+  backupData: CloudBackupData,
+  opts?: { auto?: boolean }
 ): Promise<{ ok: boolean; message: string; lastUpdated?: number; mergedBackup?: CloudBackupData }> {
   try {
     if (profile.type === 'NONE') {
@@ -543,16 +582,23 @@ export async function saveBackupToCloud(
     // Kênh 1: Sao lưu qua MQTT Đám Mây (Hoạt động hoàn hảo trên GitHub Pages không cần server)
     const mqttSuccess = await saveToMqttCloud(topicKey, finalBackup);
 
-    // Kênh 2: Nếu có máy chủ Express Backend cùng tên miền thì lưu thêm vào server.ts
-    const backendData = await safeFetchJson('/api/sync/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        syncType: profile.type,
-        identifier: identifier.trim(),
-        backup: finalBackup
-      })
-    });
+    // Kênh 2: Nếu có máy chủ Express Backend cùng tên miền thì lưu thêm vào server.ts.
+    // 🔥 Chế độ TỰ ĐỘNG (opts.auto): BỎ QUA HẲN kênh này — trên GitHub
+    // Pages tĩnh nó là đường chết-by-design (không có backend), gọi chỉ
+    // tốn một request 404 vô ích và trước đây còn bị tính là một kênh
+    // "thất bại" trong thông điệp lỗi (xem evaluateCloudSaveOutcome).
+    let backendData: any = undefined;
+    if (!opts?.auto) {
+      backendData = await safeFetchJson('/api/sync/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          syncType: profile.type,
+          identifier: identifier.trim(),
+          backup: finalBackup
+        })
+      });
+    }
 
     const now = Date.now();
 
@@ -562,10 +608,12 @@ export async function saveBackupToCloud(
       localStorage.setItem(`thpt_cloud_cache_${topicKey}`, JSON.stringify({ lastUpdated: now, backup: finalBackup }));
     } catch {}
 
-    // Đợt 6 (2.5): TRUNG THỰC — chỉ báo thành công khi ÍT NHẤT 1 kênh cloud xác nhận
-    // đã lưu (MQTT publish QoS 1 không lỗi, hoặc backend trả ok). Trước đây cả 2 kênh
-    // đều fail vẫn trả ok:true giả, giáo viên tưởng đề đã lên mây trong khi chưa hề.
-    if (mqttSuccess || (backendData && backendData.ok)) {
+    // Đợt 6 (2.5): TRUNG THỰC — chỉ báo thành công khi kênh cloud thật xác
+    // nhận đã lưu (qua evaluateCloudSaveOutcome: thủ công = MQTT hoặc
+    // backend có thật; tự động = chỉ MQTT). Trước đây cả 2 kênh đều fail
+    // vẫn trả ok:true giả, giáo viên tưởng đề đã lên mây trong khi chưa hề.
+    const outcome = evaluateCloudSaveOutcome(mqttSuccess, backendData, !!opts?.auto);
+    if (outcome.ok) {
       const updatedProfile: CloudSyncProfile = {
         ...profile,
         lastSyncedAt: now
@@ -585,11 +633,30 @@ export async function saveBackupToCloud(
       };
     }
 
-    // Cả 2 kênh cloud đều thất bại -> báo lỗi rõ ràng, KHÔNG ghi lastSyncedAt.
+    // Không kênh cloud nào xác nhận đã lưu -> báo lỗi rõ ràng, KHÔNG ghi
+    // lastSyncedAt. 🔥 HOTFIX 18/11/2026: phân biệt đúng bản chất từng
+    // kênh — trên bản web tĩnh (GitHub Pages) KHÔNG tồn tại "kênh máy
+    // chủ" (đường /api/sync/* chỉ có khi tự chạy server.ts); safeFetchJson
+    // trả null nghĩa là kênh đó KHÔNG KHẢ DỤNG trên bản này chứ không
+    // phải một kênh "thất bại". Thông điệp cũ gộp cả kênh không tồn tại
+    // vào thành "cả 2 kênh đều thất bại" làm giáo viên hoang mang, trong
+    // khi lỗi thật chỉ nằm ở chiều ĐẨY qua MQTT (mạng tại chỗ chập
+    // chờn/chặn broker) — và chiều TẢI VỀ (Nhập/Đồng bộ về) là đường độc
+    // lập, không hề bị ảnh hưởng bởi lần đẩy hỏng này.
+    if (opts?.auto) {
+      // Đường TỰ ĐỘNG: thông điệp gọn, chỉ nói về kênh MQTT thật — phía
+      // gọi (triggerAutoCloudSync) chỉ ghi chú lặng trong modal Đồng bộ.
+      return {
+        ok: false,
+        message:
+          'Kênh đồng bộ trực tiếp (MQTT) chưa kết nối được — mạng tại chỗ có thể đang chặn hoặc chập chờn với máy chủ đồng bộ (broker).'
+      };
+    }
     return {
       ok: false,
-      message:
-        'Chưa sao lưu được lên đám mây: cả 2 kênh đồng bộ đều thất bại (kênh MQTT trực tiếp và kênh máy chủ). Dữ liệu hiện CHỈ MỚI LƯU TRÊN MÁY NÀY — sang máy khác sẽ không thấy bản mới này. Thầy/Cô kiểm tra kết nối mạng rồi bấm Sao lưu lại nhé!'
+      message: outcome.backendAvailable
+        ? 'Chưa sao lưu được lên đám mây: cả kênh trực tiếp (MQTT) và kênh máy chủ đều chưa xác nhận đã lưu. Dữ liệu vẫn an toàn trên máy này — Thầy/Cô kiểm tra kết nối mạng rồi bấm Sao lưu lại nhé! (Việc TẢI VỀ/Nhập đồng bộ là đường riêng, không bị ảnh hưởng.)'
+        : 'Chưa sao lưu được lên đám mây: kênh đồng bộ trực tiếp (MQTT) chưa kết nối được — thường do mạng tại chỗ chặn hoặc chập chờn. Dữ liệu vẫn an toàn trên máy này và trong bộ nhớ đệm của app; sang máy khác sẽ chưa thấy bản mới này. Thầy/Cô kiểm tra mạng rồi bấm Sao lưu lại nhé! (Việc TẢI VỀ/Nhập đồng bộ là đường riêng, không bị ảnh hưởng bởi lần đẩy này.)'
     };
   } catch (err: any) {
     return { ok: false, message: 'Lỗi mạng khi kết nối đám mây: ' + (err.message || '') };
