@@ -3002,6 +3002,10 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
     }
   }
 
+  // Số phương án NỘI DUNG THẬT trước khi đệm giữ chỗ (sau nhánh >4 ở trên).
+  // Mọi vị trí >= realOptCount sau khi đệm đều là chữ giữ chỗ do hệ thống tự
+  // sinh, KHÔNG phải nội dung gốc của giáo viên.
+  const realOptCount = item.opts.length;
   while (item.opts.length > 0 && item.opts.length < 4) {
     item.opts.push(`Phương án ${String.fromCharCode(65 + item.opts.length)}`);
   }
@@ -3009,6 +3013,20 @@ export function repairQuizItemIfCorrupted(rawItem: QuizItem): QuizItem {
     item.opts = ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'];
   }
   item.opts = item.opts.slice(0, 4);
+
+  // SỬA LỖI DÁN ĐỀ MẤT PHƯƠNG ÁN (18/11/2026): nếu câu bị thiếu phương án thật
+  // (chỉ còn 1-3 phương án gốc) mà cờ đáp án đúng lại trỏ vào đúng vị trí GIỮ
+  // CHỖ vừa đệm (correct >= realOptCount), TUYỆT ĐỐI không giữ cờ ở đó —
+  // trình ra sẽ thành "phương án dự phòng được gạch chân là đáp án đúng" và
+  // chấm sai thầm lặng cho học sinh. Đặt lại correct = -1 để bộ dự đoán bên
+  // dưới tính lại từ các phương án CÓ NỘI DUNG THẬT (chữ giữ chỗ không có nội
+  // dung nên không thắng được), đồng thời gắn cảnh báo rõ vào chính câu hỏi.
+  if (realOptCount > 0 && realOptCount < 4 && item.correct >= realOptCount) {
+    item.correct = -1;
+    const warnMsg =
+      'Cảnh báo: Câu hỏi bị thiếu phương án gốc nên đáp án đúng từng trỏ vào phương án dự phòng — đã tính lại từ các phương án còn nội dung, hãy kiểm tra lại file đề.';
+    item.parseWarning = item.parseWarning ? `${item.parseWarning} ${warnMsg}` : warnMsg;
+  }
 
   // CHỈ dùng AI dự đoán khi câu hỏi hoàn toàn CHƯA có đáp án đúng (item.correct === -1)
   if (item.correct === -1 && item.opts.length > 0) {
