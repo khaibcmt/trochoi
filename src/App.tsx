@@ -46,15 +46,19 @@ import { applyPointsPenalty, computeWrongPenalty } from './utils/wagerPenalty';
 import { defaultFetch, getMachineId } from './utils/license';
 import {
   EMPTY_SNAPSHOT,
+  buildBootMergedSnapshot,
   createIndexedDbBackend,
   fetchCloudDecks,
   mergeBackupIntoCurrent,
   mergeDeckSnapshots,
   persistSnapshotDiff,
+  pruneDeadDecks,
   pushDeckDiffToCloud,
+  readLegacySubjectsSnapshot,
   resolveVisibleDecks,
   snapshotFromSubjects,
   visibleUpdatedAtMap,
+  attemptSubjectsMirror,
   type DeckRecord,
   type DeckSnapshot,
   type DeckStorageBackend
@@ -183,14 +187,13 @@ export const App: React.FC = () => {
     mergedIn: DeckSnapshot,
     opts?: { pushCloud?: boolean }
   ): Promise<{ persistError?: string }> => {
-    // Chuẩn hoá: bộ đề có tombstone xoá MỚI HƠN thì loại hẳn khỏi danh sách
-    // sống (chỉ giữ tombstone) — một bản mây cũ không bao giờ hồi sinh được
-    // bộ đề giáo viên đã xoá.
-    const keptDecks: Record<string, DeckRecord> = {};
-    for (const [key, rec] of Object.entries(mergedIn.decks)) {
-      if (rec.updatedAt > (mergedIn.tombstones[key] || 0)) keptDecks[key] = rec;
-    }
-    const merged: DeckSnapshot = { decks: keptDecks, tombstones: mergedIn.tombstones };
+    // Chuẩn hoá: bộ đề có tombstone xoá TƯỜNG MINH thắng nó thì loại hẳn
+    // khỏi danh sách sống (chỉ giữ tombstone) — một bản mây cũ không bao
+    // giờ hồi sinh được bộ đề giáo viên đã xoá. 🔥 HOTFIX 18/11: dùng luật
+    // isDeckAlive qua pruneDeadDecks — bộ lọc cũ chép tay ở đây dùng
+    // `updatedAt > (tombstone || 0)` nên bộ đề legacy dấu 0 bị loại oan
+    // toàn bộ (sự cố kho hiện 0 môn • 0 câu sáng 18/11).
+    const merged: DeckSnapshot = pruneDeadDecks(mergedIn);
     const prev = deckSnapshotRef.current;
     deckSnapshotRef.current = merged;
     setSubjectsDB({ ...resolveVisibleDecks(merged) });
@@ -210,10 +213,18 @@ export const App: React.FC = () => {
     return { persistError };
   };
 
-  // 💾 BOOT KHO ĐỀ BỀN: nạp IndexedDB → hợp nhất với bản sao Firebase theo
-  // mã máy (kc3d_decks/<mã máy>) → áp vào app. Lần đầu (IndexedDB trống):
-  // di trú từ kho hiện tại với dấu thời gian 0 để bản mây/bản mới hơn luôn
-  // thắng khi hợp nhất — không bộ đề nào bị mất vì di trú.
+  // 💾 BOOT KHO ĐỀ BỀN: hợp nhất UNION mọi nguồn đang có — IndexedDB +
+  // kho legacy localStorage + state khởi tạo + bản sao Firebase theo mã
+  // máy (kc3d_decks/<mã máy>) → áp vào app.
+  //
+  // 🔥 HOTFIX 18/11/2026 (sự cố kho hiện 0 môn • 0 câu sau nâng cấp 09:26):
+  // bản cũ chỉ di trú KHI IndexedDB trống và lấy nguồn từ subjectsDBRef,
+  // cộng thêm luật sống/chết cũ (updatedAt 0 bị coi như đã xoá) làm bản
+  // chụp di trú bị lọc sạch, rồi bị ghi đè xuống cả IndexedDB lẫn mây.
+  // LUẬT AN TOÀN TUYỆT ĐỐI từ nay: kho legacy trong localStorage LUÔN là
+  // một nguồn hợp nhất ở MỌI lần boot, đọc THẲNG từ khoá localStorage
+  // (không qua ref/state) — không đường code nào được để trạng thái
+  // rỗng/ít hơn ghi đè hay làm mất dữ liệu legacy.
   useEffect(() => {
     if (isDirectStudent) return;
     let cancelled = false;
@@ -228,12 +239,9 @@ export const App: React.FC = () => {
     (async () => {
       const backend = getDeckBackend();
       try {
-        let snap = await backend.loadAll();
-        if (Object.keys(snap.decks).length === 0 && Object.keys(snap.tombstones).length === 0) {
-          const migrated = snapshotFromSubjects(subjectsDBRef.current, {});
-          await persistSnapshotDiff(backend, EMPTY_SNAPSHOT, migrated);
-          snap = migrated;
-        }
+        const idbSnap = await backend.loadAll();
+        const legacySnap = readLegacySubjectsSnapshot(localStorage);
+        const initialSnap = snapshotFromSubjects(subjectsDBRef.current, {});
         let cloud: DeckSnapshot | null = null;
         try {
           cloud = await fetchCloudDecks(defaultFetch, getMachineId(localStorage));
@@ -241,7 +249,20 @@ export const App: React.FC = () => {
           cloud = null;
         }
         if (cancelled) return;
-        const merged = cloud ? mergeDeckSnapshots(snap, cloud) : snap;
+        const merged = buildBootMergedSnapshot({
+          idb: idbSnap,
+          legacy: legacySnap,
+          initial: initialSnap,
+          cloud
+        });
+        // Ghi thẳng phần chênh vào IndexedDB theo THỰC TẾ đang có trong
+        // IndexedDB (không dựa vào diff so với ref trong bộ nhớ) để bản
+        // hợp nhất — gồm cả đề legacy vừa cứu — nằm bền trong kho chính
+        // ngay từ lần boot này. Lỗi ghi ở đây không nuốt: lần ghi trong
+        // applyMergedDeckSnapshot ngay sau sẽ thử lại và báo rõ nếu vẫn lỗi.
+        try {
+          await persistSnapshotDiff(backend, idbSnap, merged);
+        } catch {}
         const res = await applyMergedDeckSnapshot(merged, { pushCloud: true });
         if (cancelled) return;
         if (res.persistError) {
@@ -249,13 +270,13 @@ export const App: React.FC = () => {
             kind: 'error',
             text: `❌ Không ghi được kho đề xuống bộ nhớ trình duyệt: ${res.persistError} Thầy/Cô kiểm tra dung lượng máy rồi tải lại trang.`
           });
-        } else if (cloud) {
-          const before = Object.keys(resolveVisibleDecks(snap)).length;
+        } else {
+          const before = Object.keys(resolveVisibleDecks(idbSnap)).length;
           const after = Object.keys(resolveVisibleDecks(merged)).length;
           if (after > before) {
             setDeckSaveNotice({
               kind: 'success',
-              text: `☁️ Đã khôi phục & hợp nhất kho đề từ bản sao theo mã máy — kho hiện có ${after} bộ đề, không bộ nào bị mất.`
+              text: `☁️ Đã khôi phục & hợp nhất kho đề (bản máy + kho cũ + bản sao mây) — kho hiện có ${after} bộ đề, không bộ nào bị mất.`
             });
           }
         }
@@ -371,11 +392,21 @@ export const App: React.FC = () => {
     setShowCloudSyncModal(true);
   };
 
+  // 🔥 HOTFIX 18/11 (bổ sung): ghi chú lặng về sao lưu TỰ ĐỘNG của hệ đồng
+  // bộ CŨ (MQTT) — CHỈ hiện bên trong modal Đồng bộ (đúng tab của nó),
+  // TUYỆT ĐỐI không leo lên banner đầu trang / alert lưu nữa. Lý do: bản
+  // sao lưu CHÍNH của app là kc3d_decks theo mã máy (trong saveSubjects);
+  // sáng 18/11 đường chính đã đẩy thành công mà banner vàng vẫn treo lỗi
+  // của hệ cũ ("cả 2 kênh đều thất bại") làm thầy tưởng sao lưu hỏng.
+  const [legacyAutoSyncNote, setLegacyAutoSyncNote] = useState<string | null>(null);
+
   const triggerAutoCloudSync = (newDB: Record<string, SubjectData>, currentKey: string, activeQuiz?: QuizItem[]) => {
-    // 💾 GIA CỐ (18/11/2026): tự sao lưu mây tuân luật hợp nhất union (nằm
-    // trong saveBackupToCloud) và KHÔNG nuốt lỗi im lặng nữa — thất bại thì
-    // hiện thông báo ở khu Cài Đặt; thành công kèm hợp nhất thì TỰ CHỮA bản
-    // máy theo bản đã hợp nhất (bộ đề chỉ có trên mây quay về máy).
+    // 💾 Tự sao lưu mây của hệ đồng bộ cũ: vẫn tuân luật hợp nhất union
+    // (trong saveBackupToCloud) và thành công kèm hợp nhất thì TỰ CHỮA
+    // bản máy (bộ đề chỉ có trên mây quay về máy). Khác trước: chạy ở chế
+    // độ { auto: true } — phán lỗi CHỈ theo kênh MQTT (kênh "máy chủ"
+    // /api/sync/* là đường chết-by-design trên GitHub Pages tĩnh), và
+    // thất bại chỉ ghi chú lặng vào modal Đồng bộ, không banner.
     try {
       const prof = getStoredSyncProfile();
       if (prof.autoSyncEnabled && (prof.googleEmail || prof.passwordKey)) {
@@ -386,9 +417,10 @@ export const App: React.FC = () => {
           activeQuiz,
           visibleUpdatedAtMap(deckSnapshotRef.current)
         );
-        saveBackupToCloud(prof, payload)
+        saveBackupToCloud(prof, payload, { auto: true })
           .then(async (res) => {
             if (res.ok) {
+              setLegacyAutoSyncNote(null);
               if (res.mergedBackup && res.mergedBackup.subjectsDB) {
                 const healed = snapshotFromSubjects(
                   res.mergedBackup.subjectsDB,
@@ -402,17 +434,15 @@ export const App: React.FC = () => {
                 }
               }
             } else {
-              setDeckSaveNotice({
-                kind: 'warning',
-                text: `⚠️ Đề đã lưu bền trên máy này, nhưng sao lưu mây tự động chưa thành công: ${res.message}`
-              });
+              setLegacyAutoSyncNote(
+                `⏳ Sao lưu tự động (hệ đồng bộ cũ) lần gần nhất chưa thành công: ${res.message} — Kho đề trên máy và bản sao chính theo mã máy (kc3d_decks) không bị ảnh hưởng; khi cần, Thầy/Cô bấm Sao lưu thủ công ở các tab trên.`
+              );
             }
           })
           .catch((e: any) => {
-            setDeckSaveNotice({
-              kind: 'warning',
-              text: `⚠️ Đề đã lưu bền trên máy này, nhưng sao lưu mây tự động gặp lỗi: ${e?.message || 'không rõ'}. Kiểm tra mạng rồi bấm Sao lưu trong mục Đồng bộ.`
-            });
+            setLegacyAutoSyncNote(
+              `⏳ Sao lưu tự động (hệ đồng bộ cũ) lần gần nhất gặp lỗi: ${e?.message || 'không rõ'} — Kho đề trên máy và bản sao chính theo mã máy (kc3d_decks) không bị ảnh hưởng.`
+            );
           });
       }
     } catch {}
@@ -461,19 +491,14 @@ export const App: React.FC = () => {
           text: `📥 Đã hợp nhất bản sao lưu an toàn: +${m.added} bộ đề mới, ${m.updated} bộ được cập nhật bản mới hơn, giữ nguyên ${m.keptLocalOnly} bộ chỉ có trên máy này. Kho hiện có ${afterStats.totalSubjects} bộ • ${afterStats.totalQuestions} câu.`
         });
       }
-      // Bản gương localStorage cho đường đọc cũ (bỏ qua nếu quá lớn — kho
-      // bền IndexedDB là bản chính; lỗi ghi ở đây chỉ ghi chú, không nuốt).
+      // Bản gương localStorage cho đường đọc cũ = KÊNH PHỤ: đo trước khi
+      // ghi, quá ngân sách thì bỏ qua, lỗi ghi cũng lặng lẽ (luật chống
+      // chôn legacy nằm trong attemptSubjectsMirror). Kết quả hợp nhất
+      // thật nằm ở kho bền IndexedDB — chuyện của bản gương TUYỆT ĐỐI
+      // không lọt vào thông báo cho giáo viên (hotfix 18/11).
       try {
-        const json = JSON.stringify(mergedDB);
-        if (json.length <= 1_200_000) {
-          localStorage.setItem('thpt_mangthit_subjects_v10', json);
-        }
-      } catch (e: any) {
-        setDeckSaveNotice({
-          kind: 'warning',
-          text: `⚠️ Đã hợp nhất vào kho bền IndexedDB, nhưng bản gương localStorage ghi không được (${e?.message || 'hết quota'}) — không ảnh hưởng việc dùng đề.`
-        });
-      }
+        attemptSubjectsMirror(localStorage, mergedDB);
+      } catch {}
     }
     if (backup.currentSubjectKey && backup.subjectsDB && backup.subjectsDB[backup.currentSubjectKey]) {
       setCurrentSubjectKey(backup.currentSubjectKey);
@@ -654,7 +679,7 @@ export const App: React.FC = () => {
   //      máy/trình duyệt); (4) bản gương localStorage chỉ ghi khi đủ nhỏ.
   const saveSubjects = async (
     newDB: Record<string, SubjectData>
-  ): Promise<{ localOk: boolean; mirrorNote?: string; fbError?: string }> => {
+  ): Promise<{ localOk: boolean; fbError?: string }> => {
     const prevDB = subjectsDBRef.current;
     setSubjectsDB(newDB);
     subjectsDBRef.current = newDB;
@@ -690,20 +715,16 @@ export const App: React.FC = () => {
       });
     }
 
-    // Bản gương localStorage (đường đọc cũ + công cụ ngoài): chỉ ghi khi
-    // JSON đủ nhỏ để chắc chắn không vượt quota; quá lớn thì bỏ qua CÓ GHI
-    // CHÚ (IndexedDB đã là kho chính nên không mất gì).
-    let mirrorNote: string | undefined;
+    // Bản gương localStorage (đường đọc cũ + công cụ ngoài) = KÊNH PHỤ:
+    // attemptSubjectsMirror ĐO TRƯỚC tổng dung lượng, vượt ngân sách an
+    // toàn thì bỏ qua lặng lẽ KHÔNG thử ghi; ghi lỗi cũng trả về lặng lẽ.
+    // 🔥 Hotfix 18/11: TUYỆT ĐỐI không để chuyện của bản gương (kể cả lỗi
+    // quota thô "Failed to execute 'setItem'...") lọt vào alert/banner
+    // lưu — giáo viên chỉ cần biết kết quả của kho chính IndexedDB và
+    // bản sao mây theo mã máy (kc3d_decks).
     try {
-      const json = JSON.stringify(newDB);
-      if (json.length <= 1_200_000) {
-        localStorage.setItem('thpt_mangthit_subjects_v10', json);
-      } else {
-        mirrorNote = 'Kho đề đã lớn (nhiều ảnh) nên chỉ lưu ở kho bền IndexedDB, không lưu bản gương localStorage nữa.';
-      }
-    } catch (e: any) {
-      mirrorNote = `Không ghi được bản gương localStorage (${e?.message || 'hết quota'}) — kho bền IndexedDB vẫn là bản chính.`;
-    }
+      attemptSubjectsMirror(localStorage, newDB);
+    } catch {}
 
     // Đẩy phần chênh lên Firebase theo mã máy (bản sao dự phòng tự động).
     let fbError: string | undefined;
@@ -724,10 +745,12 @@ export const App: React.FC = () => {
       });
     }
 
-    // Sao lưu mây MQTT tự động (nếu giáo viên đã bật) — chạy nền, lỗi của nó
-    // tự hiện thông báo riêng trong triggerAutoCloudSync.
+    // Sao lưu mây tự động của hệ đồng bộ CŨ (nếu giáo viên đã bật) — chạy
+    // nền; trạng thái của nó từ nay CHỈ ghi chú lặng trong modal Đồng bộ,
+    // không leo lên banner/alert lưu (triggerAutoCloudSync tự lo việc đó).
+    // Trạng thái sao lưu CHÍNH của lần lưu này là kc3d_decks ở trên.
     triggerAutoCloudSync(newDB, currentSubjectKeyRef.current, quizListRef.current);
-    return { localOk, mirrorNote, fbError };
+    return { localOk, fbError };
   };
 
   const handleSelectSubject = (key: string) => {
@@ -894,8 +917,7 @@ export const App: React.FC = () => {
       // hết quota và nuốt im lặng (gốc rễ vụ mất đề tối 17/11).
       if (saveRes.localOk) {
         alert(
-          `✅ Đã lưu bền ${parsedQuiz.length} câu hỏi vào "${updatedSubj.name}" lúc ${new Date().toLocaleTimeString('vi-VN')} — đã ghi vào kho bền trên máy này (IndexedDB)${saveRes.fbError ? ' (bản sao mây theo mã máy sẽ đẩy bù lần lưu sau)' : ' + bản sao mây theo mã máy'}. Tải lại trang đề vẫn còn nguyên.` +
-            (saveRes.mirrorNote ? `\n\nGhi chú: ${saveRes.mirrorNote}` : '')
+          `✅ Đã lưu bền ${parsedQuiz.length} câu hỏi vào "${updatedSubj.name}" lúc ${new Date().toLocaleTimeString('vi-VN')} — đã ghi vào kho bền trên máy này (IndexedDB)${saveRes.fbError ? ' (bản sao mây theo mã máy sẽ đẩy bù lần lưu sau)' : ' + bản sao mây theo mã máy'}. Tải lại trang đề vẫn còn nguyên.`
         );
       } else {
         alert(
@@ -2830,6 +2852,7 @@ export const App: React.FC = () => {
         onApplyBackup={handleApplyBackup}
         deckUpdatedAt={visibleUpdatedAtMap(deckSnapshotRef.current)}
         initialTab={cloudSyncInitialTab}
+        autoSyncNote={legacyAutoSyncNote}
       />
 
       {/* Hộp Thoại Popup Mời Thầy Khải Ly Cà Phê (Chỉ hiện ở màn hình cài đặt) */}
