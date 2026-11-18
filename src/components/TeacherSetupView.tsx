@@ -427,6 +427,32 @@ export const TeacherSetupView: React.FC<Props> = ({
       });
   };
 
+  // Gạch chân THẬT của một phương án/mệnh đề: đoạn <u>...</u> phải chứa ít nhất một
+  // chữ cái hoặc chữ số. Gạch chân chỉ rơi vào dấu câu (VD: chữ "D" và dấu "." bị
+  // tách run trong Word, dấu "." mang gạch chân) KHÔNG tính là đánh dấu đáp án —
+  // khớp quy tắc tầng parse trong extractNormalizedLines (ca CN11-78, 18/11/2026).
+  const hasRealUnderlineMark = (html: string): boolean => {
+    const s = html || '';
+    if (!/<\/?u>/i.test(s)) return false;
+    const textOf = (x: string) => x.replace(/<[^>]+>/g, '');
+    const hasWordChar = (x: string) => /[A-Za-z0-9À-ỹ]/.test(x);
+    // Đoạn gạch chân trọn vẹn: phải chứa chữ/số mới tính là đánh dấu đáp án.
+    const segs = s.match(/<u>[\s\S]*?<\/u>/gi) || [];
+    if (segs.some(seg => hasWordChar(textOf(seg)))) return true;
+    // Thẻ gạch chân bị cắt ngang ngay tại điểm tách nhãn/thân (Word gạch chân cả
+    // dòng phương án, bộ lọc tách nhãn ra trước): <u> mở chưa đóng -> gạch chân
+    // kéo dài tới cuối chuỗi; </u> đóng lẻ -> gạch chân bắt đầu từ đầu chuỗi.
+    const openIdx = s.search(/<u>/i);
+    const closeIdx = s.search(/<\/u>/i);
+    if (openIdx >= 0 && (closeIdx < 0 || closeIdx < openIdx)) {
+      if (hasWordChar(textOf(s.slice(openIdx + 3)))) return true;
+    }
+    if (closeIdx >= 0 && (openIdx < 0 || openIdx > closeIdx)) {
+      if (hasWordChar(textOf(s.slice(0, closeIdx)))) return true;
+    }
+    return false;
+  };
+
   // 1. BỘ LỌC CHO KHUNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
   const cleanKhung1HTML = (htmlInput: string, textInput: string, startNumber: number = 1): string => {
     const { cleanedText: content, restoreProtectedTags } = preparePasteCleanContent(htmlInput, textInput, true);
@@ -435,8 +461,17 @@ export const TeacherSetupView: React.FC<Props> = ({
 
     questionBlocks.forEach(block => {
       // Regex quét thông minh: Bóc tách A., B., C., D. dù bị dính liền trên 1 hàng ngang hoặc bọc trong thẻ <u>A.</u>
-      const optRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[A-D](?:\s*<\/u>)?[\.\:\)]|$))/g;
-      const firstOptIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?A(?:\s*<\/u>)?[\.\:\)]/);
+      // Chấp nhận cả trường hợp thẻ <u> chen GIỮA chữ cái và dấu chấm (Word tách run:
+      // "D" + "." gạch chân -> "D<u>.</u>") — trước đây ca này làm mất ranh giới phương án.
+      const optRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[A-D](?:\s*<\/?u>\s*)?[\.\:\)]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[A-D](?:\s*<\/?u>\s*)?[\.\:\)]|$))/g;
+      const firstOptIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?A(?:\s*<\/?u>\s*)?[\.\:\)]/);
+
+      // BỎ khối không chứa nhãn phương án nào (đầu đề "PHẦN I...", dòng hướng dẫn
+      // "Từ Câu 1 đến Câu 66, hãy chọn..."): trước đây các khối này bịa thành một
+      // câu hỏi với 4 phương án RỖNG, sinh dòng nhãn rời "A."/"B."... làm tầng parse
+      // nuốt mất tiêu đề câu thật kế tiếp (ca CN11-78, 18/11/2026). Khối có bảng/
+      // hình (token media) thì giữ nguyên hành vi cũ.
+      if (firstOptIndex === -1 && !/@@MEDIA_TAG_\d+@@/.test(block)) return;
 
       let title = '';
       const opts: Record<'A' | 'B' | 'C' | 'D', { text: string; isUnderlined: boolean }> = {
@@ -457,7 +492,7 @@ export const TeacherSetupView: React.FC<Props> = ({
           const keyMatch = rawPrefix.replace(/<\/?u>/gi, '').match(/[A-D]/i);
           if (keyMatch) {
             const key = keyMatch[0].toUpperCase() as 'A' | 'B' | 'C' | 'D';
-            const hasUnderline = /<u>/i.test(rawPrefix) || /<u>/i.test(rawBody);
+            const hasUnderline = hasRealUnderlineMark(rawPrefix) || hasRealUnderlineMark(rawBody);
             const cleanOptText = stripWordStyleGarbage(rawBody.replace(/<\/?u>/gi, ''))
               .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
               .trim();
@@ -486,6 +521,9 @@ export const TeacherSetupView: React.FC<Props> = ({
         k => opts[k].text.length > 0 && !/^[A-D]\.?$/i.test(opts[k].text)
       ).length;
       if (!title && validOptCount === 0) return;
+      // Khối có nhãn nhưng cả 4 thân phương án đều rỗng -> bỏ, tránh sinh dòng nhãn
+      // rời làm lệch parse (cùng họ lỗi với khối đầu đề ở trên).
+      if (validOptCount === 0 && !/@@MEDIA_TAG_\d+@@/.test(block)) return;
       if (/^(?:Normal\s+0|false\s+false|table\.MsoNormalTable|Style\s+Definitions)/i.test(title) && validOptCount === 0) {
         return;
       }
@@ -516,8 +554,14 @@ export const TeacherSetupView: React.FC<Props> = ({
     const finalQuestions: string[] = [];
 
     questionBlocks.forEach(block => {
-      const subRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[a-d](?:\s*<\/u>)?[\)\.\:]|$))/g;
-      const firstSubIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?a(?:\s*<\/u>)?[\)\.\:]/);
+      // Chấp nhận thẻ <u> chen giữa chữ cái và dấu ")" / "." (Word tách run), như Khung 1.
+      const subRegex = /(?:^|[\s\t\n])((?:<u>\s*)?[a-d](?:\s*<\/?u>\s*)?[\)\.\:]+(?:\s*<\/u>)?)\s*([\s\S]*?)(?=(?:[\s\t\n]+(?:<u>\s*)?[a-d](?:\s*<\/?u>\s*)?[\)\.\:]|$))/g;
+      const firstSubIndex = block.search(/(?:^|[\s\t\n])(?:<u>\s*)?a(?:\s*<\/?u>\s*)?[\)\.\:]/);
+
+      // BỎ khối không chứa nhãn mệnh đề nào (đầu đề "PHẦN II...", dòng hướng dẫn
+      // "Từ Câu 67 đến Câu 70...") — cùng họ lỗi đầu đề như Khung 1 (ca CN11-78:
+      // khối rác này làm Câu 67 bị nuốt tiêu đề và 3 mệnh đề thành chữ giữ chỗ).
+      if (firstSubIndex === -1 && !/@@MEDIA_TAG_\d+@@/.test(block)) return;
 
       let title = '';
       const items: Record<'a' | 'b' | 'c' | 'd', { text: string; isUnderlined: boolean }> = {
@@ -540,7 +584,7 @@ export const TeacherSetupView: React.FC<Props> = ({
             const key = keyMatch[0].toLowerCase() as 'a' | 'b' | 'c' | 'd';
             const hasExplicitFalse = /\(\s*(?:Sai|S|False)\s*\)\s*$/i.test(rawBody);
             const hasExplicitTrue = /\(\s*(?:Đúng|Đ|True)\s*\)\s*$/i.test(rawBody);
-            const hasUnderline = !hasExplicitFalse && (/<u>/i.test(rawPrefix) || /<u>/i.test(rawBody) || hasExplicitTrue);
+            const hasUnderline = !hasExplicitFalse && (hasRealUnderlineMark(rawPrefix) || hasRealUnderlineMark(rawBody) || hasExplicitTrue);
             const cleanItemText = stripWordStyleGarbage(rawBody.replace(/<\/?u>/gi, ''))
               .replace(/([a-zA-ZÀ-ỹ0-9\)\]])\s+"(?=\s+[a-zA-ZÀ-ỹ0-9\(\[])/g, '$1 ➔')
               .trim();
@@ -565,6 +609,8 @@ export const TeacherSetupView: React.FC<Props> = ({
 
       const validItemCount = (['a', 'b', 'c', 'd'] as const).filter(k => items[k].text.length > 0).length;
       if (!title && validItemCount === 0) return;
+      // Khối có nhãn nhưng cả 4 mệnh đề đều rỗng -> bỏ (tránh dòng nhãn rời làm lệch parse).
+      if (validItemCount === 0 && !/@@MEDIA_TAG_\d+@@/.test(block)) return;
 
       const qNum = startNumber + finalQuestions.length;
       let qHTML = `<div><b>Câu ${qNum}:</b> ${restoreProtectedTags(title)}</div>`;
