@@ -5,6 +5,7 @@ import { getConvertedGradeByRank, getTeacherGradebookScore } from '../data/defau
 import { rankNameColor } from '../utils/rankNameColor';
 import { exportHonorCertificateHTML } from '../utils/exportEvidence';
 import { levelFromXp } from '../utils/studentLevel';
+import { awaySourceLabel } from '../utils/antiAiGuard';
 
 interface Props {
   matchState: MatchState;
@@ -62,6 +63,12 @@ export const GrandFinaleScreen: React.FC<Props> = ({
   }, []);
 
   const allPlayers: Player[] = [...matchState.redPlayers, ...matchState.bluePlayers];
+  // 🛡️ Báo cáo chống AI ngoài: số liệu lấy từ SỔ PHÍA HOST (bản ghi người
+  // chơi — đã đi theo snapshot nên F5 host giữa trận không mất).
+  const awayReportPlayers = allPlayers
+    .filter(p => (p.awayViolations || 0) > 0)
+    .sort((a, b) => (b.awayViolations || 0) - (a.awayViolations || 0));
+  const awayTotalCount = awayReportPlayers.reduce((s, p) => s + (p.awayViolations || 0), 0);
 
   // XP hiển thị ở màn kết: ưu tiên XP SAU TRẬN trong bảng host gửi xuống —
   // HS không có deviceId (client cũ) hoặc không có trong bảng thì giữ XP lúc
@@ -223,6 +230,49 @@ export const GrandFinaleScreen: React.FC<Props> = ({
         <p style={{ fontSize: '14px', color: '#cbd5e1', margin: 0, fontWeight: 700 }}>
           Phòng thi: <b style={{ color: '#38bdf8' }}>{activeRoomId}</b> • Thí sinh: <b style={{ color: '#4ade80' }}>{allPlayers.length} Học sinh</b> • Xếp hạng theo <b style={{ color: '#fde047' }}>Tổng Điểm Thi Đấu (-1000đ/sai)</b> & <b style={{ color: '#6ee7b7' }}>Số Câu Đúng Ghi Sổ Điểm Giáo Viên</b>
         </p>
+      </div>
+
+      {/* 🛡️ Báo cáo chống AI ngoài — tổng kết lần rời màn hình thi của cả lớp */}
+      <div style={{
+        maxWidth: '1240px',
+        width: '100%',
+        marginBottom: '18px',
+        background: 'rgba(15, 23, 42, 0.88)',
+        border: '1.5px solid rgba(239, 68, 68, 0.55)',
+        borderRadius: '18px',
+        padding: '14px 18px',
+        boxSizing: 'border-box'
+      }}>
+        <div style={{ fontSize: '16px', fontWeight: 900, color: '#fca5a5', marginBottom: '6px' }}>
+          🛡️ Báo cáo chống AI ngoài
+          {awayTotalCount > 0 && (
+            <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '13px' }}>
+              {' '}— Tổng {awayTotalCount} lượt rời màn hình • {awayReportPlayers.length} học sinh vi phạm
+            </span>
+          )}
+        </div>
+        {awayReportPlayers.length === 0 ? (
+          <div style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 600 }}>
+            Không ghi nhận vi phạm nào trong trận này 🎉
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {awayReportPlayers.map(p => {
+              const by = p.awayBySource || {};
+              const parts = (['APP', 'FS', 'SPLIT', 'FOCUS'] as const)
+                .filter(k => (by[k] || 0) > 0)
+                .map(k => `${awaySourceLabel(k)} ×${by[k]}`)
+                .join(' • ');
+              return (
+                <div key={p.id} style={{ fontSize: '13.5px', color: '#e2e8f0', fontWeight: 600 }}>
+                  🚪 <b style={{ color: '#ffffff' }}>{p.label}</b>
+                  <span style={{ color: '#fca5a5', fontWeight: 800 }}> — {p.awayViolations} lần</span>
+                  {parts && <span style={{ color: '#94a3b8' }}> ({parts})</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 3 Khối Vinh Danh Đặc Biệt: Quán Quân Rung Chuông Vàng • Quán Quân Diệt Boss • Đội Vô Địch Kéo Co */}
