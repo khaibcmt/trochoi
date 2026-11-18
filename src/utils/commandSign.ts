@@ -236,6 +236,66 @@ export function verifyCommandSync(
   }
 }
 
+// ---------------------------------------------------------------------------
+// 🛡️ CHỐNG AI NGOÀI (18/11/2026): chữ ký cho tin BÁO CÁO VI PHẠM rời màn hình
+// (SCREEN_LEAVE_REPORT, HS → host). Tin này KHÔNG phải lệnh điều khiển nên
+// không nằm trong SENSITIVE_COMMAND_TYPES (tránh bị bộ đếm "lệnh lạ" phía
+// host và cổng kiểm chữ ký phía HS đối xử như lệnh phá phòng); thay vào đó
+// nó dùng CÙNG cơ chế HMAC-SHA256 + khoá phòng nhưng với danh sách trường
+// canonical RIÊNG bên dưới — danh sách này không đụng vào CANONICAL_FIELDS
+// của lệnh điều khiển nên chữ ký của mọi lệnh cũ giữ nguyên từng byte.
+// Phía HS ký bằng khoá trích từ link QR (&k=...); phía host kiểm bằng khoá
+// phòng của chính host trước khi ghi nhận vi phạm vào sổ.
+// ---------------------------------------------------------------------------
+
+/** Loại tin báo cáo vi phạm rời màn hình thi (HS → host). */
+export const SCREEN_LEAVE_REPORT_TYPE = 'SCREEN_LEAVE_REPORT';
+
+/** Trường cốt lõi được ký của báo cáo vi phạm — CỐ ĐỊNH, tách riêng khỏi CANONICAL_FIELDS. */
+const VIOLATION_CANONICAL_FIELDS = [
+  'type',
+  'roomId',
+  'playerId',
+  'studentId',
+  'globalQIndex',
+  'awaySec',
+  'awaySource',
+  'violationSeq'
+] as const;
+
+/** Chuỗi canonical của 1 báo cáo vi phạm: "field=value|..." theo VIOLATION_CANONICAL_FIELDS. */
+export function violationCanonicalString(payload: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const field of VIOLATION_CANONICAL_FIELDS) {
+    const raw = payload[field];
+    if (raw === undefined || raw === null) continue;
+    parts.push(field + '=' + stableStringify(raw));
+  }
+  return parts.join('|');
+}
+
+/** Ký 1 báo cáo vi phạm bằng khoá phòng (ĐỒNG BỘ, thuần TS — cùng động cơ HMAC của lệnh). */
+export function signViolationReportSync(key: string, payload: Record<string, unknown>): string {
+  return hmacSha256HexSync(key, violationCanonicalString(payload));
+}
+
+/** Kiểm tra chữ ký 1 báo cáo vi phạm nhận được. Thiếu khoá/chữ ký → false. */
+export function verifyViolationReportSync(
+  key: string | null | undefined,
+  payload: Record<string, unknown>,
+  signature: string | null | undefined
+): boolean {
+  if (!key || !signature) return false;
+  try {
+    return constantTimeEqualHex(
+      signViolationReportSync(key, payload),
+      String(signature).toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Lệnh điều khiển LẠ dưới mắt HOST (thuần): là lệnh nhạy cảm phát trên topic
  * phòng nhưng chữ ký KHÔNG đúng khoá phòng (giả mạo / sai khoá / thiếu chữ
