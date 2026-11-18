@@ -45,7 +45,8 @@ export function prepareBackupPayload(
   subjectsDB: Record<string, SubjectData>,
   currentSubjectKey: string,
   matchSettings: MatchSettings,
-  activeQuizList?: QuizItem[]
+  activeQuizList?: QuizItem[],
+  deckUpdatedAt?: Record<string, number>
 ): CloudBackupData {
   const stats = calculateBackupStats(subjectsDB);
   return {
@@ -56,6 +57,7 @@ export function prepareBackupPayload(
     currentSubjectKey,
     matchSettings,
     activeQuizList,
+    deckUpdatedAt,
     stats
   };
 }
@@ -201,6 +203,7 @@ function saveToMqttCloud(topicKey: string, backupData: CloudBackupData): Promise
         currentSubjectKey: backupData.currentSubjectKey,
         matchSettings: backupData.matchSettings,
         activeQuizList: backupData.activeQuizList,
+        deckUpdatedAt: backupData.deckUpdatedAt,
         stats: backupData.stats
       }
     });
@@ -407,6 +410,7 @@ function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
         currentSubjectKey: meta.currentSubjectKey,
         matchSettings: meta.matchSettings,
         activeQuizList: meta.activeQuizList,
+        deckUpdatedAt: meta.deckUpdatedAt,
         stats: meta.stats
       };
       return { state: 'complete', backup, lastUpdated: manifest.lastUpdated };
