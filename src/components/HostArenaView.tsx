@@ -2043,8 +2043,8 @@ export const HostArenaView: React.FC<Props> = ({
       blueAnsweredIds: [],
       bossHP: prev.settings?.bossMaxHP || 1000,
       maxBossHP: prev.settings?.bossMaxHP || 1000,
-      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false })),
-      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false }))
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false, awayViolations: 0, awayBySource: undefined })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false, awayViolations: 0, awayBySource: undefined }))
     }));
     setQrVisible(true);
     setQrMinimizedLeft(false);
@@ -2320,8 +2320,8 @@ export const HostArenaView: React.FC<Props> = ({
       blueAnsweredIds: [],
       bossHP: prev.settings?.bossMaxHP || 1000,
       maxBossHP: prev.settings?.bossMaxHP || 1000,
-      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false })),
-      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false }))
+      redPlayers: prev.redPlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false, awayViolations: 0, awayBySource: undefined })),
+      bluePlayers: prev.bluePlayers.map(p => ({ ...p, lives: 3, eliminated: false, freeze: 0, correct: 0, wrongTotal: 0, streak: 0, fastScore: 0, hasUsedSpecialWager: false, safeShieldUsed: false, awayViolations: 0, awayBySource: undefined }))
     }));
     setIsReviewMode(false);
   };
@@ -3254,6 +3254,26 @@ export const HostArenaView: React.FC<Props> = ({
                         <span style={{ fontSize: '10px', marginRight: '4px' }}>{p.team === 'RED' ? '🔴' : '🔵'}</span>
                       )}
                       {isOfflineHeld ? '📴 ' : ''}{p.label}{isOfflineHeld ? ' (mất kết nối)' : ''}
+                      {/* 🛡️ Chống AI ngoài: bộ đếm lần vi phạm quy chế thi (chỉ hiện khi > 0). */}
+                      {(p.awayViolations || 0) > 0 && (
+                        <span
+                          title={`Đã vi phạm quy chế thi ${p.awayViolations} lần (mỗi lần = 1 câu tính sai)`}
+                          style={{
+                            marginLeft: '5px',
+                            padding: '0 5px',
+                            borderRadius: '999px',
+                            background: 'rgba(239, 68, 68, 0.18)',
+                            border: '1px solid rgba(239, 68, 68, 0.55)',
+                            color: '#fca5a5',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            whiteSpace: 'nowrap',
+                            verticalAlign: 'middle'
+                          }}
+                        >
+                          🚪×{p.awayViolations}
+                        </span>
+                      )}
                     </div>
                     {liveRankMode === 'CORRECT' ? (
                       <div className="flb-pts" style={{ color: '#4ade80' }}>
