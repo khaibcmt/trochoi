@@ -1,292 +1,148 @@
 import { QuizItem, SubjectData, QuestionFormat } from '../types';
 
 export const DEFAULT_BIO = `
-<div>Câu 1: Bào quan nào thực hiện chức năng quang hợp chủ yếu ở thực vật?</div>
-<div><u>A</u>. Lục lạp</div><div>B. Ti thể</div><div>C. Không bào</div><div>D. Bộ máy Golgi</div><br>
-<div>Câu 2: Cơ quan thoát hơi nước chủ yếu của cây xanh là cơ quan nào?</div>
-<div>A. Rễ cây</div><div>B. Thân cây</div><div><u>C</u>. Lá cây (qua khí khổng)</div><div>D. Hoa và quả</div><br>
-<div>Câu 3: Mạch gỗ ở thực vật có chức năng vận chuyển chủ yếu các chất nào?</div>
-<div><u>A</u>. Nước và các ion khoáng từ rễ lên lá</div><div>B. Các chất hữu cơ tổng hợp từ lá xuống rễ</div><div>C. Khí oxygen và carbon dioxide</div><div>D. Các hormone thực vật từ chồi ngọn xuống</div><br>
-<div>Câu 4: Quá trình hô hấp tế bào ở thực vật diễn ra mạnh nhất ở bào quan nào?</div>
-<div>A. Ribosome</div><div><u>B</u>. Ti thể</div><div>C. Lưới nội chất</div><div>D. Nhân tế bào</div><br>
-<div>Câu 5: Hormone thực vật nào sau đây có vai trò kích thích sự kéo dài tế bào và hướng sáng của thân?</div>
-<div><u>A</u>. Auxin</div><div>B. Ethylene</div><div>C. Abscisic acid</div><div>D. Florigen</div><br>
-<div>Câu 6: Hình thức sinh sản vô tính nào ở thực vật giúp tạo ra hàng loạt cây con sạch bệnh trong ống nghiệm?</div>
-<div>A. Giâm cành</div><div>B. Chiết cành</div><div>C. Ghép mắt</div><div><u>D</u>. Nuôi cấy mô tế bào thực vật</div><br>
-<div>Câu 7: Ở thực vật có hoa, sau khi thụ tinh kép thì bộ phận nào sẽ phát triển thành hạt?</div>
-<div>A. Bầu nhụy</div><div><u>B</u>. Noãn đã thụ tinh</div><div>C. Đài hoa</div><div>D. Đầu nhụy</div><br>
-<div>Câu 8: Phân tử nào sau đây làm khuôn trực tiếp cho quá trình dịch mã tổng hợp chuỗi polypeptide?</div>
-<div>A. DNA mạch gốc</div><div>B. tRNA</div><div><u>C</u>. mRNA (RNA thông tin)</div><div>D. rRNA</div><br>
-<div>Câu 9: Tập hợp các cá thể cùng loài, cùng sống trong một khoảng không gian xác định vào một thời điểm nhất định gọi là gì?</div>
-<div><u>A</u>. Quần thể sinh vật</div><div>B. Quần xã sinh vật</div><div>C. Hệ sinh thái</div><div>D. Sinh quyển</div><br>
-<div>Câu 10: Vi khuẩn cố định đạm sống trong nốt sần rễ cây họ Đậu là biểu hiện của mối quan hệ sinh thái nào?</div>
-<div><u>A</u>. Cộng sinh</div><div>B. Kí sinh</div><div>C. Cạnh tranh</div><div>D. Ức chế cảm nhiễm</div><br>
-<div>Câu 11 [Đúng/Sai]: Trong các phát biểu sau về quá trình quang hợp ở thực vật C3:</div>
-<div><u>a)</u> Pha sáng diễn ra tại màng thylakoid của lục lạp. (Đúng)</div>
-<div>b) Khí oxygen giải phóng trong pha sáng có nguồn gốc từ CO2. (Sai)</div>
-<div><u>c)</u> Nước là nguồn cung cấp electron và proton H+ cho pha sáng. (Đúng)</div>
-<div>d) Chu trình Calvin (pha tối) diễn ra trong xoang thylakoid. (Sai)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Có bao nhiêu bộ ba mã di truyền (codon) trên phân tử mRNA đóng vai trò kết thúc quá trình dịch mã?</div>
-<div><u>Đáp án: 3</u></div>`;
+<div>Câu 1: Loại quả nào sau đây chứa nhiều vitamin C, giúp tăng sức đề kháng?</div><div>A. Quả táo</div><div>B. Quả chuối</div><div><u>C</u>. Quả cam</div><div>D. Quả dưa hấu</div><br>
+<div>Câu 2: Rửa tay bằng xà phòng đúng cách có tác dụng chính nào?</div><div><u>A</u>. Loại bỏ vi khuẩn và giảm nguy cơ lây bệnh qua tay</div><div>B. Làm tay thơm vĩnh viễn, không cần rửa lại</div><div>C. Cung cấp vitamin cho da tay</div><div>D. Làm móng tay dài nhanh hơn</div><br>
+<div>Câu 3: Cây xanh đặt trong nhà muốn quang hợp tốt cần có đủ yếu tố nào?</div><div>A. Bóng tối hoàn toàn</div><div>B. Không cần nước tưới</div><div>C. Không cần không khí</div><div><u>D</u>. Ánh sáng, nước và khí carbon dioxide</div><br>
+<div>Câu 4: Khi chạy bộ nhanh, nhịp tim của người khỏe mạnh thường thay đổi như thế nào?</div><div>A. Giảm xuống rất thấp</div><div><u>B</u>. Tăng lên để bơm máu nhiều hơn cho cơ bắp</div><div>C. Ngừng đập trong lúc chạy</div><div>D. Không thay đổi chút nào</div><br>
+<div>Câu 5: Thức ăn đã nấu chín để lâu ở nhiệt độ phòng qua đêm có nguy cơ gì?</div><div>A. Luôn an toàn tuyệt đối</div><div>B. Càng để lâu càng bổ dưỡng hơn</div><div><u>C</u>. Dễ bị vi khuẩn phát triển, nên bảo quản trong tủ lạnh</div><div>D. Tự động diệt hết vi khuẩn</div><br>
+<div>Câu 6: Phân loại rác thải sinh hoạt tại nhà có ích lợi gì?</div><div><u>A</u>. Giúp tái chế và giảm ô nhiễm môi trường</div><div>B. Làm lượng rác tăng lên gấp đôi</div><div>C. Không có tác dụng gì</div><div>D. Chỉ làm cho thùng rác đẹp hơn</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về dinh dưỡng và vệ sinh thực phẩm:</div><div><u>a)</u> Ăn nhiều rau xanh cung cấp chất xơ tốt cho tiêu hóa. (Đúng)</div><div><u>b)</u> Rửa rau quả dưới vòi nước sạch giúp loại bỏ bụi bẩn và một phần vi khuẩn. (Đúng)</div><div>c) Uống nước ngọt có ga thay hoàn toàn nước lọc hằng ngày là tốt nhất cho sức khỏe. (Sai)</div><div>d) Thức ăn đã có mùi ôi thiu chỉ cần đun sôi lại là ăn an toàn tuyệt đối. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về cây xanh và cơ thể người:</div><div>a) Cây xanh quang hợp chủ yếu vào ban đêm, ban ngày không quang hợp. (Sai)</div><div><u>b)</u> Tập thể dục đều đặn giúp tim mạch khỏe hơn. (Đúng)</div><div><u>c)</u> Cơ thể cần ngủ đủ giấc để phục hồi và ghi nhớ tốt hơn. (Đúng)</div><div>d) Mọi vi khuẩn đều có hại hoàn toàn, không có vi khuẩn nào có ích cho con người. (Sai)</div><br>
+<div>Câu 9 [Trả lời ngắn]: Một bữa ăn gồm ba phần có năng lượng lần lượt là 200 kcal, 150 kcal và 50 kcal. Tổng năng lượng của bữa ăn là bao nhiêu kcal?</div><div><u>Đáp án: 400</u></div><br>
+<div>Câu 10 [Trả lời ngắn]: Bạn An đếm nhịp tim trong 15 giây được 18 nhịp. Nhịp tim của bạn An trong 1 phút là bao nhiêu nhịp?</div><div><u>Đáp án: 72</u></div><br>`;
 
 export const DEFAULT_AGRI = `
-<div>Câu 1: Hệ thống tưới nhỏ giọt kết hợp châm phân tự động mang lại lợi ích lớn nhất nào?</div>
-<div>A. Giúp tăng nhanh chiều cao thân cây gấp đôi</div><div>B. Tiêu diệt hoàn toàn sâu đục thân</div><div><u>C</u>. Tiết kiệm nước tưới và tối ưu hóa lượng phân bón hòa tan</div><div>D. Tăng độ mặn cho đất trồng</div><br>
-<div>Câu 2: Để cải tạo đất chua và đất phèn, biện pháp hóa học phổ biến nhất mà nông dân thường áp dụng là gì?</div>
-<div><u>A</u>. Bón vôi nông nghiệp kết hợp rửa mặn, xổ phèn</div><div>B. Bón thật nhiều phân đạm Urea</div><div>C. Tưới nước muối loãng lên mặt ruộng</div><div>D. Phủ bạt nilon kín mặt đất quanh năm</div><br>
-<div>Câu 3: Nhóm phân bón nào sau đây cung cấp các nguyên tố dinh dưỡng đa lượng thiết yếu nhất cho cây trồng?</div>
-<div>A. Phân Sắt, Đồng, Kẽm</div><div><u>B</u>. Phân Đạm (N), Lân (P), Kali (K)</div><div>C. Phân Bo, Molypden, Clo</div><div>D. Nước vôi trong và tro bếp</div><br>
-<div>Câu 4: Sử dụng ong mắt đỏ hoặc bọ rùa để tiêu diệt sâu hại cây trồng là ứng dụng của biện pháp bảo vệ thực vật nào?</div>
-<div>A. Biện pháp hóa học</div><div><u>B</u>. Biện pháp sinh học (sử dụng thiên địch)</div><div>C. Biện pháp cơ giới vật lý</div><div>D. Biện pháp kiểm dịch thực vật</div><br>
-<div>Câu 5: Giá thể xơ dừa trước khi đem trồng cây cần được xử lý ngâm xả nước nhằm mục đích chính là gì?</div>
-<div><u>A</u>. Loại bỏ chất chát (tanin, lignin) gây nghẹt rễ cây</div><div>B. Làm xơ dừa nặng hơn để giữ cây</div><div>C. Tăng lượng muối khoáng trong xơ dừa</div><div>D. Tạo mùi thơm thu hút côn trùng</div><br>
-<div>Câu 6: Chế phẩm nấm đối kháng Trichoderma thường được ủ chung với phân chuồng hoai mục có tác dụng gì?</div>
-<div>A. Làm cỏ dại mọc nhanh hơn</div><div><u>B</u>. Phân hủy nhanh xác hữu cơ và tiêu diệt nấm bệnh hại rễ</div><div>C. Làm tăng độ chua của đất</div><div>D. Thay thế hoàn toàn ánh sáng mặt trời</div><br>
-<div>Câu 7: Trong kỹ thuật chiết cành cây ăn quả, vì sao phải cạo sạch lớp tượng tầng dưới vỏ cành chiết?</div>
-<div>A. Để cành chiết nhanh khô héo</div><div><u>B</u>. Ngăn mạch rây vận chuyển chất hữu cơ xuống dưới, kích thích ra rễ tại vết cắt</div><div>C. Ngăn nước từ rễ đi lên lá</div><div>D. Giúp bầu đất nhẹ hơn</div><br>
-<div>Câu 8: Công nghệ trồng cây thủy canh là phương pháp canh tác như thế nào?</div>
-<div><u>A</u>. Trồng cây trực tiếp vào dung dịch dinh dưỡng khoáng mà không cần đất tự nhiên</div><div>B. Trồng cây hoàn toàn trên cát khô sa mạc</div><div>C. Trồng cây dưới đáy ao hồ ngập nước hoàn toàn</div><div>D. Chỉ phun sương nước lã lên lá cây</div><br>
-<div>Câu 9: Biện pháp bảo quản nông sản rau quả tươi trong kho lạnh có cơ sở khoa học chính là gì?</div>
-<div>A. Làm tăng cường độ quang hợp của quả</div><div><u>B</u>. Ức chế quá trình hô hấp của nông sản và hạn chế vi sinh vật gây thối hỏng</div><div>C. Làm đóng băng cứng hoàn toàn tế bào rau tươi</div><div>D. Giúp rau quả tự tổng hợp thêm đường</div><br>
-<div>Câu 10: Ứng dụng cảm biến thông minh IoT trong nông nghiệp công nghệ cao giúp người nông dân thực hiện điều gì tự động?</div>
-<div><u>A</u>. Giám sát độ ẩm đất, nhiệt độ, ánh sáng và tự động bật tắt hệ thống tưới từ xa qua điện thoại</div><div>B. Biến đổi gen cây trồng ngay ngoài đồng ruộng</div><div>C. Tự động thu hoạch toàn bộ gỗ rừng nguyên sinh</div><div>D. Không cần sử dụng nước và dinh dưỡng cho cây</div><br>
-<div>Câu 11 [Đúng/Sai]: Khi nói về kỹ thuật trồng và chăm sóc cây trồng công nghệ cao theo chương trình GDPT 2018:</div>
-<div><u>a)</u> Hệ thống tưới nhỏ giọt giúp tiết kiệm nước và cung cấp phân bón hòa tan trực tiếp đến vùng rễ. (Đúng)</div>
-<div>b) Bón càng nhiều phân hóa học đạm Urea thì đất càng tơi xốp và pH đất tăng cao. (Sai)</div>
-<div><u>c)</u> Chế phẩm vi sinh Trichoderma giúp phân giải chất hữu cơ và ức chế nấm gây bệnh thối rễ. (Đúng)</div>
-<div><u>d)</u> Trồng cây trong nhà màng giúp hạn chế côn trùng gây hại và chủ động điều chỉnh tiểu khí hậu. (Đúng)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Nhiệt độ bảo quản lạnh thông thường đối với nhiều loại rau quả tươi trong kho mát dao động từ 2 đến bao nhiêu độ C (nhập số nguyên)?</div>
-<div><u>Đáp án: 10</u></div>`;
+<div>Câu 1: Trồng rau trên ban công, nên tưới nước vào thời điểm nào là tốt nhất cho cây?</div><div>A. Giữa trưa nắng gắt</div><div><u>B</u>. Sáng sớm hoặc chiều mát</div><div>C. Lúc nửa đêm về sáng</div><div>D. Chỉ tưới khi cây đã héo rũ hẳn</div><br>
+<div>Câu 2: Muốn đất trồng trong chậu tơi xốp và giàu dinh dưỡng cho rau, nên trộn thêm chất nào sau đây?</div><div>A. Nước muối pha loãng</div><div>B. Tro bếp còn đang nóng</div><div><u>C</u>. Phân hữu cơ đã hoai mục</div><div>D. Dầu ăn đã qua sử dụng</div><br>
+<div>Câu 3: Để chuồng gà tại nhà sạch sẽ và ít mùi hôi, người nuôi nên làm việc nào thường xuyên?</div><div><u>A</u>. Dọn phân và thay chất độn chuồng định kỳ</div><div>B. Đóng kín chuồng cả ngày cho ấm</div><div>C. Phun nước cho nền chuồng luôn ướt sũng</div><div>D. Để máng nước uống cạn khô nhiều ngày</div><br>
+<div>Câu 4: Cách bảo quản rau xanh trong tủ lạnh được lâu hơn là cách nào sau đây?</div><div>A. Rửa rau thật ướt rồi cho ngay vào túi kín</div><div>B. Để rau chung với thịt sống không bọc kín</div><div>C. Phơi rau ngoài nắng gắt cho khô hẳn</div><div><u>D</u>. Gói rau bằng khăn giấy khô, cho vào hộp rồi để ngăn mát</div><br>
+<div>Câu 5: Cá cảnh trong bể liên tục nổi lên mặt nước đớp không khí, nguyên nhân thường gặp nhất là gì?</div><div>A. Bể cá đặt ở nơi có ánh sáng</div><div>B. Cá đang ngủ nên bơi chậm lại</div><div><u>C</u>. Nước trong bể thiếu oxy</div><div>D. Cá vừa được cho ăn nên no bụng</div><br>
+<div>Câu 6: Để hạt giống gieo tại nhà nảy mầm tốt, cần đảm bảo điều kiện nào sau đây?</div><div>A. Gieo hạt thật sâu khoảng 20 cm</div><div><u>B</u>. Giữ đất ẩm vừa, không khô và không úng nước</div><div>C. Để khay gieo dưới nắng gắt suốt cả ngày</div><div>D. Tưới nước muối cho hạt nhanh nứt vỏ</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về tưới nước và chăm sóc rau tại nhà:</div><div><u>a)</u> Tưới nước vào sáng sớm giúp cây hấp thu tốt và hạn chế mất nước. (Đúng)</div><div>b) Tưới thật nhiều nước mỗi ngày cho đất luôn ngập nước thì rau càng lớn nhanh. (Sai)</div><div><u>c)</u> Nhổ cỏ dại quanh gốc giúp cây bớt bị tranh nước và chất dinh dưỡng. (Đúng)</div><div>d) Bón phân càng sát gốc và càng nhiều trong một lần thì cây càng khỏe. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về nuôi gà và vệ sinh chuồng trại tại nhà:</div><div>a) Có thể cho gà ăn thức ăn đã mốc vì gà mổ được mọi thứ. (Sai)</div><div><u>b)</u> Cần cung cấp nước uống sạch cho gà mỗi ngày. (Đúng)</div><div><u>c)</u> Chuồng gà nên giữ khô ráo và thoáng mát. (Đúng)</div><div>d) Không cần dọn phân gà vì phân để lâu sẽ tự hết mùi. (Sai)</div><br>
+<div>Câu 9 [Đúng/Sai]: Xét các phát biểu sau về bảo quản nông sản và an toàn thực phẩm:</div><div><u>a)</u> Thịt, cá tươi mua về nên bảo quản trong tủ lạnh nếu chưa nấu ngay. (Đúng)</div><div><u>b)</u> Rau ăn sống cần rửa sạch dưới vòi nước trước khi ăn. (Đúng)</div><div>c) Thức ăn đã có mùi ôi thiu chỉ cần nấu lại thật sôi là ăn an toàn hoàn toàn. (Sai)</div><div><u>d)</u> Để riêng thịt sống với rau và thức ăn chín giúp tránh lây nhiễm chéo. (Đúng)</div><br>
+<div>Câu 10 [Đúng/Sai]: Xét các phát biểu sau về làm đất và bón phân cho cây trồng:</div><div>a) Bón phân hóa học càng nhiều thì đất càng tơi xốp lâu dài. (Sai)</div><div><u>b)</u> Phân hữu cơ phải ủ hoai mục trước khi bón cho cây mới an toàn và hiệu quả. (Đúng)</div><div>c) Đất bị úng nước lâu ngày vẫn rất tốt cho mọi loại rau. (Sai)</div><div>d) Chỉ cần bón phân một lần duy nhất là cây đủ dinh dưỡng suốt cả vụ. (Sai)</div><br>`;
 
 export const DEFAULT_MATH = `
-<div>Câu 1: Đạo hàm của hàm số y = x³ - 3x² + 2 trên tập số thực là biểu thức nào sau đây?</div>
-<div><u>A</u>. y' = 3x² - 6x</div><div>B. y' = 3x² - 3x</div><div>C. y' = x² - 6x</div><div>D. y' = 3x³ - 6x</div><br>
-<div>Câu 2: Trong mặt phẳng tọa độ, tổng ba góc trong một tam giác bất kỳ luôn bằng bao nhiêu độ?</div>
-<div>A. 90 độ</div><div><u>B</u>. 180 độ</div><div>C. 270 độ</div><div>D. 360 độ</div><br>
-<div>Câu 3: Nghiệm của phương trình cơ bản 2x - 10 = 0 là giá trị nào?</div>
-<div>A. x = 2</div><div>B. x = -5</div><div><u>C</u>. x = 5</div><div>D. x = 10</div><br>
-<div>Câu 4: Công thức tính diện tích xung quanh của hình trụ có bán kính đáy r và chiều cao h là gì?</div>
-<div><u>A</u>. S = 2πrh</div><div>B. S = πr²h</div><div>C. S = πrh</div><div>D. S = 4πr²</div><br>
-<div>Câu 5: Giá trị lượng giác của biểu thức sin²α + cos²α luôn bằng bao nhiêu với mọi góc α?</div>
-<div>A. 0</div><div><u>B</u>. 1</div><div>C. 2</div><div>D. -1</div><br>
-<div>Câu 6: Một cấp số cộng có số hạng đầu u₁ = 3 và công sai d = 4. Số hạng thứ hai u₂ bằng bao nhiêu?</div>
-<div>A. 12</div><div>B. 6</div><div><u>C</u>. 7</div><div>D. 1</div><br>
-<div>Câu 7: Với a là số thực dương khác 1, giá trị của logₐ(a³) bằng bao nhiêu?</div>
-<div><u>A</u>. 3</div><div>B. 1</div><div>C. a</div><div>D. 0</div><br>
-<div>Câu 8: Nguyên hàm của hàm số f(x) = 2x trên tập số thực là hàm số nào sau đây?</div>
-<div>A. 2 + C</div><div><u>B</u>. x² + C</div><div>C. 2x² + C</div><div>D. x + C</div><br>
-<div>Câu 9: Gieo một con xúc xắc cân đối và đồng chất 1 lần. Xác suất để xuất hiện mặt có số chấm chẵn là bao nhiêu?</div>
-<div>A. 1/6</div><div>B. 1/3</div><div><u>C</u>. 1/2</div><div>D. 2/3</div><br>
-<div>Câu 10: Thể tích của khối lập phương có cạnh bằng 3 cm là bao nhiêu?</div>
-<div>A. 9 cm³</div><div>B. 18 cm³</div><div><u>C</u>. 27 cm³</div><div>D. 36 cm³</div><br>
-<div>Câu 11 [Đúng/Sai]: Cho hàm số $y = x^3 - 3x^2 + 2$. Xét tính đúng/sai của các mệnh đề sau:</div>
-<div><u>a)</u> Đạo hàm của hàm số là $y' = 3x^2 - 6x$. (Đúng)</div>
-<div><u>b)</u> Điểm cực đại của đồ thị hàm số là $(0; 2)$. (Đúng)</div>
-<div>c) Hàm số đồng biến trên khoảng $(0; 2)$. (Sai)</div>
-<div><u>d)</u> Giá trị cực tiểu của hàm số bằng $-2$. (Đúng)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Cho tích phân $I = \int_{0}^{2} 2x \, dx$. Giá trị của $I$ bằng bao nhiêu?</div>
-<div><u>Đáp án: 4</u></div>`;
+<div>Câu 1: Một chiếc áo giá 200000 đồng được giảm giá 25%. Giá của chiếc áo sau khi giảm là bao nhiêu đồng?</div><div>A. 175000 đồng</div><div><u>B</u>. 150000 đồng</div><div>C. 125000 đồng</div><div>D. 100000 đồng</div><br>
+<div>Câu 2: Một học sinh có điểm kiểm tra 4 môn lần lượt là 8, 9, 7, 8. Điểm trung bình cộng của 4 môn là bao nhiêu?</div><div>A. 7,5</div><div>B. 7</div><div><u>C</u>. 8</div><div>D. 9</div><br>
+<div>Câu 3: Một căn phòng hình chữ nhật có chiều dài 5 m và chiều rộng 4 m. Diện tích của căn phòng là bao nhiêu mét vuông?</div><div><u>A</u>. 20 m²</div><div>B. 18 m²</div><div>C. 9 m²</div><div>D. 40 m²</div><br>
+<div>Câu 4: Một ô tô đi được quãng đường 120 km trong 2 giờ. Vận tốc trung bình của ô tô là bao nhiêu km/h?</div><div>A. 50 km/h</div><div>B. 240 km/h</div><div>C. 40 km/h</div><div><u>D</u>. 60 km/h</div><br>
+<div>Câu 5: Đổi 2,5 kg ra gam ta được kết quả nào?</div><div>A. 250 g</div><div><u>B</u>. 2500 g</div><div>C. 25 g</div><div>D. 25000 g</div><br>
+<div>Câu 6: Gửi ngân hàng 10000000 đồng với lãi suất đơn giản 5% một năm. Sau 1 năm, số tiền lãi nhận được là bao nhiêu đồng?</div><div>A. 50000 đồng</div><div>B. 5000000 đồng</div><div><u>C</u>. 500000 đồng</div><div>D. 1000000 đồng</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về một căn phòng hình chữ nhật có chiều dài 8 m và chiều rộng 5 m:</div><div><u>a)</u> Diện tích của căn phòng là 40 m². (Đúng)</div><div>b) Chu vi của căn phòng là 13 m. (Sai)</div><div><u>c)</u> Tổng độ dài của một chiều dài và một chiều rộng là 13 m. (Đúng)</div><div>d) 40 m² bằng 400 cm². (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về quãng đường, thời gian và vận tốc:</div><div>a) Đi được 60 km trong 1 giờ thì vận tốc trung bình là 30 km/h. (Sai)</div><div><u>b)</u> Đi được 90 km trong 3 giờ thì vận tốc trung bình là 30 km/h. (Đúng)</div><div><u>c)</u> 2 giờ 30 phút bằng 150 phút. (Đúng)</div><div>d) 1 km bằng 100 m. (Sai)</div><br>
+<div>Câu 9 [Trả lời ngắn]: Một quyển vở giá 12000 đồng. Mua 5 quyển vở như thế hết bao nhiêu đồng?</div><div><u>Đáp án: 60000</u></div><br>
+<div>Câu 10 [Trả lời ngắn]: Một hình vuông có cạnh 9 cm. Diện tích của hình vuông đó bằng bao nhiêu cm²?</div><div><u>Đáp án: 81</u></div><br>`;
 
 export const DEFAULT_PHYS = `
-<div>Câu 1: Theo định luật II Newton, gia tốc của một vật có mối liên hệ như thế nào với lực tác dụng và khối lượng?</div>
-<div><u>A</u>. Cùng hướng với lực tác dụng, tỉ lệ thuận với độ lớn của lực và tỉ lệ nghịch với khối lượng (a = F/m)</div><div>B. Tỉ lệ thuận với khối lượng của vật</div><div>C. Luôn ngược hướng với lực tác dụng</div><div>D. Không phụ thuộc vào độ lớn của hợp lực</div><br>
-<div>Câu 2: Đơn vị đo cường độ dòng điện trong hệ đo lường quốc tế SI là gì?</div>
-<div>A. Vôn (V)</div><div><u>B</u>. Ampe (A)</div><div>C. Ôm (Ω)</div><div>D. Oát (W)</div><br>
-<div>Câu 3: Biểu thức tính chu kỳ dao động điều hòa của con lắc đơn có chiều dài l tại nơi có gia tốc trọng trường g là gì?</div>
-<div><u>A</u>. T = 2π√(l/g)</div><div>B. T = 2π√(g/l)</div><div>C. T = √(l/g)</div><div>D. T = 1 / (2π√(l/g))</div><br>
-<div>Câu 4: Sóng cơ học không thể lan truyền được trong môi trường nào sau đây?</div>
-<div>A. Chất rắn</div><div>B. Chất lỏng</div><div>C. Chất khí</div><div><u>D</u>. Chân không</div><br>
-<div>Câu 5: Tốc độ truyền ánh sáng trong môi trường chân không có giá trị xấp xỉ bằng bao nhiêu?</div>
-<div><u>A</u>. 300.000 km/s (3.10⁸ m/s)</div><div>B. 340 m/s</div><div>C. 1500 m/s</div><div>D. 30.000 km/s</div><br>
-<div>Câu 6: Theo định luật Ohm đối với đoạn mạch chỉ có điện trở thuần R, cường độ dòng điện I được tính bằng công thức nào?</div>
-<div>A. I = U.R</div><div><u>B</u>. I = U / R</div><div>C. I = R / U</div><div>D. I = U² / R</div><br>
-<div>Câu 7: Hiện tượng ánh sáng trắng bị phân tách thành dải màu cầu vồng khi đi qua lăng kính gọi là hiện tượng gì?</div>
-<div><u>A</u>. Tán sắc ánh sáng</div><div>B. Phản xạ toàn phần</div><div>C. Nhiễu xạ ánh sáng</div><div>D. Hiện tượng quang điện</div><br>
-<div>Câu 8: Trong nguyên tử, hạt mang điện tích âm chuyển động xung quanh hạt nhân là hạt nào?</div>
-<div>A. Proton</div><div>B. Neutron</div><div><u>C</u>. Electron</div><div>D. Tất cả các hạt trong nhân</div><br>
-<div>Câu 9: Khi một vật chuyển động rơi tự do từ trên cao xuống gần mặt đất (bỏ qua sức cản không khí), đại lượng nào tăng dần?</div>
-<div><u>A</u>. Động năng của vật</div><div>B. Thế năng trọng trường của vật</div><div>C. Khối lượng của vật</div><div>D. Gia tốc rơi tự do</div><br>
-<div>Câu 10: Dòng điện xoay chiều sử dụng trong mạng điện sinh hoạt dân dụng tại Việt Nam có tần số chuẩn là bao nhiêu?</div>
-<div>A. 100 Hz</div><div><u>B</u>. 50 Hz</div><div>C. 60 Hz</div><div>D. 220 Hz</div><br>
-<div>Câu 11 [Đúng/Sai]: Cho một vật dao động điều hòa trên trục Ox quanh vị trí cân bằng O:</div>
-<div><u>a)</u> Khi vật đi qua vị trí cân bằng, tốc độ của vật đạt giá trị cực đại. (Đúng)</div>
-<div>b) Tại vị trí biên, gia tốc của vật có độ lớn bằng 0. (Sai)</div>
-<div><u>c)</u> Vectơ gia tốc của vật luôn hướng về vị trí cân bằng và tỉ lệ với độ lớn li độ. (Đúng)</div>
-<div>d) Cơ năng của con lắc biến thiên tuần hoàn theo thời gian với chu kỳ T. (Sai)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Cho đoạn mạch chỉ có điện trở thuần R = 10 Ω, hiệu điện thế hai đầu mạch U = 20 V. Cường độ dòng điện I chạy qua mạch bằng bao nhiêu Ampe?</div>
-<div><u>Đáp án: 2</u></div>`;
+<div>Câu 1: Một ô tô đi được quãng đường 180 km trong 3 giờ. Tốc độ trung bình của ô tô là bao nhiêu km/h?</div><div>A. 40 km/h</div><div><u>B</u>. 60 km/h</div><div>C. 90 km/h</div><div>D. 540 km/h</div><br>
+<div>Câu 2: Một bóng đèn có công suất 100 W được thắp sáng trong 5 giờ. Điện năng mà bóng đèn tiêu thụ là bao nhiêu kWh?</div><div>A. 5 kWh</div><div>B. 50 kWh</div><div><u>C</u>. 0,5 kWh</div><div>D. 500 kWh</div><br>
+<div>Câu 3: Một đoạn mạch có hiệu điện thế 12 V và điện trở 4 ôm. Cường độ dòng điện chạy qua đoạn mạch là bao nhiêu ampe?</div><div><u>A</u>. 3 A</div><div>B. 48 A</div><div>C. 8 A</div><div>D. 16 A</div><br>
+<div>Câu 4: Việc làm nào sau đây giúp tiết kiệm điện trong gia đình?</div><div>A. Để ti vi ở chế độ chờ suốt đêm</div><div>B. Bật đèn cả ngày dù không có người trong phòng</div><div>C. Mở tủ lạnh liên tục trong thời gian dài</div><div><u>D</u>. Tắt đèn và quạt khi ra khỏi phòng</div><br>
+<div>Câu 5: Một máy điều hòa có công suất 1000 W, tức là 1 kW, chạy liên tục trong 2 giờ. Điện năng mà máy điều hòa tiêu thụ là bao nhiêu kWh?</div><div>A. 1 kWh</div><div><u>B</u>. 2 kWh</div><div>C. 1000 kWh</div><div>D. 2000 kWh</div><br>
+<div>Câu 6: Ở điều kiện thông thường, nước sôi ở nhiệt độ nào?</div><div>A. 0 °C</div><div>B. 50 °C</div><div><u>C</u>. 100 °C</div><div>D. 37 °C</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về tốc độ và chuyển động:</div><div><u>a)</u> Trong cùng một khoảng thời gian, xe nào có tốc độ lớn hơn thì đi được quãng đường dài hơn. (Đúng)</div><div><u>b)</u> Tốc độ được tính bằng quãng đường đi được chia cho thời gian đi hết quãng đường đó. (Đúng)</div><div>c) Đi được 100 km trong 2 giờ thì tốc độ trung bình là 200 km/h. (Sai)</div><div>d) Đơn vị đo khối lượng là ki-lô-mét trên giờ. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về sử dụng điện trong gia đình:</div><div>a) Bóng đèn 60 W dùng trong 10 giờ tiêu thụ 6 kWh điện năng. (Sai)</div><div><u>b)</u> Ti vi 100 W dùng trong 10 giờ tiêu thụ 1 kWh điện năng. (Đúng)</div><div>c) Để tiết kiệm điện nên đặt điều hòa ở 16 °C và bật suốt cả ngày. (Sai)</div><div><u>d)</u> Tắt các thiết bị điện khi không sử dụng giúp tiết kiệm điện. (Đúng)</div><br>
+<div>Câu 9 [Trả lời ngắn]: Một đoạn mạch có hiệu điện thế 20 V và điện trở 5 ôm. Cường độ dòng điện chạy qua đoạn mạch bằng bao nhiêu ampe?</div><div><u>Đáp án: 4</u></div><br>
+<div>Câu 10 [Trả lời ngắn]: Một xe máy đi được quãng đường 150 km trong 3 giờ. Tốc độ trung bình của xe máy bằng bao nhiêu km/h?</div><div><u>Đáp án: 50</u></div><br>`;
 
 export const DEFAULT_CHEM = `
-<div>Câu 1: Kim loại nào sau đây là kim loại duy nhất tồn tại ở trạng thái lỏng ở điều kiện nhiệt độ phòng?</div>
-<div>A. Sắt (Fe)</div><div>B. Đồng (Cu)</div><div><u>C</u>. Thủy ngân (Hg)</div><div>D. Nhôm (Al)</div><br>
-<div>Câu 2: Công thức hóa học của khí Carbon dioxide (khí các-bô-níc) là gì?</div>
-<div>A. CO</div><div><u>B</u>. CO₂</div><div>C. SO₂</div><div>D. NO₂</div><br>
-<div>Câu 3: Một dung dịch làm quỳ tím chuyển sang màu đỏ thì giá trị pH của dung dịch đó như thế nào?</div>
-<div><u>A</u>. pH < 7 (Môi trường acid)</div><div>B. pH = 7 (Môi trường trung tính)</div><div>C. pH > 7 (Môi trường kiềm)</div><div>D. pH = 14</div><br>
-<div>Câu 4: Nguyên khí nào chiếm tỉ lệ thể tích lớn nhất (khoảng 78%) trong bầu khí quyển Trái Đất?</div>
-<div>A. Khí Oxygen (O₂)</div><div><u>B</u>. Khí Nitrogen (N₂)</div><div>C. Khí Hydrogen (H₂)</div><div>D. Khí Helium (He)</div><br>
-<div>Câu 5: Kim loại nào sau đây có tính dẫn điện tốt nhất trong tất cả các kim loại?</div>
-<div>A. Vàng (Au)</div><div>B. Đồng (Cu)</div><div><u>C</u>. Bạc (Ag)</div><div>D. Nhôm (Al)</div><br>
-<div>Câu 6: Công thức hóa học của muối ăn thông thường dùng trong đời sống hằng ngày là gì?</div>
-<div><u>A</u>. NaCl (Sodium chloride)</div><div>B. CaCO₃</div><div>C. NaOH</div><div>D. NaHCO₃</div><br>
-<div>Câu 7: Hợp chất hữu cơ Glucose (C₆H₁₂O₆) thuộc loại hợp chất nào sau đây?</div>
-<div><u>A</u>. Carbohydrate (Monosaccharide)</div><div>B. Ester</div><div>C. Amino acid</div><div>D. Hydrocarbon</div><br>
-<div>Câu 8: Khi cho kim loại Kẽm (Zn) tác dụng với dung dịch acid HCl loãng, chất khí nào sẽ thoát ra?</div>
-<div>A. Khí Chlorine (Cl₂)</div><div><u>B</u>. Khí Hydrogen (H₂)</div><div>C. Khí Oxygen (O₂)</div><div>D. Khí Sulfur dioxide (SO₂)</div><br>
-<div>Câu 9: Nguyên tố hóa học đầu tiên ở ô số 1 trong Bảng tuần hoàn các nguyên tố hóa học là nguyên tố nào?</div>
-<div><u>A</u>. Hydrogen (H)</div><div>B. Helium (He)</div><div>C. Lithium (Li)</div><div>D. Carbon (C)</div><br>
-<div>Câu 10: Kim loại Nhôm (Al) có tính chất hóa học đặc trưng là tác dụng được với cả dung dịch acid mạnh và dung dịch nào sau đây?</div>
-<div>A. Nước muối NaCl</div><div><u>B</u>. Dung dịch kiềm mạnh (như NaOH)</div><div>C. Dầu hỏa</div><div>D. Khí Nitrogen ở nhiệt độ thường</div><br>
-<div>Câu 11 [Đúng/Sai]: Xét các phát biểu sau về carbohydrate (glucose, saccharose, tinh bột, cellulose):</div>
-<div><u>a)</u> Glucose có phản ứng tráng bạc khi tác dụng với thuốc thử Tollens. (Đúng)</div>
-<div>b) Cellulose tan tốt trong nước lạnh tạo thành dung dịch keo. (Sai)</div>
-<div><u>c)</u> Thủy phân hoàn toàn tinh bột trong môi trường acid thu được sản phẩm cuối cùng là glucose. (Đúng)</div>
-<div>d) Saccharose là một polysaccharide có cấu trúc mạch phân nhánh. (Sai)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Phân tử khối của hợp chất Sodium hydroxide (NaOH, biết Na=23, O=16, H=1) bằng bao nhiêu?</div>
-<div><u>Đáp án: 40</u></div>`;
+<div>Câu 1: Khi cho giấm ăn vào bột nở (baking soda) để làm bánh, hiện tượng nào thường thấy?</div><div>A. Hỗn hợp đông cứng lại ngay lập tức</div><div><u>B</u>. Hỗn hợp sủi bọt khí</div><div>C. Hỗn hợp chuyển thành màu xanh lá</div><div>D. Không có hiện tượng gì xảy ra</div><br>
+<div>Câu 2: Để tách vụn sắt ra khỏi hỗn hợp cát và vụn sắt, cách đơn giản nhất là dùng gì?</div><div>A. Lọc bằng giấy lọc</div><div>B. Đun nóng cho bay hơi</div><div>C. Chưng cất hỗn hợp</div><div><u>D</u>. Dùng nam châm hút vụn sắt</div><br>
+<div>Câu 3: Đinh sắt để ngoài trời ẩm lâu ngày bị gỉ chủ yếu vì tiếp xúc với yếu tố nào?</div><div><u>A</u>. Oxy trong không khí và nước</div><div>B. Chỉ ánh nắng mặt trời</div><div>C. Chỉ cát và bụi</div><div>D. Khí nitơ khô</div><br>
+<div>Câu 4: Pha 20 gam muối ăn vào 80 gam nước, dung dịch thu được có nồng độ phần trăm là bao nhiêu?</div><div>A. 10%</div><div>B. 15%</div><div><u>C</u>. 20%</div><div>D. 25%</div><br>
+<div>Câu 5: Khi sử dụng thuốc tẩy trong nhà, việc làm nào là an toàn?</div><div>A. Trộn thuốc tẩy với giấm để tẩy mạnh hơn</div><div><u>B</u>. Đeo găng tay và mở cửa cho thoáng khí</div><div>C. Ngửi trực tiếp để kiểm tra mùi</div><div>D. Đổ thuốc tẩy vào chai nước uống để cất giữ</div><br>
+<div>Câu 6: Đậy kín một nồi dầu đang bốc cháy nhỏ sẽ làm ngọn lửa tắt dần vì thiếu yếu tố nào?</div><div>A. Ánh sáng</div><div>B. Nhiệt độ phòng</div><div>C. Khí carbon dioxide</div><div><u>D</u>. Khí oxy</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về tách hỗn hợp và nước trong đời sống:</div><div><u>a)</u> Lọc bằng vải có thể tách cát ra khỏi nước đục. (Đúng)</div><div>b) Chỉ đun sôi nước biển rồi để nguội, không ngưng tụ hơi nước, thì nước sẽ hết mặn hoàn toàn. (Sai)</div><div><u>c)</u> Dầu ăn nổi trên mặt nước nên có thể gạn để tách dầu ra khỏi nước. (Đúng)</div><div>d) Đường đã hòa tan vào nước thì không thể thu lại bằng cách cho nước bay hơi. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về hóa chất và an toàn trong gia đình:</div><div>a) Có thể nếm thử hóa chất trong nhà để biết đó là chất gì. (Sai)</div><div><u>b)</u> Bột nở (baking soda) có thể dùng để khử mùi hôi trong tủ lạnh. (Đúng)</div><div>c) Tất cả các chất khí đều không màu và không mùi. (Sai)</div><div><u>d)</u> Đốt than trong phòng kín rất nguy hiểm vì có thể sinh ra khí độc carbon monoxide. (Đúng)</div><br>
+<div>Câu 9 [Trả lời ngắn]: Một chai dung dịch giấm có nồng độ 5%. Trong 200 gam dung dịch giấm đó có bao nhiêu gam axit axetic?</div><div><u>Đáp án: 10</u></div><br>
+<div>Câu 10 [Trả lời ngắn]: Nước có công thức là H2O. Một phân tử nước có tổng cộng bao nhiêu nguyên tử?</div><div><u>Đáp án: 3</u></div><br>`;
 
 export const DEFAULT_LIT = `
-<div>Câu 1: Tác phẩm "Truyện Kiều" (Đoạn trường tân thanh) là kiệt tác thơ Nôm của đại thi hào nào?</div>
-<div>A. Nguyễn Trãi</div><div><u>B</u>. Nguyễn Du</div><div>C. Nguyễn Khuyến</div><div>D. Hồ Xuân Hương</div><br>
-<div>Câu 2: Bài thơ "Tây Tiến" với hình tượng người lính hào hùng và hào hoa là sáng tác của nhà thơ nào?</div>
-<div><u>A</u>. Quang Dũng</div><div>B. Tố Hữu</div><div>C. Chính Hữu</div><div>D. Xuân Diệu</div><br>
-<div>Câu 3: Nhân vật Chí Phèo và Thị Nở xuất hiện trong tác phẩm truyện ngắn nổi tiếng nào của nhà văn Nam Cao?</div>
-<div>A. Lão Hạc</div><div>B. Đời thừa</div><div><u>C</u>. Chí Phèo</div><div>D. Sống mòn</div><br>
-<div>Câu 4: Bản "Tuyên ngôn Độc lập" khai sinh ra nước Việt Nam Dân chủ Cộng hòa ngày 2/9/1945 do ai soạn thảo và đọc tại Quảng trường Ba Đình?</div>
-<div><u>A</u>. Chủ tịch Hồ Chí Minh</div><div>B. Phan Bội Châu</div><div>C. Phan Châu Trinh</div><div>D. Tố Hữu</div><br>
-<div>Câu 5: Thể thơ truyền thống thuần Việt gồm các cặp câu một câu 6 chữ và một câu 8 chữ liên tiếp gọi là thể thơ gì?</div>
-<div>A. Thất ngôn bát cú</div><div><u>B</u>. Thơ Lục bát</div><div>C. Song thất lục bát</div><div>D. Thơ Ngũ ngôn</div><br>
-<div>Câu 6: Biện pháp tu từ nào gọi tên sự vật, hiện tượng này bằng tên sự vật, hiện tượng khác có nét tương đồng với nó?</div>
-<div>A. So sánh</div><div><u>B</u>. Ẩn dụ</div><div>C. Hoán dụ</div><div>D. Liệt kê</div><br>
-<div>Câu 7: Tác phẩm "Vợ nhặt" phản ánh nạn đói năm Ất Dậu 1945 và khát vọng sống của người nông dân là của nhà văn nào?</div>
-<div><u>A</u>. Kim Lân</div><div>B. Ngô Tất Tố</div><div>C. Nguyễn Công Hoan</div><div>D. Vũ Trọng Phụng</div><br>
-<div>Câu 8: Tùy bút "Người lái đò Sông Đà" ca ngợi vẻ đẹp hùng vĩ, trữ tình của thiên nhiên Tây Bắc và con người lao động là của tác giả nào?</div>
-<div>A. Hoàng Phủ Ngọc Tường</div><div><u>B</u>. Nguyễn Tuân</div><div>C. Nguyễn Minh Châu</div><div>D. Tô Hoài</div><br>
-<div>Câu 9: Tập thơ "Nhật ký trong tù" của Chủ tịch Hồ Chí Minh được sáng tác bằng chữ viết nào?</div>
-<div>A. Chữ Quốc ngữ</div><div>B. Chữ Nôm</div><div><u>C</u>. Chữ Hán</div><div>D. Chữ Pháp</div><br>
-<div>Câu 10: Nhân vật Huấn Cao với tài viết chữ đẹp và khí phách hiên ngang là nhân vật chính trong truyện ngắn nào của Nguyễn Tuân?</div>
-<div><u>A</u>. Chữ người tử tù</div><div>B. Một thời vang bóng</div><div>C. Chiếc lư đồng mắt cua</div><div>D. Hương cuội</div><br>
-<div>Câu 11 [Đúng/Sai]: Xét các nhận định sau về tác phẩm "Tuyên ngôn Độc lập" của Chủ tịch Hồ Chí Minh:</div>
-<div><u>a)</u> Tác phẩm được đọc tại Quảng trường Ba Đình (Hà Nội) vào ngày 02/09/1945. (Đúng)</div>
-<div><u>b)</u> Mở đầu bản Tuyên ngôn trích dẫn lời trong Tuyên ngôn Độc lập của Mỹ (1776) và Tuyên ngôn Nhân quyền và Dân quyền của Pháp (1791). (Đúng)</div>
-<div>c) Bản Tuyên ngôn được viết theo thể thơ lục bát truyền thống. (Sai)</div>
-<div><u>d)</u> Tác phẩm là một áng văn chính luận mẫu mực với lập luận chặt chẽ, đanh thép. (Đúng)</div><br>
-<div>Câu 12 [Trả lời ngắn]: Trong một cặp câu thơ lục bát chuẩn, tổng số chữ (tiếng) của cả câu lục và câu bát cộng lại là bao nhiêu chữ?</div>
-<div><u>Đáp án: 14</u></div>`;
+<div>Câu 1: Tục ngữ Uống nước nhớ nguồn khuyên chúng ta điều gì?</div><div><u>A</u>. Biết ơn những người đã tạo ra thành quả cho mình hưởng</div><div>B. Uống thật nhiều nước mỗi ngày</div><div>C. Nhớ mang theo nước khi đi xa</div><div>D. Chọn nguồn nước sạch để uống</div><br>
+<div>Câu 2: Thành ngữ Ăn quả nhớ kẻ trồng cây có nghĩa gần nhất với ý nào sau đây?</div><div>A. Ăn quả phải nhớ mình đã mua ở chợ nào</div><div>B. Trồng cây thì chắc chắn sẽ có quả ăn</div><div>C. Quả ngon chủ yếu là nhờ thời tiết tốt</div><div><u>D</u>. Hưởng thành quả thì phải nhớ ơn người tạo ra thành quả đó</div><br>
+<div>Câu 3: Từ nào sau đây viết đúng chính tả?</div><div>A. sảy ra</div><div><u>B</u>. xảy ra</div><div>C. xẩy ra</div><div>D. sẩy ra</div><br>
+<div>Câu 4: Dấu câu nào dùng để kết thúc một câu hỏi?</div><div>A. Dấu chấm</div><div>B. Dấu phẩy</div><div><u>C</u>. Dấu chấm hỏi</div><div>D. Dấu chấm than</div><br>
+<div>Câu 5: Từ trái nghĩa với từ nhanh là từ nào?</div><div><u>A</u>. chậm</div><div>B. mau</div><div>C. vội</div><div>D. lẹ</div><br>
+<div>Câu 6: Câu Học ăn, học nói, học gói, học mở khuyên người ta điều gì?</div><div>A. Chỉ cần học cách ăn uống cho ngon</div><div>B. Học cách gói quà cho thật đẹp</div><div>C. Học nấu ăn là việc quan trọng nhất</div><div><u>D</u>. Cần học cách ứng xử và giao tiếp trong cuộc sống</div><br>
+<div>Câu 7: Từ đồng nghĩa với từ chăm chỉ là từ nào?</div><div>A. lười biếng</div><div><u>B</u>. siêng năng</div><div>C. chậm chạp</div><div>D. cẩu thả</div><br>
+<div>Câu 8: Trong câu Mẹ mua rau, cá và trứng, dấu phẩy được dùng để làm gì?</div><div>A. Kết thúc câu</div><div>B. Hỏi một điều gì đó</div><div><u>C</u>. Ngăn cách các ý được liệt kê</div><div>D. Thể hiện cảm xúc mạnh</div><br>
+<div>Câu 9: Tục ngữ Gần mực thì đen, gần đèn thì sáng khuyên điều gì?</div><div>A. Ngồi gần đèn để học bài cho sáng hơn</div><div>B. Mực đen thường dùng để viết bài</div><div>C. Nên tránh xa những nơi tối tăm</div><div><u>D</u>. Môi trường và bạn bè xung quanh ảnh hưởng nhiều đến mỗi người</div><br>
+<div>Câu 10: Từ trái nghĩa với từ cao là từ nào?</div><div>A. lớn</div><div><u>B</u>. thấp</div><div>C. rộng</div><div>D. dài</div><br>`;
 
 export const DEFAULT_ENG = `
-<div>Câu 1: Choose the correct form: "She _______ to school by bus every day."</div>
-<div>A. go</div><div><u>B</u>. goes</div><div>C. going</div><div>D. gone</div><br>
-<div>Câu 2: What is the synonym of the word "happy"?</div>
-<div><u>A</u>. Joyful</div><div>B. Sad</div><div>C. Angry</div><div>D. Tired</div><br>
-<div>Câu 3: Conditional Sentence Type 1: "If it rains tomorrow, we _______ at home."</div>
-<div>A. stayed</div><div>B. would stay</div><div><u>C</u>. will stay</div><div>D. staying</div><br>
-<div>Câu 4: Passive Voice: "This school _______ in 1995."</div>
-<div><u>A</u>. was built</div><div>B. built</div><div>C. is building</div><div>D. has built</div><br>
-<div>Câu 5: Preposition: "My brother is very interested _______ learning English and IT."</div>
-<div>A. on</div><div>B. at</div><div><u>C</u>. in</div><div>D. with</div><br>
-<div>Câu 6 [Đúng/Sai]: Read the statements about English grammar (High School 2018 Curriculum) and decide True or False:</div>
-<div><u>a)</u> Present Simple tense is used to describe habits and general truths. (Đúng)</div>
-<div>b) In Conditional Type 1, we use Past Perfect in the "If" clause. (Sai)</div>
-<div><u>c)</u> "Interested" is followed by the preposition "in". (Đúng)</div>
-<div>d) "Go" is a regular verb whose past form is "goed". (Sai)</div><br>
-<div>Câu 7 [Trả lời ngắn]: How many letters are there in the modern English alphabet (enter a number)?</div>
-<div><u>Đáp án: 26</u></div>`;
+<div>Câu 1: Choose the correct greeting in the morning: Good ______!</div><div>A. night</div><div><u>B</u>. morning</div><div>C. bye</div><div>D. thanks</div><br>
+<div>Câu 2: She ______ to school every day.</div><div>A. go</div><div>B. going</div><div><u>C</u>. goes</div><div>D. gone</div><br>
+<div>Câu 3: I was born ______ 2010.</div><div><u>A</u>. in</div><div>B. on</div><div>C. at</div><div>D. by</div><br>
+<div>Câu 4: What is the opposite of big?</div><div>A. large</div><div>B. huge</div><div>C. tall</div><div><u>D</u>. small</div><br>
+<div>Câu 5: They ______ football yesterday afternoon.</div><div>A. play</div><div><u>B</u>. played</div><div>C. plays</div><div>D. playing</div><br>
+<div>Câu 6: How many ______ are there in the classroom?</div><div><u>A</u>. students</div><div>B. student</div><div>C. studentes</div><div>D. studentss</div><br>
+<div>Câu 7: ______ is your name?</div><div>A. Where</div><div>B. When</div><div><u>C</u>. What</div><div>D. How many</div><br>
+<div>Câu 8: We have English lessons ______ Monday.</div><div>A. in</div><div>B. at</div><div>C. to</div><div><u>D</u>. on</div><br>
+<div>Câu 9: Which word means the same as happy?</div><div><u>A</u>. glad</div><div>B. sad</div><div>C. angry</div><div>D. tired</div><br>
+<div>Câu 10: He ______ a doctor. He works in a hospital.</div><div>A. are</div><div><u>B</u>. is</div><div>C. am</div><div>D. be</div><br>`;
 
 export const DEFAULT_HIST = `
-<div>Câu 1: Chiến thắng lịch sử Điện Biên Phủ "lừng lẫy năm châu, chấn động địa cầu" diễn ra vào năm nào?</div>
-<div>A. Năm 1945</div><div><u>B</u>. Năm 1954</div><div>C. Năm 1968</div><div>D. Năm 1975</div><br>
-<div>Câu 2: Đảng Cộng sản Việt Nam được thành lập vào ngày, tháng, năm nào?</div>
-<div><u>A</u>. Ngày 03/02/1930</div><div>B. Ngày 19/08/1945</div><div>C. Ngày 02/09/1945</div><div>D. Ngày 30/04/1975</div><br>
-<div>Câu 3: Chiến dịch Hồ Chí Minh lịch sử giải phóng hoàn toàn miền Nam, thống nhất đất nước thắng lợi vào ngày nào?</div>
-<div>A. Ngày 27/01/1973</div><div><u>B</u>. Ngày 30/04/1975</div><div>C. Ngày 07/05/1954</div><div>D. Ngày 19/12/1946</div><br>
-<div>Câu 4: Cuộc khởi nghĩa Lam Sơn đánh đuổi quân Minh xâm lược ở thế kỷ XV do vị anh hùng dân tộc nào lãnh đạo?</div>
-<div>A. Trần Hưng Đạo</div><div><u>B</u>. Lê Lợi</div><div>C. Quang Trung - Nguyễn Huệ</div><div>D. Lý Thường Kiệt</div><br>
-<div>Câu 5: Chiến thắng Bạch Đằng năm 938 chấm dứt hơn 1000 năm Bắc thuộc gắn liền với tên tuổi của vị anh hùng nào?</div>
-<div><u>A</u>. Ngô Quyền</div><div>B. Đinh Bộ Lĩnh</div><div>C. Lê Hoàn</div><div>D. Lý Công Uẩn</div><br>
-<div>Câu 6 [Đúng/Sai]: Xét các phát biểu lịch sử về Cách mạng tháng Tám năm 1945 ở Việt Nam:</div>
-<div><u>a)</u> Cách mạng tháng Tám năm 1945 đã lật đổ ách thống trị của thực dân, phát xít và chế độ phong kiến. (Đúng)</div>
-<div><u>b)</u> Ngày 02/09/1945, Chủ tịch Hồ Chí Minh đọc Tuyên ngôn Độc lập khai sinh nước Việt Nam Dân chủ Cộng hòa. (Đúng)</div>
-<div>c) Cách mạng tháng Tám diễn ra sau chiến thắng Điện Biên Phủ năm 1954. (Sai)</div>
-<div><u>d)</u> Thắng lợi của Cách mạng tháng Tám mở ra kỷ nguyên độc lập, tự do cho dân tộc Việt Nam. (Đúng)</div><br>
-<div>Câu 7 [Trả lời ngắn]: Chiến thắng Điện Biên Phủ kết thúc thắng lợi vào ngày 07 tháng 05 năm nào (nhập 4 chữ số năm)?</div>
-<div><u>Đáp án: 1954</u></div>`;
+<div>Câu 1: Ngày 2 tháng 9 năm 1945, Chủ tịch Hồ Chí Minh đã đọc bản Tuyên ngôn Độc lập, khai sinh nước Việt Nam Dân chủ Cộng hòa tại địa điểm nào?</div><div>A. Dinh Độc Lập (Sài Gòn)</div><div><u>B</u>. Quảng trường Ba Đình (Hà Nội)</div><div>C. Cố đô Huế</div><div>D. Bến Nhà Rồng (Sài Gòn)</div><br>
+<div>Câu 2: Chiến thắng Điện Biên Phủ "lừng lẫy năm châu, chấn động địa cầu" diễn ra vào năm nào?</div><div>A. Năm 1945</div><div>B. Năm 1968</div><div>C. Năm 1975</div><div><u>D</u>. Năm 1954</div><br>
+<div>Câu 3: Ngày 30 tháng 4 năm 1975 là ngày kỷ niệm sự kiện lịch sử nào của dân tộc ta?</div><div><u>A</u>. Miền Nam hoàn toàn giải phóng, đất nước thống nhất</div><div>B. Ngày Quốc khánh nước Việt Nam</div><div>C. Ngày thành lập Đảng Cộng sản Việt Nam</div><div>D. Ngày chiến thắng Điện Biên Phủ</div><br>
+<div>Câu 4: Giỗ Tổ Hùng Vương được tổ chức vào ngày nào theo âm lịch hằng năm?</div><div>A. Ngày 1 tháng 1 âm lịch</div><div>B. Ngày 15 tháng 8 âm lịch</div><div><u>C</u>. Ngày 10 tháng 3 âm lịch</div><div>D. Ngày 30 tháng 4 âm lịch</div><br>
+<div>Câu 5: Chủ tịch Hồ Chí Minh (Bác Hồ) sinh vào năm nào?</div><div>A. Năm 1889</div><div><u>B</u>. Năm 1890</div><div>C. Năm 1891</div><div>D. Năm 1900</div><br>
+<div>Câu 6: Ngày Quốc khánh của nước Cộng hòa xã hội chủ nghĩa Việt Nam là ngày nào?</div><div>A. Ngày 1 tháng 5</div><div>B. Ngày 30 tháng 4</div><div>C. Ngày 27 tháng 7</div><div><u>D</u>. Ngày 2 tháng 9</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về Cách mạng tháng Tám và ngày Quốc khánh năm 1945:</div><div><u>a)</u> Ngày 2/9/1945, Bác Hồ đọc bản Tuyên ngôn Độc lập tại Quảng trường Ba Đình, Hà Nội. (Đúng)</div><div>b) Bản Tuyên ngôn Độc lập năm 1945 được đọc tại Dinh Độc Lập ở Sài Gòn. (Sai)</div><div><u>c)</u> Cách mạng tháng Tám năm 1945 thành công đã mở ra kỷ nguyên độc lập, tự do cho dân tộc Việt Nam. (Đúng)</div><div>d) Nước Việt Nam Dân chủ Cộng hòa được thành lập vào năm 1975. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về chiến thắng Điện Biên Phủ và ngày giải phóng miền Nam:</div><div>a) Chiến thắng Điện Biên Phủ diễn ra vào năm 1975. (Sai)</div><div><u>b)</u> Ngày 30/4/1975, miền Nam hoàn toàn giải phóng, đất nước thống nhất. (Đúng)</div><div><u>c)</u> Đại tướng Võ Nguyên Giáp là Tổng tư lệnh trong chiến dịch Điện Biên Phủ năm 1954. (Đúng)</div><div>d) Xe tăng của Quân giải phóng tiến vào Dinh Độc Lập vào ngày 2/9/1945. (Sai)</div><br>
+<div>Câu 9 [Đúng/Sai]: Xét các phát biểu sau về Chủ tịch Hồ Chí Minh và các Vua Hùng:</div><div><u>a)</u> Chủ tịch Hồ Chí Minh sinh năm 1890 tại quê nhà ở tỉnh Nghệ An. (Đúng)</div><div><u>b)</u> Đền Hùng nằm ở tỉnh Phú Thọ, là nơi thờ cúng các Vua Hùng. (Đúng)</div><div>c) Giỗ Tổ Hùng Vương được tổ chức vào ngày 2 tháng 9 dương lịch hằng năm. (Sai)</div><div><u>d)</u> "Các Vua Hùng đã có công dựng nước, Bác cháu ta phải cùng nhau giữ lấy nước" là lời căn dặn của Chủ tịch Hồ Chí Minh. (Đúng)</div><br>
+<div>Câu 10 [Đúng/Sai]: Xét các phát biểu sau về các ngày lễ lớn của Việt Nam:</div><div>a) Ngày Quốc khánh của Việt Nam là ngày 30 tháng 4 hằng năm. (Sai)</div><div><u>b)</u> Ngày 27 tháng 7 là Ngày Thương binh - Liệt sĩ, dịp để tri ân những người có công với đất nước. (Đúng)</div><div>c) Tết Nguyên đán là ngày lễ truyền thống được tính theo dương lịch. (Sai)</div><div><u>d)</u> Ngày 1 tháng 5 là Ngày Quốc tế Lao động. (Đúng)</div><br>`;
 
 export const DEFAULT_GEO = `
-<div>Câu 1: Vùng kinh tế nào được mệnh danh là vựa lúa và vùng xuất khẩu gạo, trái cây, thủy sản lớn nhất cả nước ta?</div>
-<div>A. Đồng bằng sông Hồng</div><div><u>B</u>. Đồng bằng sông Cửu Long</div><div>C. Tây Nguyên</div><div>D. Đông Nam Bộ</div><br>
-<div>Câu 2: Việt Nam nằm hoàn toàn trong đới khí hậu nào sau đây?</div>
-<div><u>A</u>. Nhiệt đới gió mùa ẩm</div><div>B. Ôn đới hải dương</div><div>C. Hàn đới lạnh giá</div><div>D. Cận nhiệt đới khô hạn</div><br>
-<div>Câu 3: Đỉnh núi Phan-xi-păng (Fansipan) cao 3.143m được mệnh danh là "Nóc nhà Đông Dương" thuộc dãy núi nào?</div>
-<div>A. Dãy Trường Sơn Bắc</div><div><u>B</u>. Dãy Hoàng Liên Sơn</div><div>C. Dãy Ngân Sơn</div><div>D. Dãy Đông Triều</div><br>
-<div>Câu 4: Tỉnh Vĩnh Long nằm ở trung tâm vùng Đồng bằng sông Cửu Long, nằm giữa hai con sông lớn nào?</div>
-<div><u>A</u>. Sông Tiền và Sông Hậu</div><div>B. Sông Hồng và Sông Đà</div><div>C. Sông Đồng Nai và Sông Sài Gòn</div><div>D. Sông Hương và Sông Thu Bồn</div><br>
-<div>Câu 5: Quần đảo Hoàng Sa và quần đảo Trường Sa của Việt Nam nằm ở vùng biển nào?</div>
-<div><u>A</u>. Biển Đông</div><div>B. Ấn Độ Dương</div><div>C. Địa Trung Hải</div><div>D. Biển Đỏ</div><br>
-<div>Câu 6 [Đúng/Sai]: Xét các đặc điểm tự nhiên và kinh tế của vùng Đồng bằng sông Cửu Long:</div>
-<div><u>a)</u> Là vùng sản xuất lúa gạo, thủy sản và cây ăn quả nhiệt đới lớn nhất cả nước. (Đúng)</div>
-<div>b) Địa hình chủ yếu là núi cao hiểm trở trên 2.000m. (Sai)</div>
-<div><u>c)</u> Hệ thống sông Tiền và sông Hậu bồi đắp phù sa màu mỡ cho đồng bằng. (Đúng)</div>
-<div>d) Vùng này không giáp biển và không có đảo ven bờ. (Sai)</div><br>
-<div>Câu 7 [Trả lời ngắn]: Nước Việt Nam thống nhất hiện nay được chia thành bao nhiêu vùng kinh tế - xã hội (theo quy hoạch chuẩn SGK Địa lý 12 GDPT 2018)?</div>
-<div><u>Đáp án: 6</u></div>`;
+<div>Câu 1: Con sông nào sau đây là con sông lớn nhất chảy vào đồng bằng sông Cửu Long ở Việt Nam?</div><div>A. Sông Hồng</div><div>B. Sông Đà</div><div>C. Sông Mã</div><div><u>D</u>. Sông Mê Công</div><br>
+<div>Câu 2: Vào buổi sáng, Mặt Trời mọc ở hướng nào?</div><div>A. Hướng tây</div><div><u>B</u>. Hướng đông</div><div>C. Hướng nam</div><div>D. Hướng bắc</div><br>
+<div>Câu 3: Tháng 1 ở miền Bắc Việt Nam thường có thời tiết như thế nào?</div><div>A. Nắng nóng gay gắt như mùa hè</div><div>B. Mưa bão liên tục cả tháng</div><div><u>C</u>. Trời lạnh, có thể có rét đậm</div><div>D. Nóng ẩm, không bao giờ lạnh</div><br>
+<div>Câu 4: Thủ đô của Việt Nam là thành phố nào?</div><div><u>A</u>. Hà Nội</div><div>B. Thành phố Hồ Chí Minh</div><div>C. Đà Nẵng</div><div>D. Cần Thơ</div><br>
+<div>Câu 5: Trên bản đồ thông thường, hướng bắc thường nằm ở phía nào của bản đồ?</div><div>A. Phía dưới bản đồ</div><div>B. Phía bên trái bản đồ</div><div>C. Phía bên phải bản đồ</div><div><u>D</u>. Phía trên bản đồ</div><br>
+<div>Câu 6: Trên bản đồ có tỉ lệ 1 : 100 000, khoảng cách 1 cm trên bản đồ ứng với bao nhiêu mét ngoài thực tế?</div><div>A. 100 mét</div><div><u>B</u>. 1000 mét</div><div>C. 10 mét</div><div>D. 10000 mét</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về phương hướng và mùa ở Việt Nam:</div><div><u>a)</u> Dùng la bàn có thể xác định được hướng bắc. (Đúng)</div><div>b) Mặt Trời lặn ở hướng đông. (Sai)</div><div><u>c)</u> Miền Nam Việt Nam có hai mùa rõ rệt là mùa mưa và mùa khô. (Đúng)</div><div>d) Đường xích đạo nằm ở cực Bắc của Trái Đất. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về địa lí Việt Nam và bản đồ:</div><div>a) Thành phố Hồ Chí Minh là thủ đô của Việt Nam. (Sai)</div><div>b) Sông Hồng chủ yếu chảy qua miền Nam Việt Nam. (Sai)</div><div><u>c)</u> Đà Nẵng là thành phố ven biển ở miền Trung Việt Nam. (Đúng)</div><div><u>d)</u> Bản đồ có tỉ lệ càng lớn thì khu vực được thể hiện càng chi tiết. (Đúng)</div><br>
+<div>Câu 9 [Trả lời ngắn]: Trên bản đồ có tỉ lệ 1 : 50 000, một đoạn đường dài 2 cm trên bản đồ. Ngoài thực tế, đoạn đường đó dài bao nhiêu mét?</div><div><u>Đáp án: 1000</u></div><br>
+<div>Câu 10 [Trả lời ngắn]: Một thành phố có giờ sớm hơn Hà Nội 2 giờ. Khi Hà Nội là 9 giờ thì thành phố đó là bao nhiêu giờ?</div><div><u>Đáp án: 11</u></div><br>`;
 
 export const DEFAULT_GDKTPL = `
-<div>Câu 1: Văn bản pháp luật nào có hiệu lực pháp lý cao nhất trong hệ thống pháp luật nước Cộng hòa xã hội chủ nghĩa Việt Nam?</div>
-<div><u>A</u>. Hiến pháp</div><div>B. Bộ luật Dân sự</div><div>C. Nghị định của Chính phủ</div><div>D. Thông tư của Bộ trưởng</div><br>
-<div>Câu 2: Theo quy định của Hiến pháp Việt Nam, công dân đủ bao nhiêu tuổi trở lên thì có quyền bầu cử đại biểu Quốc hội và Hội đồng nhân dân?</div>
-<div>A. Đủ 16 tuổi</div><div><u>B</u>. Đủ 18 tuổi</div><div>C. Đủ 20 tuổi</div><div>D. Đủ 21 tuổi</div><br>
-<div>Câu 3: Trong nền kinh tế thị trường, khi lượng cầu về một mặt hàng tăng cao hơn lượng cung thì giá cả mặt hàng đó thường có xu hướng gì?</div>
-<div><u>A</u>. Giá cả có xu hướng tăng lên</div><div>B. Giá cả giảm mạnh về 0</div><div>C. Giá cả không bao giờ thay đổi</div><div>D. Hàng hóa bị tiêu hủy</div><br>
-<div>Câu 4: Hành vi người điều khiển xe mô tô, xe gắn máy vượt đèn đỏ khi tham gia giao thông là vi phạm pháp luật loại nào?</div>
-<div><u>A</u>. Vi phạm hành chính</div><div>B. Vi phạm kỷ luật trường học</div><div>C. Vi phạm hợp đồng dân sự</div><div>D. Không vi phạm pháp luật</div><br>
-<div>Câu 5: Ngân sách nhà nước là toàn bộ các khoản thu, chi của Nhà nước được dự toán và thực hiện trong một khoảng thời gian nhất định do cơ quan nào quyết định?</div>
-<div><u>A</u>. Quốc hội</div><div>B. Ủy ban nhân dân xã</div><div>C. Các doanh nghiệp tư nhân</div><div>D. Ngân hàng thương mại</div><br>
-<div>Câu 6 [Đúng/Sai]: Xét các quy định của Hiến pháp về quyền và nghĩa vụ cơ bản của công dân:</div>
-<div><u>a)</u> Mọi công dân đều bình đẳng trước pháp luật. (Đúng)</div>
-<div><u>b)</u> Công dân đủ 18 tuổi trở lên có quyền bầu cử theo quy định của pháp luật. (Đúng)</div>
-<div>c) Nộp thuế chỉ là quyền tự nguyện, không phải nghĩa vụ bắt buộc theo luật định. (Sai)</div>
-<div><u>d)</u> Bảo vệ Tổ quốc là nghĩa vụ thiêng liêng và quyền cao quý của công dân. (Đúng)</div><br>
-<div>Câu 7 [Trả lời ngắn]: Theo Hiến pháp Việt Nam, công dân từ đủ bao nhiêu tuổi trở lên thì có quyền ứng cử vào Quốc hội và Hội đồng nhân dân?</div>
-<div><u>Đáp án: 21</u></div>`;
+<div>Câu 1: Khi điều khiển hoặc ngồi trên xe mô tô, xe gắn máy tham gia giao thông, người tham gia giao thông bắt buộc phải làm gì?</div><div>A. Mang theo nhiều tiền mặt</div><div>B. Mặc áo phản quang</div><div><u>C</u>. Đội mũ bảo hiểm và cài quai đúng quy cách</div><div>D. Mang dép lê cho thoải mái</div><br>
+<div>Câu 2: Theo quy định của pháp luật, người điều khiển phương tiện tham gia giao thông đường bộ đã uống rượu, bia thì phải xử sự như thế nào?</div><div><u>A</u>. Tuyệt đối không được điều khiển phương tiện tham gia giao thông</div><div>B. Vẫn được lái xe nếu chỉ uống một ít</div><div>C. Vẫn được lái xe nếu quãng đường đi ngắn</div><div>D. Vẫn được lái xe nếu cảm thấy mình còn tỉnh táo</div><br>
+<div>Câu 3: Theo Luật Hôn nhân và gia đình, điều kiện về độ tuổi để được đăng ký kết hôn là gì?</div><div>A. Nam đủ 18 tuổi trở lên, nữ đủ 16 tuổi trở lên</div><div>B. Nam đủ 18 tuổi trở lên, nữ đủ 18 tuổi trở lên</div><div>C. Nam đủ 20 tuổi trở lên, nữ đủ 20 tuổi trở lên</div><div><u>D</u>. Nam đủ 20 tuổi trở lên, nữ đủ 18 tuổi trở lên</div><br>
+<div>Câu 4: Theo Hiến pháp nước ta, công dân đủ bao nhiêu tuổi trở lên thì có quyền bầu cử?</div><div>A. Đủ 16 tuổi</div><div><u>B</u>. Đủ 18 tuổi</div><div>C. Đủ 20 tuổi</div><div>D. Đủ 21 tuổi</div><br>
+<div>Câu 5: Khi mua hàng hóa và phát hiện hàng bị lỗi, hàng giả hoặc kém chất lượng, người tiêu dùng nên làm gì?</div><div>A. Im lặng bỏ qua vì đã mua rồi</div><div>B. Tự ý đến đập phá cửa hàng của người bán</div><div><u>C</u>. Khiếu nại với người bán để yêu cầu đổi trả, sửa chữa hoặc bồi thường theo quy định</div><div>D. Không có quyền làm gì cả</div><br>
+<div>Câu 6: Theo Luật Giao thông đường bộ, người đủ bao nhiêu tuổi trở lên mới được điều khiển xe gắn máy có dung tích xi-lanh dưới 50 cm³?</div><div><u>A</u>. Đủ 16 tuổi</div><div>B. Đủ 14 tuổi</div><div>C. Đủ 18 tuổi</div><div>D. Đủ 12 tuổi</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về an toàn giao thông đường bộ:</div><div><u>a)</u> Khi đi xe mô tô, xe gắn máy, cả người điều khiển và người ngồi sau đều phải đội mũ bảo hiểm. (Đúng)</div><div>b) Người đi bộ có thể sang đường ở bất cứ đâu, không cần đi đúng vạch kẻ đường dành cho người đi bộ. (Sai)</div><div><u>c)</u> Khi đèn tín hiệu giao thông chuyển sang màu đỏ, người tham gia giao thông phải dừng lại trước vạch dừng. (Đúng)</div><div>d) Trẻ em ngồi trên xe mô tô, xe gắn máy thì không cần đội mũ bảo hiểm. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về quyền của công dân:</div><div>a) Công dân đủ 16 tuổi trở lên đã có quyền bầu cử đại biểu Quốc hội. (Sai)</div><div><u>b)</u> Mọi công dân đều bình đẳng trước pháp luật, không phân biệt giới tính, dân tộc, tôn giáo. (Đúng)</div><div>c) Căn cước công dân chỉ được cấp cho người từ đủ 18 tuổi trở lên. (Sai)</div><div><u>d)</u> Công dân có quyền khiếu nại khi quyền và lợi ích hợp pháp của mình bị xâm phạm. (Đúng)</div><br>
+<div>Câu 9 [Đúng/Sai]: Xét các phát biểu sau về hôn nhân, gia đình và học đường:</div><div><u>a)</u> Nam đủ 20 tuổi trở lên, nữ đủ 18 tuổi trở lên mới đủ điều kiện về tuổi để đăng ký kết hôn. (Đúng)</div><div><u>b)</u> Bạo lực học đường là hành vi bị nghiêm cấm trong trường học. (Đúng)</div><div>c) Cha mẹ có quyền ép buộc con chưa đủ tuổi kết hôn phải lấy vợ, lấy chồng theo ý cha mẹ. (Sai)</div><div><u>d)</u> Vợ và chồng có quyền, nghĩa vụ ngang nhau trong quan hệ gia đình. (Đúng)</div><br>
+<div>Câu 10 [Đúng/Sai]: Xét các phát biểu sau về quyền của người tiêu dùng và ý thức tuân thủ pháp luật:</div><div><u>a)</u> Khi mua hàng hóa, người tiêu dùng có quyền được cung cấp thông tin đầy đủ, trung thực về hàng hóa. (Đúng)</div><div>b) Hàng hóa đã mua rồi thì trong mọi trường hợp người bán không phải chịu trách nhiệm nếu hàng bị lỗi. (Sai)</div><div>c) Khi ký hợp đồng, không cần đọc kỹ nội dung vì điều khoản trong hợp đồng nào cũng giống nhau. (Sai)</div><div><u>d)</u> Khi phát hiện hành vi vi phạm pháp luật, công dân có quyền tố cáo đến cơ quan nhà nước có thẩm quyền. (Đúng)</div><br>`;
 
 export const DEFAULT_IT = `
-<div>Câu 1: Trong thiết kế trang web, ngôn ngữ đánh dấu siêu văn bản chuẩn dùng để tạo cấu trúc nội dung trang web được viết tắt là gì?</div>
-<div><u>A</u>. HTML (HyperText Markup Language)</div><div>B. MP3</div><div>C. JPEG</div><div>D. PDF</div><br>
-<div>Câu 2: Trong phần mềm soạn thảo hoặc trình duyệt trên hệ điều hành Windows, tổ hợp phím tắt nào dùng để Sao chép (Copy) và Dán (Paste)?</div>
-<div><u>A</u>. Ctrl + C và Ctrl + V</div><div>B. Alt + F4</div><div>C. Ctrl + Z và Ctrl + Y</div><div>D. Shift + Delete</div><br>
-<div>Câu 3: Thành phần phần cứng nào của máy tính được ví như "bộ não" xử lý trung tâm thực hiện các phép tính và điều khiển?</div>
-<div>A. Bàn phím (Keyboard)</div><div><u>B</u>. Bộ vi xử lý CPU (Central Processing Unit)</div><div>C. Chuột máy tính (Mouse)</div><div>D. Loa âm thanh (Speaker)</div><br>
-<div>Câu 4: Công nghệ Trí tuệ nhân tạo đang được ứng dụng rộng rãi trong giáo dục và đời sống có tên viết tắt tiếng Anh là gì?</div>
-<div><u>A</u>. AI (Artificial Intelligence)</div><div>B. USB</div><div>C. DVD</div><div>D. VGA</div><br>
-<div>Câu 5: Để bảo vệ tài khoản cá nhân trên không gian mạng an toàn nhất, người dùng nên thực hiện nguyên tắc nào sau đây?</div>
-<div><u>A</u>. Đặt mật khẩu mạnh (gồm chữ hoa, chữ thường, số, ký tự đặc biệt) và bật xác thực 2 lớp (2FA), tuyệt đối không chia sẻ mã OTP</div><div>B. Đặt mật khẩu là 123456 cho dễ nhớ</div><div>C. Nhấp vào mọi đường link lạ trúng thưởng</div><div>D. Công khai mật khẩu lên mạng xã hội</div><br>
-<div>Câu 6 [Đúng/Sai]: Xét các phát biểu về ngôn ngữ HTML và CSS trong thiết kế web (Tin học 12 GDPT 2018):</div>
-<div><u>a)</u> Thẻ &lt;h1&gt; đến &lt;h6&gt; trong HTML dùng để định nghĩa các tiêu đề theo cấp độ giảm dần. (Đúng)</div>
-<div><u>b)</u> CSS được sử dụng để định dạng màu sắc, phông chữ và bố cục hiển thị cho trang web. (Đúng)</div>
-<div>c) Thẻ &lt;img&gt; trong HTML dùng để tạo bảng dữ liệu nhiều hàng cột. (Sai)</div>
-<div><u>d)</u> Thuộc tính href trong thẻ &lt;a&gt; dùng để chỉ định địa chỉ liên kết siêu văn bản. (Đúng)</div><br>
-<div>Câu 7 [Trả lời ngắn]: Trong hệ nhị phân (Binary) của máy tính, mỗi bit thông tin có thể nhận tối đa bao nhiêu trạng thái giá trị khác nhau (0 hoặc 1)?</div>
-<div><u>Đáp án: 2</u></div>`;
+<div>Câu 1: Mật khẩu nào sau đây được coi là mật khẩu mạnh và an toàn?</div><div><u>A</u>. Mật khẩu đủ dài, kết hợp chữ hoa, chữ thường, chữ số và ký tự đặc biệt</div><div>B. Mật khẩu là dãy số 123456</div><div>C. Mật khẩu là ngày sinh của bản thân</div><div>D. Mật khẩu là tên của bản thân viết thường</div><br>
+<div>Câu 2: Em nhận được tin nhắn lạ thông báo "trúng thưởng lớn" và yêu cầu cung cấp mã OTP để nhận thưởng. Em nên làm gì?</div><div>A. Gửi ngay mã OTP theo yêu cầu để nhận thưởng</div><div>B. Chuyển trước một khoản tiền làm phí nhận thưởng</div><div><u>C</u>. Không cung cấp mã OTP cho bất kỳ ai và kiểm tra lại qua kênh chính thức</div><div>D. Nhờ bạn bè gửi mã OTP của bạn ấy thay mình</div><br>
+<div>Câu 3: Theo quy ước trong sách giáo khoa Tin học, 1 GB bằng bao nhiêu MB?</div><div>A. 1000 MB</div><div><u>B</u>. 1024 MB</div><div>C. 512 MB</div><div>D. 2048 MB</div><br>
+<div>Câu 4: Việc sao lưu dữ liệu (backup) thường xuyên mang lại lợi ích chính nào sau đây?</div><div>A. Giúp máy tính chạy nhanh hơn hẳn</div><div>B. Làm tăng dung lượng của ổ cứng</div><div>C. Tự động xóa hết virus trong máy</div><div><u>D</u>. Giúp khôi phục lại dữ liệu khi máy bị hỏng hoặc bị mất dữ liệu</div><br>
+<div>Câu 5: Khi sử dụng Wi-Fi công cộng miễn phí ở quán cà phê, em nên tránh làm việc nào sau đây?</div><div><u>A</u>. Đăng nhập tài khoản ngân hàng và thực hiện giao dịch quan trọng</div><div>B. Đọc tin tức trên báo điện tử</div><div>C. Nghe nhạc trực tuyến</div><div>D. Xem bản đồ tìm đường đi</div><br>
+<div>Câu 6: Thư rác (spam) trong hộp thư điện tử là loại thư nào?</div><div>A. Thư do bạn bè gửi cho mình</div><div>B. Thư của giáo viên gửi kèm bài tập</div><div><u>C</u>. Thư quảng cáo hoặc lừa đảo được gửi hàng loạt mà người nhận không mong muốn</div><div>D. Thư thông báo của nhà trường</div><br>
+<div>Câu 7 [Đúng/Sai]: Xét các phát biểu sau về an toàn khi sử dụng mạng xã hội:</div><div><u>a)</u> Không nên công khai số điện thoại và địa chỉ nhà riêng của mình lên mạng xã hội. (Đúng)</div><div>b) Nên chấp nhận mọi lời mời kết bạn từ người lạ để có càng nhiều bạn càng tốt. (Sai)</div><div><u>c)</u> Trước khi chia sẻ một thông tin trên mạng, cần kiểm tra xem thông tin đó có đáng tin cậy hay không. (Đúng)</div><div>d) Có thể chia sẻ mật khẩu tài khoản của mình cho bạn thân để nhờ đăng nhập hộ. (Sai)</div><br>
+<div>Câu 8 [Đúng/Sai]: Xét các phát biểu sau về mã OTP và lừa đảo trực tuyến:</div><div>a) Nhân viên ngân hàng sẽ yêu cầu khách hàng cung cấp mã OTP qua điện thoại để hỗ trợ giao dịch. (Sai)</div><div><u>b)</u> Mã OTP chỉ nên nhập trên trang web hoặc ứng dụng chính thức khi chính mình đang thực hiện giao dịch. (Đúng)</div><div><u>c)</u> Khi nhận cuộc gọi tự xưng là công an yêu cầu chuyển tiền để phục vụ điều tra, cần bình tĩnh kiểm chứng và không chuyển tiền theo yêu cầu qua điện thoại. (Đúng)</div><div>d) Nhấn vào mọi đường link lạ trong tin nhắn sẽ giúp điện thoại chạy nhanh và an toàn hơn. (Sai)</div><br>
+<div>Câu 9 [Đúng/Sai]: Xét các phát biểu sau về bảo vệ dữ liệu và thiết bị:</div><div><u>a)</u> Nên sao lưu dữ liệu quan trọng ra ổ cứng ngoài hoặc dịch vụ lưu trữ đám mây. (Đúng)</div><div><u>b)</u> Theo quy ước trong sách giáo khoa Tin học, 1 GB bằng 1024 MB. (Đúng)</div><div>c) Chỉ cần dùng một mật khẩu duy nhất cho mọi tài khoản là cách an toàn tuyệt đối. (Sai)</div><div><u>d)</u> Cập nhật phần mềm và hệ điều hành giúp vá các lỗ hổng bảo mật trên thiết bị. (Đúng)</div><br>
+<div>Câu 10 [Đúng/Sai]: Xét các phát biểu sau về sử dụng thư điện tử và mạng Internet an toàn:</div><div>a) Mọi thư trong hộp thư đến đều an toàn nên có thể mở mọi tệp đính kèm mà không cần kiểm tra. (Sai)</div><div><u>b)</u> Nên đăng xuất khỏi tài khoản sau khi sử dụng máy tính chung ở trường hoặc nơi công cộng. (Đúng)</div><div>c) Wi-Fi công cộng không có mật khẩu luôn an toàn tuyệt đối cho mọi giao dịch ngân hàng. (Sai)</div><div><u>d)</u> Bật xác thực hai lớp giúp tài khoản an toàn hơn trước nguy cơ bị đánh cắp mật khẩu. (Đúng)</div><br>`;
 
 export const DEFAULT_GDQPAN = `
-<div>Câu 1: Lực lượng vũ trang nhân dân Việt Nam bao gồm ba thứ quân làm nòng cốt là những lực lượng nào?</div>
-<div><u>A</u>. Bộ đội chủ lực, Bộ đội địa phương và Dân quân tự vệ</div><div>B. Chỉ có Bộ đội biên phòng</div><div>C. Chỉ có Thanh niên xung phong</div><div>D. Chỉ có Cảnh sát giao thông</div><br>
-<div>Câu 2: Ngày truyền thống thành lập Quân đội Nhân dân Việt Nam và cũng là Ngày hội Quốc phòng toàn dân hàng năm là ngày nào?</div>
-<div>A. Ngày 19 tháng 8</div><div><u>B</u>. Ngày 22 tháng 12</div><div>C. Ngày 27 tháng 7</div><div>D. Ngày 26 tháng 3</div><br>
-<div>Câu 3: Khi phát hiện bom, mìn, vật liệu nổ còn sót lại sau chiến tranh ở địa phương, học sinh và người dân cần làm gì?</div>
-<div>A. Tự ý dùng búa đập hoặc cưa lấy thuốc nổ</div><div>B. Ném đá vào vật nổ để thử</div><div><u>C</u>. Tuyệt đối không chạm vào, đánh dấu vị trí cảnh báo và báo ngay cho cơ quan Quân sự hoặc Công an gần nhất</div><div>D. Mang về nhà cất giữ làm kỷ niệm</div><br>
-<div>Câu 4: Trong kỹ thuật cấp cứu ban đầu khi gặp người bị gãy xương chi, nguyên tắc quan trọng nhất trước khi di chuyển nạn nhân là gì?</div>
-<div><u>A</u>. Cố định tạm thời xương gãy bằng nẹp đúng kỹ thuật để tránh đầu xương gãy làm tổn thương mạch máu, dây thần kinh</div><div>B. Kéo mạnh tay chân nạn nhân ngay lập tức</div><div>C. Bắt nạn nhân tự đứng dậy đi bộ</div><div>D. Không cần băng bó hay cố định</div><br>
-<div>Câu 5: Theo Luật Nghĩa vụ quân sự hiện hành của Việt Nam, độ tuổi gọi công dân nhập ngũ trong thời bình thông thường là từ đủ bao nhiêu tuổi?</div>
-<div><u>A</u>. Từ đủ 18 tuổi đến hết 25 tuổi (đối với công dân được đào tạo trình độ cao đẳng, đại học thì đến hết 27 tuổi)</div><div>B. Từ 12 tuổi đến 15 tuổi</div><div>C. Từ 45 tuổi đến 60 tuổi</div><div>D. Không quy định độ tuổi</div><br>
-<div>Câu 6 [Đúng/Sai]: Xét các quy định về trách nhiệm bảo vệ Tổ quốc và an toàn giao thông của học sinh THPT:</div>
-<div><u>a)</u> Công dân đủ 18 tuổi được gọi nhập ngũ trong thời bình theo Luật Nghĩa vụ quân sự. (Đúng)</div>
-<div>b) Học sinh THPT được phép điều khiển xe mô tô có dung tích xi-lanh trên 100 cm³ đến trường. (Sai)</div>
-<div><u>c)</u> Khi phát hiện vật liệu nổ còn sót lại sau chiến tranh, phải giữ khoảng cách an toàn và báo ngay cho cơ quan chức năng. (Đúng)</div>
-<div>d) Người ngồi trên xe gắn máy chỉ cần đội mũ bảo hiểm khi đi trên đường quốc lộ. (Sai)</div><br>
-<div>Câu 7 [Trả lời ngắn]: Ngày truyền thống Quân đội Nhân dân Việt Nam là ngày bao nhiêu trong tháng 12 hằng năm?</div>
-<div><u>Đáp án: 22</u></div>`;
+<div>Câu 1: Khi cần báo công an trong trường hợp khẩn cấp, cần gọi số điện thoại nào?</div><div>A. 114</div><div><u>B</u>. 113</div><div>C. 115</div><div>D. 1080</div><br>
+<div>Câu 2: Khi phát hiện cháy và cần gọi lực lượng cứu hỏa, cần gọi số điện thoại nào?</div><div>A. 113</div><div>B. 115</div><div>C. 1080</div><div><u>D</u>. 114</div><br>
+<div>Câu 3: Khi có người bị tai nạn cần cấp cứu y tế khẩn cấp, cần gọi số điện thoại nào?</div><div><u>A</u>. 115</div><div>B. 114</div><div>C. 113</div><div>D. 1080</div><br>
+<div>Câu 4: Quân đội nhân dân Việt Nam được thành lập vào ngày tháng năm nào?</div><div>A. Ngày 2 tháng 9 năm 1945</div><div>B. Ngày 30 tháng 4 năm 1975</div><div><u>C</u>. Ngày 22 tháng 12 năm 1944</div><div>D. Ngày 19 tháng 8 năm 1945</div><br>
+<div>Câu 5: Để thoát khỏi nơi có nhiều khói do cháy, nên di chuyển như thế nào?</div><div>A. Chạy trong tư thế đứng thẳng cho nhanh</div><div><u>B</u>. Cúi thấp người và men theo lối thoát hiểm</div><div>C. Nấp trong phòng kín và chờ đợi</div><div>D. Dùng thang máy để xuống cho nhanh</div><br>
+<div>Câu 6: Có người lạ gọi điện tự xưng là nhân viên ngân hàng và yêu cầu cung cấp mã OTP, bạn nên làm gì?</div><div><u>A</u>. Không cung cấp mã OTP và báo cho người thân hoặc cơ quan chức năng</div><div>B. Cung cấp ngay vì họ nói là nhân viên ngân hàng</div><div>C. Gửi mã cho bạn bè xem trước rồi mới cung cấp</div><div>D. Đọc mã thật chậm để họ ghi lại cho đúng</div><br>
+<div>Câu 7: Để bảo vệ tài khoản cá nhân trên mạng, mật khẩu nên được đặt và giữ như thế nào?</div><div>A. Dùng ngày sinh làm mật khẩu và chia sẻ cho bạn thân</div><div>B. Dùng một mật khẩu cho mọi tài khoản và ghi công khai</div><div>C. Đặt mật khẩu dễ nhớ là dãy số 123456</div><div><u>D</u>. Đặt mật khẩu riêng, đủ mạnh và không chia sẻ cho người khác</div><br>
+<div>Câu 8: Quốc khánh của nước Cộng hòa xã hội chủ nghĩa Việt Nam là ngày nào?</div><div>A. Ngày 1 tháng 1</div><div>B. Ngày 30 tháng 4</div><div><u>C</u>. Ngày 2 tháng 9</div><div>D. Ngày 22 tháng 12</div><br>
+<div>Câu 9: Khi đi xe máy tham gia giao thông, việc làm nào đúng quy định và an toàn?</div><div>A. Chở ba người cho tiện chuyến đi</div><div><u>B</u>. Đội mũ bảo hiểm và cài quai đúng quy cách</div><div>C. Vừa lái xe vừa sử dụng điện thoại</div><div>D. Vượt đèn đỏ khi thấy đường vắng</div><br>
+<div>Câu 10: Bài hát Tiến quân ca, Quốc ca của Việt Nam, do nhạc sĩ nào sáng tác?</div><div><u>A</u>. Văn Cao</div><div>B. Trịnh Công Sơn</div><div>C. Phạm Tuyên</div><div>D. Hoàng Việt</div><br>`;
 
 export const AI_KNOWLEDGE_KEYWORDS = [
   'lục lạp', 'khí khổng', 'mạch gỗ', 'nước và các ion khoáng', 'ti thể', 'auxin', 'nuôi cấy mô', 'noãn đã thụ tinh', 'mrna', 'quần thể', 'cộng sinh',
@@ -3442,6 +3298,57 @@ export function getTeacherGradebookScore(correctCount: number, totalQuestions: n
   };
 }
 
+/**
+ * 🌱 PHIÊN BẢN SEED CỦA BỘ MẶC ĐỊNH (chuẩn hoá 18/11/2026): nội dung 12 môn
+ * mặc định được chuẩn hoá lại theo cấu trúc đề thi tốt nghiệp (môn 3 phần:
+ * 6-2-2; môn 2 phần: 6-4-0; môn 1 phần: 10-0-0 — tổng 10 đơn vị/môn, nội
+ * dung dễ, ứng dụng đời sống). Mỗi lần nội dung chuẩn thay đổi, TĂNG số này:
+ * bản đang lưu của chính các bộ mặc định có seedVersion nhỏ hơn sẽ được làm
+ * mới (xem applyDefaultSeedRefresh trong utils/deckStore.ts); bộ giáo viên
+ * tự tạo không bao giờ bị đụng.
+ */
+export const DEFAULT_SEED_VERSION = 2;
+
+/** Thứ tự 12 môn mặc định (cũng là thứ tự gộp vào Tổng Hợp). */
+export const DEFAULT_SUBJECT_ORDER = [
+  'BIO', 'AGRI', 'MATH', 'PHYS', 'CHEM', 'LIT',
+  'ENG', 'HIST', 'GEO', 'GDKTPL', 'IT', 'GDQPAN'
+];
+
+/** Toàn bộ khoá mặc định: 12 môn + bộ Tổng Hợp (ALL_SUBJ). */
+export const DEFAULT_SUBJECT_KEYS = [...DEFAULT_SUBJECT_ORDER, 'ALL_SUBJ'];
+
+/**
+ * Dựng bản chuẩn của 13 bộ mặc định từ mã nguồn (kèm dấu seedVersion).
+ * ALL_SUBJ = gộp toàn bộ câu hỏi của 12 môn theo đúng cơ chế cũ (nối html).
+ */
+export function buildDefaultSubjects(): Record<string, SubjectData> {
+  const mk = (name: string, html: string, color: string): SubjectData => ({
+    name,
+    html: html.trim(),
+    color,
+    fixed: true,
+    seedVersion: DEFAULT_SEED_VERSION
+  });
+  const db: Record<string, SubjectData> = {
+    BIO: mk('🧬 Sinh Học', DEFAULT_BIO, '#10b981'),
+    AGRI: mk('🚜 Công Nghệ', DEFAULT_AGRI, '#f59e0b'),
+    MATH: mk('📐 Toán Học', DEFAULT_MATH, '#0284c7'),
+    PHYS: mk('⚡ Vật Lý', DEFAULT_PHYS, '#8b5cf6'),
+    CHEM: mk('🧪 Hóa Học', DEFAULT_CHEM, '#ec4899'),
+    LIT: mk('📖 Ngữ Văn', DEFAULT_LIT, '#e11d48'),
+    ENG: mk('🇬🇧 Tiếng Anh', DEFAULT_ENG, '#0891b2'),
+    HIST: mk('📜 Lịch Sử', DEFAULT_HIST, '#b45309'),
+    GEO: mk('🌍 Địa Lý', DEFAULT_GEO, '#059169'),
+    GDKTPL: mk('⚖️ GDKT & PL', DEFAULT_GDKTPL, '#7c3aed'),
+    IT: mk('💻 Tin Học', DEFAULT_IT, '#2563eb'),
+    GDQPAN: mk('🛡️ GDQP & AN', DEFAULT_GDQPAN, '#4d7c0f')
+  };
+  const allCombinedHTML = DEFAULT_SUBJECT_ORDER.map(k => db[k].html).join('<br>');
+  db['ALL_SUBJ'] = mk('🌟 Tổng Hợp 12 Môn THPT', allCombinedHTML, '#4f46e5');
+  return db;
+}
+
 export function getInitialSubjects(): Record<string, SubjectData> {
   const saved = localStorage.getItem('thpt_mangthit_subjects_v10');
   let db: Record<string, SubjectData> = {};
@@ -3496,25 +3403,20 @@ export function getInitialSubjects(): Record<string, SubjectData> {
     }
   } catch (e) {}
 
-  if (!db['BIO']) db['BIO'] = { name: '🧬 Sinh Học', html: DEFAULT_BIO.trim(), color: '#10b981', fixed: true };
-  if (!db['AGRI']) db['AGRI'] = { name: '🚜 Công Nghệ', html: DEFAULT_AGRI.trim(), color: '#f59e0b', fixed: true };
-  if (!db['MATH']) db['MATH'] = { name: '📐 Toán Học', html: DEFAULT_MATH.trim(), color: '#0284c7', fixed: true };
-  if (!db['PHYS']) db['PHYS'] = { name: '⚡ Vật Lý', html: DEFAULT_PHYS.trim(), color: '#8b5cf6', fixed: true };
-  if (!db['CHEM']) db['CHEM'] = { name: '🧪 Hóa Học', html: DEFAULT_CHEM.trim(), color: '#ec4899', fixed: true };
-  if (!db['LIT']) db['LIT'] = { name: '📖 Ngữ Văn', html: DEFAULT_LIT.trim(), color: '#e11d48', fixed: true };
-  if (!db['ENG']) db['ENG'] = { name: '🇬🇧 Tiếng Anh', html: DEFAULT_ENG.trim(), color: '#0891b2', fixed: true };
-  if (!db['HIST']) db['HIST'] = { name: '📜 Lịch Sử', html: DEFAULT_HIST.trim(), color: '#b45309', fixed: true };
-  if (!db['GEO']) db['GEO'] = { name: '🌍 Địa Lý', html: DEFAULT_GEO.trim(), color: '#059169', fixed: true };
-  if (!db['GDKTPL']) db['GDKTPL'] = { name: '⚖️ GDKT & PL', html: DEFAULT_GDKTPL.trim(), color: '#7c3aed', fixed: true };
-  if (!db['IT']) db['IT'] = { name: '💻 Tin Học', html: DEFAULT_IT.trim(), color: '#2563eb', fixed: true };
-  if (!db['GDQPAN']) db['GDQPAN'] = { name: '🛡️ GDQP & AN', html: DEFAULT_GDQPAN.trim(), color: '#4d7c0f', fixed: true };
-
-  const allCombinedHTML = [
-    DEFAULT_BIO, DEFAULT_AGRI, DEFAULT_MATH, DEFAULT_PHYS, DEFAULT_CHEM, DEFAULT_LIT,
-    DEFAULT_ENG, DEFAULT_HIST, DEFAULT_GEO, DEFAULT_GDKTPL, DEFAULT_IT, DEFAULT_GDQPAN
-  ].map(s => s.trim()).join('<br>');
-
-  db['ALL_SUBJ'] = { name: '🌟 Tổng Hợp 12 Môn THPT', html: allCombinedHTML, color: '#4f46e5', fixed: true };
+  // 🌱 GIEO + LÀM MỚI BỘ MẶC ĐỊNH THEO PHIÊN BẢN SEED: thiếu thì gieo mới;
+  // bản đang lưu của CHÍNH bộ mặc định mà cũ hơn DEFAULT_SEED_VERSION (nội
+  // dung méo qua các lần nâng cấp) thì thay bằng bản chuẩn trong mã nguồn;
+  // ALL_SUBJ luôn dựng lại từ 12 môn như trước. Bộ đã ở đúng phiên bản seed
+  // thì giữ nguyên (kể cả phần giáo viên đã sửa sau lần làm mới gần nhất).
+  // Việc tôn trọng tombstone xoá tường minh ở tầng kho bền do
+  // applyDefaultSeedRefresh (utils/deckStore.ts) đảm nhiệm lúc boot.
+  const seedDefaults = buildDefaultSubjects();
+  for (const key of DEFAULT_SUBJECT_KEYS) {
+    const cur = db[key];
+    if (!cur || key === 'ALL_SUBJ' || (cur.seedVersion ?? 0) < DEFAULT_SEED_VERSION) {
+      db[key] = seedDefaults[key];
+    }
+  }
 
   if (needsResave) {
     try {
