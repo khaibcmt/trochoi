@@ -1,6 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { CloudBackupData, CloudSyncProfile, SubjectData, MatchSettings, QuizItem } from '../types';
 import { parseHTMLToQuiz } from '../data/defaultSubjects';
+import { unionMergeBackupData } from '../utils/deckStore';
 import { QUIZ_CHUNK_BUDGET_BYTES, serializedByteLength } from './network';
 
 const SYNC_PROFILE_KEY = 'thpt_cloud_sync_profile_v1';
@@ -305,6 +306,10 @@ interface MqttLoadResult {
   // TUYỆT ĐỐI không khôi phục thầm lặng một bản thiếu.
   incomplete?: boolean;
   missingParts?: string[];
+  // 💾 GIA CỐ (18/11/2026): true khi đã kết nối + đăng ký nhận tin THÀNH CÔNG
+  // mà không thấy bản sao lưu nào — phân biệt "mây trống thật" với "mất mạng
+  // nên không đọc được" để đường sao lưu hợp nhất an toàn (không ghi đè mù).
+  reachable?: boolean;
 }
 
 // 2. Tải bản sao lưu qua MQTT Retained Message
@@ -314,6 +319,7 @@ interface MqttLoadResult {
 function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
   return new Promise((resolve) => {
     let completed = false;
+    let subscribed = false;
     const base = `${SYNC_TOPIC_ROOT}/${topicKey}`;
     const received = new Map<string, string>();
     let legacyBackup: { backup: CloudBackupData; lastUpdated?: number } | null = null;
@@ -425,7 +431,7 @@ function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
       } else if (legacyBackup) {
         finish({ ok: true, backup: legacyBackup.backup, lastUpdated: legacyBackup.lastUpdated });
       } else {
-        finish({ ok: false });
+        finish({ ok: false, reachable: subscribed });
       }
     }, 12000);
 
@@ -434,6 +440,8 @@ function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
       client.subscribe([base, `${base}/#`], { qos: 1 }, (err) => {
         if (err) {
           finish({ ok: false });
+        } else {
+          subscribed = true;
         }
       });
     });
@@ -485,7 +493,7 @@ function loadFromMqttCloud(topicKey: string): Promise<MqttLoadResult> {
 export async function saveBackupToCloud(
   profile: CloudSyncProfile,
   backupData: CloudBackupData
-): Promise<{ ok: boolean; message: string; lastUpdated?: number }> {
+): Promise<{ ok: boolean; message: string; lastUpdated?: number; mergedBackup?: CloudBackupData }> {
   try {
     if (profile.type === 'NONE') {
       return { ok: false, message: 'Vui lòng chọn loại đồng bộ (Tài khoản Google hoặc Mật khẩu bí mật).' };
@@ -497,8 +505,43 @@ export async function saveBackupToCloud(
 
     const topicKey = await computeSyncKey(profile.type, identifier);
 
+    // 💾 GIA CỐ HỢP NHẤT UNION (18/11/2026): TRƯỚC khi đẩy, đọc bản mây hiện
+    // tại rồi HỢP NHẤT với bản sắp đẩy (theo từng bộ đề, bản mới hơn theo
+    // deckUpdatedAt thắng; bộ đề chỉ có trên mây được GIỮ LẠI). Nhờ vậy một
+    // lần sao lưu từ máy cũ/máy đang thiếu đề KHÔNG BAO GIỜ làm kho mây ít
+    // đi trong im lặng — đúng vụ 17/11: mây đang giữ 24 bộ, máy chỉ còn 23,
+    // bấm Sao lưu ở máy 23 trước đây sẽ ghi đè mất bộ thứ 24 trên mây.
+    // Không đọc được bản mây (mất mạng / bản mây thiếu phần) → HỦY lần sao
+    // lưu này và báo rõ, tuyệt đối không ghi đè mù.
+    let finalBackup = backupData;
+    let unionKept = 0;
+    const preLoad = await loadBackupFromCloud(profile.type as 'GOOGLE' | 'PASSWORD', identifier);
+    if (preLoad.ok && preLoad.backup) {
+      const u = unionMergeBackupData(preLoad.backup, backupData);
+      unionKept = u.keptOnlyInExisting;
+      finalBackup = {
+        ...backupData,
+        subjectsDB: u.subjectsDB,
+        deckUpdatedAt: u.deckUpdatedAt,
+        stats: calculateBackupStats(u.subjectsDB)
+      };
+    } else if (preLoad.incomplete) {
+      return {
+        ok: false,
+        message:
+          'Bản sao lưu trên mây đang THIẾU dữ liệu — em đã HỦY lần sao lưu này để tránh ghi đè làm mất bộ đề. Thầy/Cô kiểm tra mạng rồi bấm Sao lưu lại cho đủ.'
+      };
+    } else if (!preLoad.cloudReachable) {
+      return {
+        ok: false,
+        message:
+          'Chưa đọc được bản sao lưu mây hiện tại (kết nối đám mây chập chờn) — em đã HỦY lần sao lưu này để tránh ghi đè làm mất bộ đề đang có trên mây. Dữ liệu trên máy vẫn an toàn; Thầy/Cô kiểm tra mạng rồi bấm Sao lưu lại.'
+      };
+    }
+    // (Đã kết nối được mà mây trống thật → đẩy thẳng bản hiện tại.)
+
     // Kênh 1: Sao lưu qua MQTT Đám Mây (Hoạt động hoàn hảo trên GitHub Pages không cần server)
-    const mqttSuccess = await saveToMqttCloud(topicKey, backupData);
+    const mqttSuccess = await saveToMqttCloud(topicKey, finalBackup);
 
     // Kênh 2: Nếu có máy chủ Express Backend cùng tên miền thì lưu thêm vào server.ts
     const backendData = await safeFetchJson('/api/sync/save', {
@@ -507,7 +550,7 @@ export async function saveBackupToCloud(
       body: JSON.stringify({
         syncType: profile.type,
         identifier: identifier.trim(),
-        backup: backupData
+        backup: finalBackup
       })
     });
 
@@ -516,7 +559,7 @@ export async function saveBackupToCloud(
     // Dù kênh cloud thành hay bại, luôn giữ 1 bản sao đệm nội bộ ngay trên máy này
     // (đây chính là "bản lưu trên máy này" được nhắc trong thông báo khi cloud fail).
     try {
-      localStorage.setItem(`thpt_cloud_cache_${topicKey}`, JSON.stringify({ lastUpdated: now, backup: backupData }));
+      localStorage.setItem(`thpt_cloud_cache_${topicKey}`, JSON.stringify({ lastUpdated: now, backup: finalBackup }));
     } catch {}
 
     // Đợt 6 (2.5): TRUNG THỰC — chỉ báo thành công khi ÍT NHẤT 1 kênh cloud xác nhận
@@ -530,10 +573,15 @@ export async function saveBackupToCloud(
       saveStoredSyncProfile(updatedProfile);
       return {
         ok: true,
-        message: profile.type === 'GOOGLE'
-          ? `Đã sao lưu thành công lên tài khoản Google (${profile.googleEmail})!`
-          : `Đã sao lưu thành công với Mật khẩu bí mật của Thầy/Cô!`,
-        lastUpdated: now
+        message:
+          (profile.type === 'GOOGLE'
+            ? `Đã sao lưu thành công lên tài khoản Google (${profile.googleEmail})!`
+            : `Đã sao lưu thành công với Mật khẩu bí mật của Thầy/Cô!`) +
+          (unionKept > 0
+            ? ` (Hợp nhất an toàn: đã giữ lại ${unionKept} bộ đề chỉ có trên mây, không bộ nào bị mất.)`
+            : ''),
+        lastUpdated: now,
+        mergedBackup: finalBackup
       };
     }
 
@@ -552,7 +600,7 @@ export async function saveBackupToCloud(
 export async function loadBackupFromCloud(
   syncType: 'GOOGLE' | 'PASSWORD',
   identifier: string
-): Promise<{ ok: boolean; message: string; backup?: CloudBackupData; lastUpdated?: number }> {
+): Promise<{ ok: boolean; message: string; backup?: CloudBackupData; lastUpdated?: number; incomplete?: boolean; cloudReachable?: boolean }> {
   try {
     if (!identifier || !identifier.trim()) {
       return { ok: false, message: 'Vui lòng nhập email Google hoặc mật khẩu đồng bộ.' };
@@ -596,6 +644,8 @@ export async function loadBackupFromCloud(
       const missingList = (mqttResult.missingParts || []).join('; ');
       return {
         ok: false,
+        incomplete: true,
+        cloudReachable: true,
         message: `Bản sao lưu trên đám mây đang THIẾU dữ liệu: ${missingList}. Em chưa khôi phục để tránh làm mất đề — Thầy/Cô hãy mở máy đã sao lưu, kiểm tra mạng rồi bấm "Sao lưu" lại cho đủ, sau đó tải lại ở máy này.`
       };
     }
@@ -622,6 +672,10 @@ export async function loadBackupFromCloud(
 
     return {
       ok: false,
+      // Đã kết nối + đăng ký nhận tin thành công mà không thấy gì = mây
+      // trống thật; ngược lại là không đọc được (mạng/broker) — phía sao
+      // lưu hợp nhất dựa vào cờ này để không ghi đè mù.
+      cloudReachable: mqttResult.reachable === true,
       message: hint
     };
   } catch (err: any) {
