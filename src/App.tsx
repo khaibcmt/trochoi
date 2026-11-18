@@ -17,7 +17,9 @@ import {
   shuffleQuestionOrder,
   calculateFastestPoints,
   getConvertedGradeByRank,
-  cleanQuestionTitleText
+  cleanQuestionTitleText,
+  buildDefaultSubjects,
+  DEFAULT_SEED_VERSION
 } from './data/defaultSubjects';
 import { AudioFX } from './services/audio';
 import { CloudNetwork } from './services/network';
@@ -46,6 +48,7 @@ import { applyPointsPenalty, computeWrongPenalty } from './utils/wagerPenalty';
 import { defaultFetch, getMachineId } from './utils/license';
 import {
   EMPTY_SNAPSHOT,
+  applyDefaultSeedRefresh,
   buildBootMergedSnapshot,
   createIndexedDbBackend,
   fetchCloudDecks,
@@ -249,12 +252,23 @@ export const App: React.FC = () => {
           cloud = null;
         }
         if (cancelled) return;
-        const merged = buildBootMergedSnapshot({
+        const unionMerged = buildBootMergedSnapshot({
           idb: idbSnap,
           legacy: legacySnap,
           initial: initialSnap,
           cloud
         });
+        // 🌱 CHUẨN HOÁ BỘ MẶC ĐỊNH THEO PHIÊN BẢN SEED (18/11/2026): bản
+        // đang lưu của chính 12 môn mặc định + Tổng Hợp mà cũ hơn
+        // DEFAULT_SEED_VERSION (nội dung méo qua nhiều lần nâng cấp) được
+        // thay bằng bản chuẩn trong mã nguồn; bộ giáo viên tự tạo và bộ
+        // mặc định đã xoá tường minh (tombstone) tuyệt đối không bị đụng.
+        const merged = applyDefaultSeedRefresh(
+          unionMerged,
+          buildDefaultSubjects(),
+          DEFAULT_SEED_VERSION,
+          Date.now()
+        );
         // Ghi thẳng phần chênh vào IndexedDB theo THỰC TẾ đang có trong
         // IndexedDB (không dựa vào diff so với ref trong bộ nhớ) để bản
         // hợp nhất — gồm cả đề legacy vừa cứu — nằm bền trong kho chính
