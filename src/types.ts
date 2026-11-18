@@ -114,6 +114,15 @@ export interface Player {
   // chắn này. Nằm trong bản ghi nên tự đi theo snapshot host (F5 không hồi)
   // và được trả lại cho HS qua RESYNC_STATE. Xem utils/wagerPenalty.ts.
   safeShieldUsed?: boolean;
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026): số lần HS vi phạm quy chế thi trong
+  // trận hiện tại + phân rã theo nguồn (APP rời app / FS thoát toàn màn
+  // hình / SPLIT chia màn hình / FOCUS mất tiêu điểm — nghi trợ lý giọng
+  // nói) — host đếm từ tin SCREEN_LEAVE_REPORT đã kiểm chữ ký. Luật cứng:
+  // vi phạm KHÔNG khoá máy HS, chỉ chốt sai câu dính vi phạm. Nằm trong bản
+  // ghi nên đi theo snapshot host (F5 không mất) và được trả lại cho HS qua
+  // RESYNC_STATE. Xem utils/antiAiGuard.ts.
+  awayViolations?: number;
+  awayBySource?: { APP?: number; FS?: number; SPLIT?: number; FOCUS?: number };
 }
 
 export interface MatchSettings {
@@ -127,6 +136,13 @@ export interface MatchSettings {
   questionDurationTfSec?: number; // Phần 2 — TRUE_FALSE, default 60s
   questionDurationSaSec?: number; // Phần 3 — SHORT_ANSWER, default 60s
   bossMaxHP: number; // default 10000
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026): cấu hình DUY NHẤT còn lại của mục chống
+  // AI ngoài — bắt buộc toàn màn hình trên thiết bị hỗ trợ (Android/Chrome);
+  // iPhone Safari không hỗ trợ fullscreen → phía HS tự bỏ qua im lặng.
+  // Mặc định BẬT. (Luật xử lý vi phạm là LUẬT CỨNG toàn cục — câu dính vi
+  // phạm tính sai ngay, không khoá máy — nên không còn tuỳ chọn mức/n lần.)
+  // Đồng bộ xuống HS qua HOST_HEARTBEAT (antiAiFs).
+  antiAiRequireFullscreen?: boolean;
 }
 
 export interface MatchState {
@@ -318,6 +334,19 @@ export interface CloudMessage {
   safeShieldUsed?: boolean;
   victimPlayerId?: string;
   victimScoreDeduction?: number;
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026):
+  // - HOST_HEARTBEAT mang cấu hình xuống HS: antiAiFs (bắt buộc toàn màn
+  //   hình hay không). Luật xử lý là luật cứng toàn cục, không qua cấu hình.
+  // - SCREEN_LEAVE_REPORT (HS → host, ký HMAC bằng khoá phòng): awaySec = số
+  //   giây rời màn hình, awaySource = 'APP' | 'FS' | 'SPLIT' | 'FOCUS',
+  //   violationSeq = số thứ tự vi phạm tăng đơn điệu theo phiên trang của
+  //   HS (host khử trùng).
+  // - RESYNC_STATE mang về cho HS: awayViolations (tổng host đã ghi).
+  antiAiFs?: boolean;
+  awaySec?: number;
+  awaySource?: string;
+  violationSeq?: number;
+  awayViolations?: number;
 }
 
 export interface CloudBackupData {
@@ -328,6 +357,11 @@ export interface CloudBackupData {
   currentSubjectKey: string;
   matchSettings: MatchSettings;
   activeQuizList?: QuizItem[];
+  // 💾 GIA CỐ ĐỒNG BỘ (18/11/2026): thời gian sửa TỪNG bộ đề (ms) để hợp
+  // nhất union theo từng bộ (mới hơn thắng) thay vì thay thế toàn kho.
+  // Bản sao lưu cũ không có trường này → phía đọc dùng lastUpdated làm
+  // dấu thời gian chung cho mọi bộ đề trong bản đó.
+  deckUpdatedAt?: Record<string, number>;
   stats?: {
     totalSubjects: number;
     totalQuestions: number;
