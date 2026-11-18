@@ -1539,6 +1539,24 @@ export const TeacherSetupView: React.FC<Props> = ({
             </div>
             </div>
           </div>
+          {/* HÀNG 3: 🛡️ Chống AI ngoài — luật xử lý là LUẬT CỨNG (câu dính vi phạm tính sai ngay, không khoá máy) nên mục này chỉ còn công tắc toàn màn hình */}
+          <div className="kc-settings-row">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', padding: '10px 12px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.12)', border: '1.5px solid rgba(248, 113, 113, 0.55)' }}>
+              <span style={{ fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>🛡️ Chống AI ngoài:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', fontWeight: 700, color: '#e2e8f0', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={matchSettings.antiAiRequireFullscreen !== false}
+                  onChange={e => onUpdateSettings({ ...matchSettings, antiAiRequireFullscreen: e.target.checked })}
+                  style={{ width: '19px', height: '19px', accentColor: '#ef4444', cursor: 'pointer' }}
+                />
+                🔲 Bắt buộc toàn màn hình (Android/Chrome)
+              </label>
+              <span style={{ width: '100%', color: '#94a3b8', fontSize: '11.5px', fontWeight: 600 }}>
+                Luật cứng: đang làm bài mà vi phạm quy chế (rời màn hình, thoát toàn màn hình, chia đôi màn hình, mất tiêu điểm nghi dùng trợ lý giọng nói...) quá 1 giây khi câu hỏi đang mở là câu đó TÍNH SAI NGAY và ghi nhận 🚪 — học sinh vẫn chơi tiếp bình thường, không khoá máy ở bất kỳ số lần nào. Câu hỏi mở ra trong lúc đang vi phạm cũng tính sai. iPhone không hỗ trợ toàn màn hình nên tự bỏ qua mục toàn màn hình.
+              </span>
+            </div>
+          </div>
         </section>
 
         {/* Subject Manager */}
