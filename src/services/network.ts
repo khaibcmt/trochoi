@@ -91,7 +91,11 @@ export const QOS1_MESSAGE_TYPES = new Set<string>([
   'MATCH_START',
   'FORCE_PULL_TO_WAITING',
   'GAME_SWITCHED',
-  'ENTER_CONFIRMED'
+  'ENTER_CONFIRMED',
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026): báo cáo vi phạm rời màn hình (HS → host,
+  // ký HMAC bằng khoá phòng qua commandSign.signViolationReportSync). Tối đa
+  // 1 tin/lần vi phạm nên không tạo tải thường trực; QoS 1 để không thất lạc.
+  'SCREEN_LEAVE_REPORT'
 ]);
 
 export function qosForMessageType(type: string | undefined | null): 0 | 1 {
