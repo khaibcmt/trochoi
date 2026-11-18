@@ -522,6 +522,44 @@ export function buildBootMergedSnapshot(sources: {
 }
 
 /**
+ * 🌱 LÀM MỚI BỘ MẶC ĐỊNH THEO PHIÊN BẢN SEED (chuẩn hoá 18/11/2026 — thuần):
+ * qua nhiều lần nâng cấp, nội dung các bộ mặc định cài sẵn bị méo (lệch số
+ * câu, có câu sai). Cơ chế: mã nguồn mang bản chuẩn + DEFAULT_SEED_VERSION;
+ * bản đang lưu của CHÍNH một bộ mặc định mà có seedVersion NHỎ HƠN (hoặc
+ * chưa có — dữ liệu thời trước) thì được thay bằng bản chuẩn và đóng dấu
+ * `now` để ghi bền + đẩy mây thắng các bản cũ.
+ *
+ * RANH GIỚI AN TOÀN:
+ * - Chỉ áp cho các khoá có trong `defaults` (12 môn + ALL_SUBJ) — bộ đề
+ *   giáo viên tự tạo (khoá SUBJ_...) TUYỆT ĐỐI không bị đụng.
+ * - Bộ mặc định đã bị XOÁ tường minh (tombstone thắng bản đang lưu, hoặc
+ *   chỉ còn tombstone) thì KHÔNG hồi sinh, KHÔNG gieo lại.
+ * - Bộ mặc định đã ở đúng phiên bản seed thì giữ nguyên (kể cả khi giáo
+ *   viên đã sửa nội dung của nó sau lần làm mới gần nhất).
+ */
+export function applyDefaultSeedRefresh(
+  snap: DeckSnapshot,
+  defaults: Record<string, SubjectData>,
+  seedVersion: number,
+  now: number
+): DeckSnapshot {
+  const decks: Record<string, DeckRecord> = { ...snap.decks };
+  for (const [key, def] of Object.entries(defaults)) {
+    const tomb = snap.tombstones[key];
+    const rec = snap.decks[key];
+    if (rec) {
+      if (!isDeckAlive(rec, tomb)) continue; // đã xoá tường minh → không hồi sinh
+      if ((rec.subject.seedVersion ?? 0) >= seedVersion) continue; // đã ở bản chuẩn
+      decks[key] = { subject: def, updatedAt: now };
+    } else {
+      if (tomb !== undefined) continue; // chỉ còn tombstone → đã xoá, không gieo lại
+      decks[key] = { subject: def, updatedAt: now };
+    }
+  }
+  return { decks, tombstones: { ...snap.tombstones } };
+}
+
+/**
  * Ghi bản GƯƠNG kho đề xuống localStorage CÓ LUẬT BẢO VỆ: không bao giờ
  * ghi một kho có ÍT bộ đề hơn kho đang lưu trong localStorage (theo số bộ
  * đề) — bản gương nhỏ hơn chỉ có thể là dấu hiệu state đang thiếu dữ liệu
