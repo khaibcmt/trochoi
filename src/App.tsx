@@ -43,7 +43,22 @@ import {
   planMatchXpFlush
 } from './utils/studentLevel';
 import { applyPointsPenalty, computeWrongPenalty } from './utils/wagerPenalty';
-import { defaultFetch } from './utils/license';
+import { defaultFetch, getMachineId } from './utils/license';
+import {
+  EMPTY_SNAPSHOT,
+  createIndexedDbBackend,
+  fetchCloudDecks,
+  mergeBackupIntoCurrent,
+  mergeDeckSnapshots,
+  persistSnapshotDiff,
+  pushDeckDiffToCloud,
+  resolveVisibleDecks,
+  snapshotFromSubjects,
+  visibleUpdatedAtMap,
+  type DeckRecord,
+  type DeckSnapshot,
+  type DeckStorageBackend
+} from './utils/deckStore';
 import {
   createPresencePatchQueue,
   applyPresencePatches,
@@ -59,7 +74,7 @@ import { NationalJuryDossierModal } from './components/NationalJuryDossierModal'
 import { CloudSyncModal } from './components/CloudSyncModal';
 import { BuyMeCoffeeModal } from './components/BuyMeCoffeeModal';
 import { CloudBackupData } from './types';
-import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload } from './services/cloudSync';
+import { getStoredSyncProfile, saveBackupToCloud, prepareBackupPayload, calculateBackupStats } from './services/cloudSync';
 import { exportColorfulPresentationHTML, printEvidenceColorfulPDF } from './utils/exportEvidence';
 
 /**
@@ -160,6 +175,105 @@ export const App: React.FC = () => {
     }
   }, [view, isDirectStudent]);
 
+  // Áp một snapshot kho đề ĐÃ HỢP NHẤT vào app: cập nhật ref + state + ghi
+  // bền xuống IndexedDB (+ đẩy phần chênh lên Firebase theo mã máy khi cần).
+  // Đường này KHÔNG đi qua saveSubjects nên không kích hoạt lại vòng đồng bộ
+  // mây MQTT — tránh vòng lặp khi tự chữa sau sao lưu/nạp bản sao lưu.
+  const applyMergedDeckSnapshot = async (
+    mergedIn: DeckSnapshot,
+    opts?: { pushCloud?: boolean }
+  ): Promise<{ persistError?: string }> => {
+    // Chuẩn hoá: bộ đề có tombstone xoá MỚI HƠN thì loại hẳn khỏi danh sách
+    // sống (chỉ giữ tombstone) — một bản mây cũ không bao giờ hồi sinh được
+    // bộ đề giáo viên đã xoá.
+    const keptDecks: Record<string, DeckRecord> = {};
+    for (const [key, rec] of Object.entries(mergedIn.decks)) {
+      if (rec.updatedAt > (mergedIn.tombstones[key] || 0)) keptDecks[key] = rec;
+    }
+    const merged: DeckSnapshot = { decks: keptDecks, tombstones: mergedIn.tombstones };
+    const prev = deckSnapshotRef.current;
+    deckSnapshotRef.current = merged;
+    setSubjectsDB({ ...resolveVisibleDecks(merged) });
+    let persistError: string | undefined;
+    try {
+      await persistSnapshotDiff(getDeckBackend(), prev, merged);
+    } catch (e: any) {
+      persistError = e?.message || 'Không ghi được xuống kho lưu trữ của trình duyệt.';
+    }
+    if (opts?.pushCloud && !persistError) {
+      try {
+        await pushDeckDiffToCloud(defaultFetch, getMachineId(localStorage), prev, merged);
+      } catch {
+        // Mây phụ trợ lỗi không làm hỏng bản máy; lần lưu sau sẽ đẩy bù.
+      }
+    }
+    return { persistError };
+  };
+
+  // 💾 BOOT KHO ĐỀ BỀN: nạp IndexedDB → hợp nhất với bản sao Firebase theo
+  // mã máy (kc3d_decks/<mã máy>) → áp vào app. Lần đầu (IndexedDB trống):
+  // di trú từ kho hiện tại với dấu thời gian 0 để bản mây/bản mới hơn luôn
+  // thắng khi hợp nhất — không bộ đề nào bị mất vì di trú.
+  useEffect(() => {
+    if (isDirectStudent) return;
+    let cancelled = false;
+    // Xin trình duyệt GIỮ BỀN dữ liệu của trang (không tự dọn kho khi máy
+    // đầy bộ nhớ) — kho đề của giáo viên cần sống bền nhiều năm trên máy.
+    try {
+      const st: any = (navigator as any).storage;
+      if (st && typeof st.persist === 'function') {
+        st.persist().catch(() => {});
+      }
+    } catch {}
+    (async () => {
+      const backend = getDeckBackend();
+      try {
+        let snap = await backend.loadAll();
+        if (Object.keys(snap.decks).length === 0 && Object.keys(snap.tombstones).length === 0) {
+          const migrated = snapshotFromSubjects(subjectsDBRef.current, {});
+          await persistSnapshotDiff(backend, EMPTY_SNAPSHOT, migrated);
+          snap = migrated;
+        }
+        let cloud: DeckSnapshot | null = null;
+        try {
+          cloud = await fetchCloudDecks(defaultFetch, getMachineId(localStorage));
+        } catch {
+          cloud = null;
+        }
+        if (cancelled) return;
+        const merged = cloud ? mergeDeckSnapshots(snap, cloud) : snap;
+        const res = await applyMergedDeckSnapshot(merged, { pushCloud: true });
+        if (cancelled) return;
+        if (res.persistError) {
+          setDeckSaveNotice({
+            kind: 'error',
+            text: `❌ Không ghi được kho đề xuống bộ nhớ trình duyệt: ${res.persistError} Thầy/Cô kiểm tra dung lượng máy rồi tải lại trang.`
+          });
+        } else if (cloud) {
+          const before = Object.keys(resolveVisibleDecks(snap)).length;
+          const after = Object.keys(resolveVisibleDecks(merged)).length;
+          if (after > before) {
+            setDeckSaveNotice({
+              kind: 'success',
+              text: `☁️ Đã khôi phục & hợp nhất kho đề từ bản sao theo mã máy — kho hiện có ${after} bộ đề, không bộ nào bị mất.`
+            });
+          }
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setDeckSaveNotice({
+            kind: 'warning',
+            text: `⚠️ Chưa nạp được kho đề bền (IndexedDB): ${e?.message || 'lỗi không rõ'}. App vẫn chạy với dữ liệu hiện có — Thầy/Cô tải lại trang để thử lại.`
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Initial student params from URL
   const studentRoomParam = urlParams.get('r') || urlParams.get('room') || '12345';
   const studentTeamParam = (urlParams.get('t') === 'B' || urlParams.get('team') === 'BLUE') ? 'BLUE' : 'RED';
@@ -174,6 +288,26 @@ export const App: React.FC = () => {
 
   // Teacher & Host state
   const [subjectsDB, setSubjectsDB] = useState<Record<string, SubjectData>>(() => getInitialSubjects());
+  const subjectsDBRef = useRef(subjectsDB);
+  useEffect(() => {
+    subjectsDBRef.current = subjectsDB;
+  }, [subjectsDB]);
+  // 💾 KHO ĐỀ BỀN (18/11/2026): IndexedDB là kho chính; snapshot trong bộ nhớ
+  // là nguồn sự thật cho hợp nhất union (kèm dấu thời gian sửa từng bộ đề +
+  // tombstone xoá). Khởi tạo ngay từ DB hiện tại để lần lưu đầu tiên — kể cả
+  // khi boot chưa chạy xong — vẫn ghi đúng.
+  const deckBackendRef = useRef<DeckStorageBackend | null>(null);
+  const getDeckBackend = (): DeckStorageBackend => {
+    if (!deckBackendRef.current) deckBackendRef.current = createIndexedDbBackend();
+    return deckBackendRef.current;
+  };
+  const deckSnapshotRef = useRef<DeckSnapshot>(snapshotFromSubjects(subjectsDB, {}));
+  // Thông báo trạng thái lưu kho đề (hiện ở khu Cài Đặt giáo viên) — MỌI lỗi
+  // ghi lưu trữ đều hiện ra đây, tuyệt đối không nuốt im lặng như trước.
+  const [deckSaveNotice, setDeckSaveNotice] = useState<{
+    kind: 'success' | 'warning' | 'error' | 'info';
+    text: string;
+  } | null>(null);
   const [currentSubjectKey, setCurrentSubjectKey] = useState<string>('BIO');
   const [gameType, setGameType] = useState<GamePlayType>(() => {
     if (urlParams.get('gm')) return studentGmParam;
@@ -238,21 +372,108 @@ export const App: React.FC = () => {
   };
 
   const triggerAutoCloudSync = (newDB: Record<string, SubjectData>, currentKey: string, activeQuiz?: QuizItem[]) => {
+    // 💾 GIA CỐ (18/11/2026): tự sao lưu mây tuân luật hợp nhất union (nằm
+    // trong saveBackupToCloud) và KHÔNG nuốt lỗi im lặng nữa — thất bại thì
+    // hiện thông báo ở khu Cài Đặt; thành công kèm hợp nhất thì TỰ CHỮA bản
+    // máy theo bản đã hợp nhất (bộ đề chỉ có trên mây quay về máy).
     try {
       const prof = getStoredSyncProfile();
       if (prof.autoSyncEnabled && (prof.googleEmail || prof.passwordKey)) {
-        const payload = prepareBackupPayload(newDB, currentKey, matchSettings, activeQuiz);
-        saveBackupToCloud(prof, payload).catch(() => {});
+        const payload = prepareBackupPayload(
+          newDB,
+          currentKey,
+          matchSettings,
+          activeQuiz,
+          visibleUpdatedAtMap(deckSnapshotRef.current)
+        );
+        saveBackupToCloud(prof, payload)
+          .then(async (res) => {
+            if (res.ok) {
+              if (res.mergedBackup && res.mergedBackup.subjectsDB) {
+                const healed = snapshotFromSubjects(
+                  res.mergedBackup.subjectsDB,
+                  res.mergedBackup.deckUpdatedAt || {},
+                  deckSnapshotRef.current.tombstones
+                );
+                const before = Object.keys(resolveVisibleDecks(deckSnapshotRef.current)).length;
+                const after = Object.keys(resolveVisibleDecks(healed)).length;
+                if (after !== before || Object.keys(healed.decks).length !== Object.keys(deckSnapshotRef.current.decks).length) {
+                  await applyMergedDeckSnapshot(healed, { pushCloud: true });
+                }
+              }
+            } else {
+              setDeckSaveNotice({
+                kind: 'warning',
+                text: `⚠️ Đề đã lưu bền trên máy này, nhưng sao lưu mây tự động chưa thành công: ${res.message}`
+              });
+            }
+          })
+          .catch((e: any) => {
+            setDeckSaveNotice({
+              kind: 'warning',
+              text: `⚠️ Đề đã lưu bền trên máy này, nhưng sao lưu mây tự động gặp lỗi: ${e?.message || 'không rõ'}. Kiểm tra mạng rồi bấm Sao lưu trong mục Đồng bộ.`
+            });
+          });
       }
     } catch {}
   };
 
-  const handleApplyBackup = (backup: CloudBackupData) => {
-    if (backup.subjectsDB && Object.keys(backup.subjectsDB).length > 0) {
-      setSubjectsDB(backup.subjectsDB);
+  // 💾 GIA CỐ HỢP NHẤT UNION (18/11/2026): trước đây hàm này THAY THẾ TOÀN
+  // BỘ kho đề bằng bản nạp vào (setSubjectsDB(backup.subjectsDB)) — nạp một
+  // bản sao lưu/mây/file ở máy đích sẽ XOÁ im lặng mọi bộ đề chỉ có trên máy
+  // đích. Nay: hợp nhất theo từng bộ đề (bản mới hơn theo deckUpdatedAt
+  // thắng, bộ chỉ có ở máy này GIỮ NGUYÊN, bộ đã xoá tường minh không hồi
+  // sinh); nếu kết quả hợp nhất vẫn làm tổng số bộ/câu GIẢM (chỉ có thể do
+  // bản nạp chứa bản cũ hơn của cùng bộ đề) thì hỏi xác nhận rõ số liệu
+  // trước khi áp dụng.
+  const handleApplyBackup = async (backup: CloudBackupData) => {
+    const hasDecks = backup.subjectsDB && Object.keys(backup.subjectsDB).length > 0;
+    let mergedDB: Record<string, SubjectData> | null = null;
+    if (hasDecks) {
+      const beforeStats = calculateBackupStats(subjectsDBRef.current);
+      const m = mergeBackupIntoCurrent(deckSnapshotRef.current, backup);
+      const afterStats = calculateBackupStats(resolveVisibleDecks(m.merged));
+      if (
+        afterStats.totalSubjects < beforeStats.totalSubjects ||
+        afterStats.totalQuestions < beforeStats.totalQuestions
+      ) {
+        const proceed = window.confirm(
+          `⚠️ CẢNH BÁO HỢP NHẤT ĐỒNG BỘ\n\nÁp dụng bản này sẽ làm kho đề trên máy GIẢM đi:\n• Số bộ đề: ${beforeStats.totalSubjects} → ${afterStats.totalSubjects}\n• Số câu hỏi: ${beforeStats.totalQuestions} → ${afterStats.totalQuestions}\n\nNguyên nhân thường gặp: bản nạp vào là bản CŨ hơn của cùng bộ đề. Thầy/Cô có chắc chắn muốn áp dụng không?\n\n(Bấm Hủy = giữ nguyên kho đề hiện tại, không thay đổi gì.)`
+        );
+        if (!proceed) {
+          setDeckSaveNotice({
+            kind: 'info',
+            text: 'ℹ️ Đã hủy áp dụng bản sao lưu theo lựa chọn của Thầy/Cô — kho đề trên máy giữ nguyên.'
+          });
+          return;
+        }
+      }
+      const res = await applyMergedDeckSnapshot(m.merged, { pushCloud: true });
+      mergedDB = resolveVisibleDecks(m.merged);
+      if (res.persistError) {
+        setDeckSaveNotice({
+          kind: 'error',
+          text: `❌ Đã hợp nhất trên màn hình nhưng CHƯA ghi bền được xuống máy: ${res.persistError} Thầy/Cô kiểm tra dung lượng rồi tải lại trang.`
+        });
+      } else {
+        setDeckSaveNotice({
+          kind: 'success',
+          text: `📥 Đã hợp nhất bản sao lưu an toàn: +${m.added} bộ đề mới, ${m.updated} bộ được cập nhật bản mới hơn, giữ nguyên ${m.keptLocalOnly} bộ chỉ có trên máy này. Kho hiện có ${afterStats.totalSubjects} bộ • ${afterStats.totalQuestions} câu.`
+        });
+      }
+      // Bản gương localStorage cho đường đọc cũ (bỏ qua nếu quá lớn — kho
+      // bền IndexedDB là bản chính; lỗi ghi ở đây chỉ ghi chú, không nuốt).
       try {
-        localStorage.setItem('thpt_mangthit_subjects_v10', JSON.stringify(backup.subjectsDB));
-      } catch (e) {}
+        const json = JSON.stringify(mergedDB);
+        if (json.length <= 1_200_000) {
+          localStorage.setItem('thpt_mangthit_subjects_v10', json);
+        }
+      } catch (e: any) {
+        setDeckSaveNotice({
+          kind: 'warning',
+          text: `⚠️ Đã hợp nhất vào kho bền IndexedDB, nhưng bản gương localStorage ghi không được (${e?.message || 'hết quota'}) — không ảnh hưởng việc dùng đề.`
+        });
+      }
     }
     if (backup.currentSubjectKey && backup.subjectsDB && backup.subjectsDB[backup.currentSubjectKey]) {
       setCurrentSubjectKey(backup.currentSubjectKey);
@@ -267,7 +488,12 @@ export const App: React.FC = () => {
       quizListRef.current = normalized;
       try {
         localStorage.setItem('custom_Active_Quiz_V31', JSON.stringify(normalized));
-      } catch {}
+      } catch (e: any) {
+        setDeckSaveNotice({
+          kind: 'warning',
+          text: `⚠️ Không ghi được danh sách câu đang chơi vào bộ nhớ đệm (${e?.message || 'hết quota'}) — tải lại trang có thể phải nạp lại đề đang chơi.`
+        });
+      }
       setTimeout(() => {
         broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
       }, 50);
@@ -418,12 +644,90 @@ export const App: React.FC = () => {
   const heartbeatRef = useRef<any>(null);
 
   // Save subjects database changes to localStorage & sync to cloud
-  const saveSubjects = (newDB: Record<string, SubjectData>) => {
+  // 💾 LƯU KHO ĐỀ BỀN (18/11/2026) — thay cho bản cũ ghi localStorage trong
+  // try/catch NUỐT MỌI LỖI (nguyên nhân gốc vụ mất đề tối 17/11: đề có ảnh
+  // base64 làm JSON vượt quota ~5MB, setItem ném QuotaExceededError bị nuốt
+  // im lặng trong khi giao diện vẫn báo "đã lưu"). Nay:
+  //  (1) IndexedDB là kho chính (quota lớn hơn localStorage rất nhiều);
+  //  (2) MỌI lỗi ghi đều trả ra + hiện thông báo, không nuốt;
+  //  (3) đẩy phần chênh lên Firebase kc3d_decks theo mã máy (dự phòng đổi
+  //      máy/trình duyệt); (4) bản gương localStorage chỉ ghi khi đủ nhỏ.
+  const saveSubjects = async (
+    newDB: Record<string, SubjectData>
+  ): Promise<{ localOk: boolean; mirrorNote?: string; fbError?: string }> => {
+    const prevDB = subjectsDBRef.current;
     setSubjectsDB(newDB);
+    subjectsDBRef.current = newDB;
+
+    // Dập dấu thời gian: bộ đề thay đổi (khác tham chiếu) -> updatedAt = now;
+    // bộ đề biến mất -> tombstone = now (để hợp nhất không hồi sinh nhầm).
+    const now = Date.now();
+    const prevSnap = deckSnapshotRef.current;
+    const nextDecks: Record<string, DeckRecord> = {};
+    for (const key of Object.keys(newDB)) {
+      const prevRec = prevSnap.decks[key];
+      const changed = !prevDB[key] || prevDB[key] !== newDB[key] || !prevRec;
+      nextDecks[key] = {
+        subject: newDB[key],
+        updatedAt: changed ? now : prevRec!.updatedAt
+      };
+    }
+    const nextTombstones = { ...prevSnap.tombstones };
+    for (const key of Object.keys(prevDB)) {
+      if (!(key in newDB)) nextTombstones[key] = now;
+    }
+    const nextSnap: DeckSnapshot = { decks: nextDecks, tombstones: nextTombstones };
+    deckSnapshotRef.current = nextSnap;
+
+    let localOk = true;
     try {
-      localStorage.setItem('thpt_mangthit_subjects_v10', JSON.stringify(newDB));
-    } catch (e) {}
+      await persistSnapshotDiff(getDeckBackend(), prevSnap, nextSnap);
+    } catch (e: any) {
+      localOk = false;
+      setDeckSaveNotice({
+        kind: 'error',
+        text: `❌ LƯU KHO ĐỀ THẤT BẠI trên máy này: ${e?.message || 'không ghi được xuống IndexedDB'}. Đề đang hiển thị có thể MẤT khi tải lại trang — Thầy/Cô hãy Xuất file đồng bộ ngay để giữ bản sao, kiểm tra dung lượng máy rồi thử lại.`
+      });
+    }
+
+    // Bản gương localStorage (đường đọc cũ + công cụ ngoài): chỉ ghi khi
+    // JSON đủ nhỏ để chắc chắn không vượt quota; quá lớn thì bỏ qua CÓ GHI
+    // CHÚ (IndexedDB đã là kho chính nên không mất gì).
+    let mirrorNote: string | undefined;
+    try {
+      const json = JSON.stringify(newDB);
+      if (json.length <= 1_200_000) {
+        localStorage.setItem('thpt_mangthit_subjects_v10', json);
+      } else {
+        mirrorNote = 'Kho đề đã lớn (nhiều ảnh) nên chỉ lưu ở kho bền IndexedDB, không lưu bản gương localStorage nữa.';
+      }
+    } catch (e: any) {
+      mirrorNote = `Không ghi được bản gương localStorage (${e?.message || 'hết quota'}) — kho bền IndexedDB vẫn là bản chính.`;
+    }
+
+    // Đẩy phần chênh lên Firebase theo mã máy (bản sao dự phòng tự động).
+    let fbError: string | undefined;
+    if (localOk) {
+      try {
+        await pushDeckDiffToCloud(defaultFetch, getMachineId(localStorage), prevSnap, nextSnap);
+      } catch (e: any) {
+        fbError = e?.message || 'không rõ';
+      }
+    }
+
+    if (localOk) {
+      setDeckSaveNotice({
+        kind: fbError ? 'warning' : 'success',
+        text: fbError
+          ? `⚠️ Đã lưu bền trên máy này lúc ${new Date(now).toLocaleTimeString('vi-VN')} — bản sao mây theo mã máy chưa lên được (${fbError}), lần lưu sau sẽ đẩy bù.`
+          : `✅ Đã lưu kho đề bền trên máy này lúc ${new Date(now).toLocaleTimeString('vi-VN')} (IndexedDB + bản sao mây theo mã máy).`
+      });
+    }
+
+    // Sao lưu mây MQTT tự động (nếu giáo viên đã bật) — chạy nền, lỗi của nó
+    // tự hiện thông báo riêng trong triggerAutoCloudSync.
     triggerAutoCloudSync(newDB, currentSubjectKeyRef.current, quizListRef.current);
+    return { localOk, mirrorNote, fbError };
   };
 
   const handleSelectSubject = (key: string) => {
@@ -559,7 +863,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveCurrentQuizToSubject = (parsedQuiz: QuizItem[], html: string, silent?: boolean) => {
+  const handleSaveCurrentQuizToSubject = async (parsedQuiz: QuizItem[], html: string, silent?: boolean) => {
     const current = subjectsDB[currentSubjectKey];
     if (!current) return;
     const normalized = parsedQuiz.map((q, idx) => ({ ...q, qid: idx, rightCount: 0, wrongCount: 0 }));
@@ -572,7 +876,7 @@ export const App: React.FC = () => {
       name: `${baseName} (${parsedQuiz.length} câu)`
     };
     const nextDB = { ...subjectsDB, [currentSubjectKey]: updatedSubj };
-    saveSubjects(nextDB);
+    const saveRes = await saveSubjects(nextDB);
     const safeIdx = Math.min(Math.max(0, matchStateRef.current.globalQIndex), Math.max(0, normalized.length - 1));
     const curQ = normalized[safeIdx] ? { ...normalized[safeIdx], qIndex: safeIdx, totalQuestions: normalized.length } : undefined;
     CloudNetwork.sendMessage({
@@ -585,7 +889,19 @@ export const App: React.FC = () => {
       broadcastHeartbeatRef.current(matchStateRef.current, normalized, activeRoomId);
     }, 20);
     if (!silent) {
-      alert(`✅ Đã lưu và đồng bộ thành công ${parsedQuiz.length} câu hỏi vào môn "${updatedSubj.name}"!`);
+      // 💾 TRUNG THỰC (18/11/2026): báo đúng kết quả ghi bền thật — trước đây
+      // alert "đã lưu thành công" vô điều kiện dù localStorage đã ném lỗi
+      // hết quota và nuốt im lặng (gốc rễ vụ mất đề tối 17/11).
+      if (saveRes.localOk) {
+        alert(
+          `✅ Đã lưu bền ${parsedQuiz.length} câu hỏi vào "${updatedSubj.name}" lúc ${new Date().toLocaleTimeString('vi-VN')} — đã ghi vào kho bền trên máy này (IndexedDB)${saveRes.fbError ? ' (bản sao mây theo mã máy sẽ đẩy bù lần lưu sau)' : ' + bản sao mây theo mã máy'}. Tải lại trang đề vẫn còn nguyên.` +
+            (saveRes.mirrorNote ? `\n\nGhi chú: ${saveRes.mirrorNote}` : '')
+        );
+      } else {
+        alert(
+          `❌ LƯU THẤT BẠI: chưa ghi bền được kho đề xuống máy này. Đề đang hiển thị có thể mất khi tải lại trang!\n\nThầy/Cô hãy Xuất file đồng bộ ngay để giữ bản sao, kiểm tra dung lượng máy rồi bấm lưu lại.`
+        );
+      }
     }
   };
 
@@ -2446,6 +2762,11 @@ export const App: React.FC = () => {
           onNewSession={handleCreateNewSession}
           onResetClass={handleResetCurrentClass}
           onOpenCoffeeModal={() => setShowCoffeeModal(true)}
+          deckSaveNotice={deckSaveNotice}
+          onDismissDeckNotice={() => setDeckSaveNotice(null)}
+          onStorageError={(msg) =>
+            setDeckSaveNotice({ kind: 'warning', text: msg })
+          }
         />
       )}
 
@@ -2507,6 +2828,7 @@ export const App: React.FC = () => {
         matchSettings={matchSettings}
         activeQuizList={quizList}
         onApplyBackup={handleApplyBackup}
+        deckUpdatedAt={visibleUpdatedAtMap(deckSnapshotRef.current)}
         initialTab={cloudSyncInitialTab}
       />
 
