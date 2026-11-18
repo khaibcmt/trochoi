@@ -60,12 +60,28 @@ export interface DeckStorageBackend {
   putTombstone(key: string, deletedAt: number): Promise<void>;
 }
 
-/** Áp tombstone: bộ đề còn "sống" khi updatedAt > deletedAt của nó. */
+/**
+ * 🔥 LUẬT SỐNG/CHẾT của bộ đề (HOTFIX 18/11/2026): một bộ đề CHỈ chết khi
+ * có tombstone TƯỜNG MINH cho nó và tombstone đó thắng (≥) updatedAt của
+ * nó. KHÔNG có tombstone → bộ đề luôn sống, KỂ CẢ updatedAt = 0.
+ *
+ * Bối cảnh: bản 09:26 đóng dấu 0 cho toàn bộ kho di trú từ localStorage
+ * legacy, trong khi luật cũ là "sống khi updatedAt > tombstone (mặc định
+ * 0)" → 0 > 0 = sai → MỌI bộ đề legacy bị coi như đã xoá: màn hình hiện
+ * 0 môn • 0 câu, bản chụp rỗng bị ghi xuống IndexedDB và đẩy diff xoá lên
+ * mây (kc3d_decks chỉ còn node "meta"). Dấu 0 nghĩa là "bản legacy chưa có
+ * dấu thời gian", KHÔNG phải "đã xoá lúc 0 giờ" — tombstone thật luôn là
+ * mốc Date.now() khi giáo viên bấm xoá.
+ */
+export function isDeckAlive(rec: DeckRecord, tombstone: number | undefined): boolean {
+  return tombstone === undefined || rec.updatedAt > tombstone;
+}
+
+/** Áp tombstone: bộ đề còn "sống" khi chưa có tombstone thắng nó (xem isDeckAlive). */
 export function resolveVisibleDecks(snap: DeckSnapshot): Record<string, SubjectData> {
   const out: Record<string, SubjectData> = {};
   for (const [key, rec] of Object.entries(snap.decks)) {
-    const del = snap.tombstones[key] || 0;
-    if (rec.updatedAt > del) out[key] = rec.subject;
+    if (isDeckAlive(rec, snap.tombstones[key])) out[key] = rec.subject;
   }
   return out;
 }
@@ -74,9 +90,24 @@ export function resolveVisibleDecks(snap: DeckSnapshot): Record<string, SubjectD
 export function visibleUpdatedAtMap(snap: DeckSnapshot): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [key, rec] of Object.entries(snap.decks)) {
-    if (rec.updatedAt > (snap.tombstones[key] || 0)) out[key] = rec.updatedAt;
+    if (isDeckAlive(rec, snap.tombstones[key])) out[key] = rec.updatedAt;
   }
   return out;
+}
+
+/**
+ * Chuẩn hoá một bản chụp trước khi áp vào app: loại hẳn các bộ đề đã chết
+ * theo luật isDeckAlive (chỉ giữ tombstone của chúng) — bộ đề đã xoá tường
+ * minh không hồi sinh, bộ đề legacy dấu 0 KHÔNG bị loại oan. App.tsx dùng
+ * hàm này trong applyMergedDeckSnapshot (trước đây bộ lọc chép tay tại đó
+ * dùng luật `updatedAt > (tombstone || 0)` chính là chỗ làm mất kho).
+ */
+export function pruneDeadDecks(snap: DeckSnapshot): DeckSnapshot {
+  const decks: Record<string, DeckRecord> = {};
+  for (const [key, rec] of Object.entries(snap.decks)) {
+    if (isDeckAlive(rec, snap.tombstones[key])) decks[key] = rec;
+  }
+  return { decks, tombstones: { ...snap.tombstones } };
 }
 
 /**
@@ -292,6 +323,15 @@ export async function pushDeckDiffToCloud(
   next: DeckSnapshot
 ): Promise<void> {
   const diff = diffDeckSnapshots(prev, next);
+  // Không có chênh lệch thật → không ghi gì lên mây (kể cả node "meta"):
+  // tránh các lần đẩy rỗng lúc boot tạo node mây trống vô nghĩa.
+  if (
+    Object.keys(diff.upserts).length === 0 &&
+    diff.removes.length === 0 &&
+    Object.keys(diff.tombstones).length === 0
+  ) {
+    return;
+  }
   const patch: Record<string, any> = { meta: { updatedAt: Date.now() } };
   if (Object.keys(diff.upserts).length > 0) patch.decks = diff.upserts;
   if (Object.keys(diff.tombstones).length > 0) patch.tombstones = diff.tombstones;
@@ -399,9 +439,9 @@ export function mergeBackupIntoCurrent(current: DeckSnapshot, backup: CloudBacku
   const visibleBefore = resolveVisibleDecks(current);
   for (const [key, rec] of Object.entries(incoming.decks)) {
     const cur = current.decks[key];
-    const curVisible = cur && cur.updatedAt > (current.tombstones[key] || 0) ? cur : undefined;
+    const curVisible = cur && isDeckAlive(cur, current.tombstones[key]) ? cur : undefined;
     if (!curVisible) {
-      if (rec.updatedAt > (current.tombstones[key] || 0)) added++;
+      if (isDeckAlive(rec, current.tombstones[key])) added++;
     } else if (rec.updatedAt > curVisible.updatedAt) {
       updated++;
     }
@@ -409,4 +449,167 @@ export function mergeBackupIntoCurrent(current: DeckSnapshot, backup: CloudBacku
   const merged = mergeDeckSnapshots(current, incoming);
   const keptLocalOnly = Object.keys(visibleBefore).filter(k => !incoming.decks[k]).length;
   return { merged, added, updated, keptLocalOnly };
+}
+
+/* ================= KHO LEGACY localStorage + LUẬT AN TOÀN BOOT (HOTFIX 18/11/2026) ================= */
+
+/** Khoá localStorage của kho đề THỜI TRƯỚC (mọi bản app cũ đều đọc/ghi khoá này). */
+export const LEGACY_SUBJECTS_STORAGE_KEY = 'thpt_mangthit_subjects_v10';
+
+/** Tối thiểu của Web Storage mà các hàm dưới cần (localStorage thật / giả lập cho test). */
+export interface KeyValueStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+/**
+ * Parse một JSON kho đề (đúng cấu trúc Record<key, SubjectData>): chỉ giữ
+ * các mục có `html` dạng chuỗi. Không phải JSON / không phải object / không
+ * còn mục hợp lệ nào → null (coi như không có kho).
+ */
+export function parseSubjectsDbJson(raw: string | null): Record<string, SubjectData> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const db: Record<string, SubjectData> = {};
+    for (const [k, v] of Object.entries<any>(parsed)) {
+      if (v && typeof v === 'object' && typeof v.html === 'string') db[k] = v as SubjectData;
+    }
+    return Object.keys(db).length > 0 ? db : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Đọc THẲNG kho đề legacy từ localStorage (không qua state/ref của React)
+ * và dựng bản chụp với updatedAt = 0 ("chưa có dấu thời gian" — mọi bản
+ * mới hơn đều thắng khi hợp nhất, và theo luật isDeckAlive thì bộ đề dấu 0
+ * không có tombstone vẫn SỐNG). Không có kho / kho hỏng → null.
+ */
+export function readLegacySubjectsSnapshot(storage: KeyValueStorage): DeckSnapshot | null {
+  let raw: string | null = null;
+  try {
+    raw = storage.getItem(LEGACY_SUBJECTS_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  const db = parseSubjectsDbJson(raw);
+  if (!db) return null;
+  return snapshotFromSubjects(db, {});
+}
+
+/**
+ * Dựng bản chụp kho đề cho lúc BOOT bằng hợp nhất UNION mọi nguồn đang có:
+ * IndexedDB + kho legacy localStorage + state khởi tạo + bản sao mây theo
+ * mã máy. LUẬT AN TOÀN TUYỆT ĐỐI: legacy LUÔN là một nguồn trong mọi lần
+ * boot (không chỉ lần đầu) — không đường code nào được để một trạng thái
+ * rỗng/ít hơn ghi đè hay làm mất dữ liệu legacy; bộ đề chỉ biến mất khi có
+ * tombstone tường minh thắng nó.
+ */
+export function buildBootMergedSnapshot(sources: {
+  idb?: DeckSnapshot | null;
+  legacy?: DeckSnapshot | null;
+  initial?: DeckSnapshot | null;
+  cloud?: DeckSnapshot | null;
+}): DeckSnapshot {
+  let merged: DeckSnapshot = EMPTY_SNAPSHOT;
+  for (const s of [sources.idb, sources.initial, sources.legacy, sources.cloud]) {
+    if (s) merged = mergeDeckSnapshots(merged, s);
+  }
+  return merged;
+}
+
+/**
+ * Ghi bản GƯƠNG kho đề xuống localStorage CÓ LUẬT BẢO VỆ: không bao giờ
+ * ghi một kho có ÍT bộ đề hơn kho đang lưu trong localStorage (theo số bộ
+ * đề) — bản gương nhỏ hơn chỉ có thể là dấu hiệu state đang thiếu dữ liệu
+ * (ví dụ phiên bị lỗi), ghi đè sẽ chôn mất bản legacy đầy đủ hơn. Trả
+ * 'written' khi đã ghi, 'skipped-smaller' khi bị luật chặn. Lỗi ghi thật
+ * (quota...) vẫn NÉM ra cho phía gọi xử lý/báo cáo.
+ */
+export function writeSubjectsMirrorGuarded(
+  storage: KeyValueStorage,
+  db: Record<string, SubjectData>
+): 'written' | 'skipped-smaller' {
+  let existingCount = 0;
+  try {
+    const existing = parseSubjectsDbJson(storage.getItem(LEGACY_SUBJECTS_STORAGE_KEY));
+    existingCount = existing ? Object.keys(existing).length : 0;
+  } catch {
+    existingCount = 0;
+  }
+  if (Object.keys(db).length < existingCount) return 'skipped-smaller';
+  storage.setItem(LEGACY_SUBJECTS_STORAGE_KEY, JSON.stringify(db));
+  return 'written';
+}
+
+/* ================= BẢN GƯƠNG localStorage — KÊNH PHỤ, LẶNG LẼ (HOTFIX 18/11/2026) ================= */
+
+/** Storage có liệt kê được khoá (localStorage thật có; giả lập test cũng vậy). */
+export interface EnumerableStorage extends KeyValueStorage {
+  readonly length: number;
+  key(index: number): string | null;
+}
+
+/**
+ * Ngân sách ký tự TỔNG cho toàn bộ localStorage khi tính cả bản gương sắp
+ * ghi. localStorage của Chrome chạm trần thực tế quanh ~2,6 triệu ký tự
+ * (quota ~5MB tính theo UTF-16, lại còn phải chia cho các khoá khác như
+ * bản đệm mây thpt_cloud_cache_* và quiz đang mở) — giữ biên an toàn ở
+ * 2,4 triệu: vượt là bản gương tự bỏ qua, khỏi thử ghi rồi ăn lỗi quota.
+ */
+export const MIRROR_SAFE_TOTAL_CHARS = 2_400_000;
+
+export type MirrorAttemptResult = 'written' | 'skipped-too-big' | 'skipped-smaller' | 'failed';
+
+/**
+ * Thử ghi bản GƯƠNG kho đề xuống localStorage — kênh PHỤ phục vụ đường
+ * đọc cũ, đứng sau kho chính IndexedDB. Ba luật:
+ *  1) Không ghi kho ÍT bộ đề hơn kho đang lưu (luật chống chôn legacy).
+ *  2) ĐO TRƯỚC tổng dung lượng localStorage sau khi ghi (mọi khoá hiện
+ *     có + bản gương mới): vượt ngân sách an toàn → BỎ QUA lặng lẽ,
+ *     KHÔNG thử ghi (thử ghi là ăn QuotaExceededError vô ích — đúng cảnh
+ *     báo gây rối trên máy thầy sáng 18/11: kho chính đã lưu thành công
+ *     mà alert lưu vẫn dính lỗi thô của bản gương).
+ *  3) Ghi thật mà vẫn lỗi (quota do khoá khác phình bất ngờ...) → trả
+ *     'failed', TUYỆT ĐỐI không ném lỗi ra ngoài: phía gọi phải nuốt lặng
+ *     kết quả này, không đưa vào bất kỳ thông báo nào cho giáo viên.
+ */
+export function attemptSubjectsMirror(
+  storage: EnumerableStorage,
+  db: Record<string, SubjectData>
+): MirrorAttemptResult {
+  const json = JSON.stringify(db);
+  // Luật 1: chống ghi kho nhỏ hơn đè kho lớn hơn.
+  let existingCount = 0;
+  try {
+    const existing = parseSubjectsDbJson(storage.getItem(LEGACY_SUBJECTS_STORAGE_KEY));
+    existingCount = existing ? Object.keys(existing).length : 0;
+  } catch {
+    existingCount = 0;
+  }
+  if (Object.keys(db).length < existingCount) return 'skipped-smaller';
+  // Luật 2: đo trước tổng dung lượng sau khi ghi.
+  try {
+    let projected = LEGACY_SUBJECTS_STORAGE_KEY.length + json.length;
+    const n = typeof storage.length === 'number' ? storage.length : 0;
+    for (let i = 0; i < n; i++) {
+      const k = storage.key(i);
+      if (!k || k === LEGACY_SUBJECTS_STORAGE_KEY) continue;
+      const v = storage.getItem(k);
+      projected += k.length + (v ? v.length : 0);
+    }
+    if (projected > MIRROR_SAFE_TOTAL_CHARS) return 'skipped-too-big';
+  } catch {
+    // Không đo được (storage lạ) → cứ thử ghi ở luật 3, lỗi thì lặng lẽ.
+  }
+  // Luật 3: ghi thật, lỗi → 'failed' (không ném).
+  try {
+    storage.setItem(LEGACY_SUBJECTS_STORAGE_KEY, json);
+    return 'written';
+  } catch {
+    return 'failed';
+  }
 }
