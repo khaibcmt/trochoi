@@ -21,7 +21,12 @@ import {
 } from './data/defaultSubjects';
 import { AudioFX } from './services/audio';
 import { CloudNetwork } from './services/network';
-import { getOrCreateRoomKey } from './utils/commandSign';
+import {
+  getOrCreateRoomKey,
+  getStoredRoomKey,
+  verifyViolationReportSync
+} from './utils/commandSign';
+import { planAwayMark } from './utils/antiAiGuard';
 import {
   answerKeyFor,
   buildResyncStateMessage,
@@ -211,7 +216,9 @@ export const App: React.FC = () => {
     questionDurationSec: 30,
     questionDurationTfSec: 60,
     questionDurationSaSec: 60,
-    bossMaxHP: 10000
+    bossMaxHP: 10000,
+    // 🛡️ Chống AI ngoài: bắt buộc toàn màn hình mặc định BẬT (luật xử lý là luật cứng).
+    antiAiRequireFullscreen: true
   });
 
   // Google Gemini API Key Modal & National Contest Dossier Modal
@@ -282,7 +289,11 @@ export const App: React.FC = () => {
   const answeredQKeysRef = useRef<Set<string>>(new Set());
   // Đợt 5 (4B.3): chi tiết lựa chọn của từng đáp án đã ghi (khoá như answeredQKeys) để
   // host trả đúng lựa chọn trong RESYNC_STATE; khôi phục cùng snapshot với answeredQKeys.
-  const answeredDetailsRef = useRef<Map<string, { isCorrect: boolean; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string }>>(new Map());
+  const answeredDetailsRef = useRef<Map<string, { isCorrect: boolean; selectedOptionOriginalIdx?: number | null; tfAnswers?: Record<string, boolean>; shortAnswerInput?: string; awayLocked?: boolean; awaySource?: string }>>(new Map());
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026): khoá khử trùng báo cáo vi phạm đã ghi sổ
+  // (playerId|studentId|violationSeq|globalQIndex) — báo cáo phát lại qua
+  // MQTT không được đếm 2 lần. Đi cùng snapshot host như answeredQKeys.
+  const awayReportKeysRef = useRef<Set<string>>(new Set());
   // Đợt 5 (4B.2): lastSeen theo đồng hồ HOST cho từng bản ghi — PLAYER_PING chỉ cập nhật
   // ref này (không ghi state mỗi 5s để tránh re-render liên tục với 50+ HS); vòng quét
   // giữ chỗ 5s đọc ref này để bật/tắt cờ offline và giải phóng chỗ sau 5 phút.
@@ -337,7 +348,8 @@ export const App: React.FC = () => {
         questionDurationSec: 30,
         questionDurationTfSec: 60,
         questionDurationSaSec: 60,
-        bossMaxHP: 10000
+        bossMaxHP: 10000,
+        antiAiRequireFullscreen: true
       }
     };
 
@@ -352,7 +364,13 @@ export const App: React.FC = () => {
             const parsed = JSON.parse(savedStr);
             // Tách answeredQKeys khỏi dữ liệu trận: khôi phục vào ref chống trùng đáp án,
             // không để lọt vào matchState.
-            const { answeredQKeys: savedAnsweredQKeys, answeredDetails: savedAnsweredDetails, ...parsedState } = parsed;
+            const { answeredQKeys: savedAnsweredQKeys, answeredDetails: savedAnsweredDetails, awayReportKeys: savedAwayReportKeys, ...parsedState } = parsed;
+            // 🛡️ Chống AI ngoài: khôi phục khoá khử trùng báo cáo vi phạm kèm snapshot.
+            if (Array.isArray(savedAwayReportKeys)) {
+              awayReportKeysRef.current = new Set(
+                savedAwayReportKeys.filter((k: any) => typeof k === 'string')
+              );
+            }
             if (Array.isArray(savedAnsweredQKeys)) {
               answeredQKeysRef.current = new Set(
                 savedAnsweredQKeys.filter((k: any) => typeof k === 'string')
@@ -469,7 +487,10 @@ export const App: React.FC = () => {
         lastTimeSec: null,
         // Trận mới: lượt cược đặc biệt + lá chắn An Toàn làm mới (luật 17/11/2026).
         hasUsedSpecialWager: false,
-        safeShieldUsed: false
+        safeShieldUsed: false,
+        // Trận mới: bộ đếm vi phạm quy chế thi làm mới.
+        awayViolations: 0,
+        awayBySource: undefined
       });
       const nextMS: MatchState = {
         ...prev,
@@ -720,7 +741,10 @@ export const App: React.FC = () => {
         lastTimeSec: null,
         // Trận mới: lượt cược đặc biệt + lá chắn An Toàn làm mới (luật 17/11/2026).
         hasUsedSpecialWager: false,
-        safeShieldUsed: false
+        safeShieldUsed: false,
+        // Trận mới: bộ đếm vi phạm quy chế thi làm mới.
+        awayViolations: 0,
+        awayBySource: undefined
       });
       const nextMS: MatchState = {
         ...prev,
@@ -799,7 +823,9 @@ export const App: React.FC = () => {
       const payload = JSON.stringify({
         ...state,
         answeredQKeys: Array.from(answeredQKeysRef.current),
-        answeredDetails: Array.from(answeredDetailsRef.current.entries())
+        answeredDetails: Array.from(answeredDetailsRef.current.entries()),
+        // 🛡️ Chống AI ngoài: khoá khử trùng báo cáo vi phạm đi cùng snapshot.
+        awayReportKeys: Array.from(awayReportKeysRef.current)
       });
       sessionStorage.setItem('kc3d_host_saved_state_' + roomId, payload);
       localStorage.setItem('kc3d_host_saved_state_' + roomId, payload);
@@ -847,7 +873,8 @@ export const App: React.FC = () => {
           const payload = JSON.stringify({
             ...matchStateRef.current,
             answeredQKeys: Array.from(answeredQKeysRef.current),
-            answeredDetails: Array.from(answeredDetailsRef.current.entries())
+            answeredDetails: Array.from(answeredDetailsRef.current.entries()),
+            awayReportKeys: Array.from(awayReportKeysRef.current)
           });
           sessionStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
           localStorage.setItem('kc3d_host_saved_state_' + activeRoomId, payload);
@@ -1108,6 +1135,10 @@ export const App: React.FC = () => {
         currentMS.questionPause && currentMS.questionPause.qIndex === safeIdx
           ? currentMS.questionPause.remainingSec
           : undefined,
+      // 🛡️ Chống AI ngoài: công tắc bắt buộc toàn màn hình đi theo nhịp tim
+      // sẵn có xuống HS (không thêm tin riêng). Luật xử lý vi phạm là luật
+      // cứng toàn cục nên không cần phát xuống.
+      antiAiFs: currentMS.settings?.antiAiRequireFullscreen !== false,
       currentRound: currentMS.currentRound,
       redRoundWins: currentMS.redRoundWins,
       blueRoundWins: currentMS.blueRoundWins,
@@ -1745,6 +1776,70 @@ export const App: React.FC = () => {
           return prev;
         });
       }
+    }
+    else if (d.type === 'SCREEN_LEAVE_REPORT') {
+      // 🛡️ CHỐNG AI NGOÀI (18/11/2026): HS báo đã vi phạm quy chế thi ≥ 1s lúc câu
+      // hỏi đang mở. Tin này KHÔNG nằm trong SENSITIVE_COMMAND_TYPES nên không
+      // bị cổng chữ ký lệnh điều khiển chặn — host tự kiểm chữ ký RIÊNG của
+      // báo cáo (commandSign.verifyViolationReportSync, cùng khoá phòng) ngay
+      // tại đây: host có khoá mà chữ ký sai/thiếu → bỏ qua (không đếm, không
+      // ghi sổ); phòng cũ không khoá → nhận không ký như các tin thường.
+      const hostRoomKey = getStoredRoomKey(activeRoomId);
+      if (hostRoomKey) {
+        if (!d.sig || !verifyViolationReportSync(hostRoomKey, d as unknown as Record<string, unknown>, d.sig)) {
+          return;
+        }
+      }
+      // Khử trùng: 1 báo cáo chỉ được ghi sổ 1 lần (QoS 1 + phát lại của broker).
+      const dedupeKey = `${d.playerId || ''}|${d.studentId || ''}|${d.violationSeq ?? ''}|${d.globalQIndex ?? ''}`;
+      if (awayReportKeysRef.current.has(dedupeKey)) return;
+      awayReportKeysRef.current.add(dedupeKey);
+      setMatchState(prev => {
+        if (prev.status === 'ENDED') return prev;
+        const mat = materializePlayerFromScoringMessage(prev.redPlayers, prev.bluePlayers, d, Date.now());
+        const workRed = mat.redPlayers;
+        const workBlue = mat.bluePlayers;
+        const withProvisional = (base: MatchState): MatchState =>
+          mat.materialized ? { ...base, redPlayers: workRed, bluePlayers: workBlue } : base;
+        const pObj = mat.player;
+        if (!pObj) return withProvisional(prev);
+        if (mat.materialized) {
+          mat.releasedKeysToClear.forEach(k => releasedHoldKeysRef.current.delete(k));
+        }
+        lastSeenByIdRef.current.set(pObj.id, Date.now());
+        const src: 'APP' | 'FS' | 'SPLIT' | 'FOCUS' =
+          d.awaySource === 'FS' || d.awaySource === 'SPLIT' || d.awaySource === 'FOCUS'
+            ? d.awaySource
+            : 'APP';
+        const newCount = (pObj.awayViolations || 0) + 1;
+        pObj.awayViolations = newCount;
+        const prevBySource = pObj.awayBySource || {};
+        pObj.awayBySource = { ...prevBySource, [src]: (prevBySource[src] || 0) + 1 };
+        // LUẬT CỨNG: ghi câu dính vi phạm vào SỔ ĐÁP ÁN sẵn có như "sai —
+        // vi phạm quy chế" (đi đúng đường khử trùng của PULL_CORRECT/
+        // FREEZE_WRONG: cùng answeredQKeysRef + answeredDetailsRef — đáp án
+        // thật đến sau cho câu này tự bị chặn vì câu đã chốt, XP cuối trận
+        // suy từ sổ này nên nhất quán). KHÔNG khoá máy HS, KHÔNG trừ điểm
+        // cược/mạng tại đây: phía HS cũng không gửi FREEZE_WRONG cho câu bị
+        // chốt sai vì vi phạm — em đó chơi tiếp các câu sau bình thường.
+        const answerKey =
+          typeof d.globalQIndex === 'number' ? answerKeyFor(pObj.id, d.globalQIndex) : null;
+        const plan = planAwayMark({
+          reportQIndex: d.globalQIndex,
+          currentQIndex: prev.globalQIndex,
+          alreadyAnswered: answerKey ? answeredQKeysRef.current.has(answerKey) : true
+        });
+        if (plan.markLedger && answerKey) {
+          answeredQKeysRef.current.add(answerKey);
+          answeredDetailsRef.current.set(answerKey, {
+            isCorrect: false,
+            selectedOptionOriginalIdx: null,
+            awayLocked: true,
+            awaySource: src
+          });
+        }
+        return withProvisional({ ...prev, redPlayers: workRed, bluePlayers: workBlue });
+      });
     }
     else if (d.type === 'PULL_CORRECT') {
       setMatchState(prev => {
