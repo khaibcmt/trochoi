@@ -25,6 +25,10 @@ interface Props {
   // 💾 KHO ĐỀ BỀN (18/11/2026): dấu thời gian sửa từng bộ đề — đính kèm vào
   // mọi bản sao lưu để hợp nhất union theo từng bộ đề ở mọi đường nạp.
   deckUpdatedAt?: Record<string, number>;
+  // 🔥 HOTFIX 18/11: ghi chú lặng về lần sao lưu TỰ ĐỘNG gần nhất của hệ
+  // đồng bộ cũ — chỉ hiện nhỏ ở đây (đúng nhà của nó), không leo lên
+  // banner đầu trang/alert lưu như trước.
+  autoSyncNote?: string | null;
 }
 
 export const CloudSyncModal: React.FC<Props> = ({
@@ -36,6 +40,7 @@ export const CloudSyncModal: React.FC<Props> = ({
   activeQuizList,
   onApplyBackup,
   deckUpdatedAt,
+  autoSyncNote,
   initialTab = 'GOOGLE'
 }) => {
   const [activeTab, setActiveTab] = useState<'GOOGLE' | 'PASSWORD' | 'DIRECT_CODE'>(initialTab);
@@ -694,6 +699,14 @@ export const CloudSyncModal: React.FC<Props> = ({
               </span>
             )}
           </div>
+
+          {/* Ghi chú lặng: trạng thái sao lưu TỰ ĐỘNG của hệ đồng bộ cũ —
+              chỉ nằm ở đây, chữ nhỏ, không phải banner cảnh báo. */}
+          {autoSyncNote && (
+            <div className="text-[11px] leading-relaxed text-slate-500 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2">
+              {autoSyncNote}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
