@@ -28,8 +28,18 @@ import { defaultFetch } from '../utils/license';
 import {
   extractRoomKeyFromUrlParts,
   isSensitiveCommand,
-  verifyCommandSync
+  verifyCommandSync,
+  signViolationReportSync,
+  SCREEN_LEAVE_REPORT_TYPE
 } from '../utils/commandSign';
+import {
+  AwayEpisodeTracker,
+  splitScreenRatio,
+  isSplitRatio,
+  awaySourceLabel,
+  type AwaySource,
+  type AwayViolationEvent
+} from '../utils/antiAiGuard';
 import {
   RESYNC_BACKGROUND_THRESHOLD_MS,
   estimateRoomSize,
@@ -138,6 +148,7 @@ export const StudentMobileView: React.FC<Props> = ({
       } catch {}
       clearPersistedAnsweredStates();
       resetSafeShield();
+      resetAntiAiForNewMatch();
       hasJoinedArenaRef.current = false;
       waitingRoomLockedRef.current = false;
       hasFinishedAllQuestionsRef.current = false;
@@ -287,6 +298,45 @@ export const StudentMobileView: React.FC<Props> = ({
     try {
       sessionStorage.removeItem(`kc3d_safe_shield_used_${tabSessionId}`);
     } catch {}
+  };
+
+  // 🛡️ CHỐNG AI NGOÀI (18/11/2026): phát hiện HS vi phạm quy chế thi (thoát
+  // sang app AI / thoát toàn màn hình / chia đôi màn hình / mất tiêu điểm
+  // nghi trợ lý giọng nói) trong lúc câu hỏi đang mở — logic thuần ở
+  // utils/antiAiGuard.ts (AwayEpisodeTracker), effect nối sự kiện DOM nằm ở
+  // cuối phần logic của component này. LUẬT CỨNG: vi phạm KHÔNG khoá máy —
+  // chỉ chốt sai câu dính vi phạm (phía HS chốt tại máy qua cơ chế đã-trả-
+  // lời sẵn có, phía host ghi sổ "sai — vi phạm quy chế"); HS chơi tiếp
+  // bình thường. Công tắc bắt buộc toàn màn hình do host phát qua
+  // HOST_HEARTBEAT; số lần vi phạm lấy theo SỔ HOST qua RESYNC_STATE.
+  const awayTrackerRef = useRef<AwayEpisodeTracker | null>(null);
+  if (!awayTrackerRef.current) awayTrackerRef.current = new AwayEpisodeTracker();
+  const antiAiConfigRef = useRef<{ requireFs: boolean }>({ requireFs: true });
+  const awayCountRef = useRef(0);
+  const awaySeqRef = useRef(0);
+  const [awayWarning, setAwayWarning] = useState<string | null>(null);
+  const awayWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // TRẠNG THÁI VI PHẠM KÉO DÀI (đang ngoài toàn màn hình / đang chia màn
+  // hình): chỉ để hiện BANNER CẢNH BÁO KHÔNG CHẶN + để câu hỏi MỞ RA trong
+  // lúc đang vi phạm cũng bị tính sai. Đáp án vẫn bấm được khi banner hiện.
+  const fsViolationRef = useRef(false);
+  const splitViolationRef = useRef(false);
+  const [fsViolation, setFsViolation] = useState(false);
+  const [splitViolation, setSplitViolation] = useState(false);
+  const setFsViolationBoth = (v: boolean) => {
+    fsViolationRef.current = v;
+    setFsViolation(v);
+  };
+  const setSplitViolationBoth = (v: boolean) => {
+    splitViolationRef.current = v;
+    setSplitViolation(v);
+  };
+  const resetAntiAiForNewMatch = () => {
+    awayTrackerRef.current?.reset();
+    awayCountRef.current = 0;
+    setAwayWarning(null);
+    setFsViolationBoth(false);
+    setSplitViolationBoth(false);
   };
 
   // Cơ chế Mở Rương Bí Ẩn Định Mệnh (Bắt buộc đúng 5 câu liên tiếp, 4 giây chọn 1 rương, dùng 1 lần duy nhất)
@@ -1286,6 +1336,11 @@ export const StudentMobileView: React.FC<Props> = ({
   const handleTimeoutFail = () => {
     if (questionPausedRef.current) return; // Đang tạm dừng: không bao giờ chốt hết giờ
     if (hasAnsweredCurrentQRef.current || hasAnsweredCurrentQ || isAnswerLocked) return;
+    // 🛡️ Chống AI ngoài: câu đã bị chốt sai vì vi phạm quy chế thì
+    // hasAnsweredCurrentQ đã true (chốt tại máy ngay khi vi phạm bị ghi
+    // nhận) → return ở dòng trên, không gửi FREEZE_WRONG trừ điểm lần hai.
+    // Ngoài trường hợp đó, hết giờ xử lý như luật gốc kể cả khi banner
+    // cảnh báo toàn màn hình/chia màn hình đang hiện (banner không chặn).
     hasAnsweredCurrentQRef.current = true;
     setHasAnsweredCurrentQ(true);
     setIsAnswerLocked(true);
@@ -1477,6 +1532,11 @@ export const StudentMobileView: React.FC<Props> = ({
     // phía HS nhận được qua cùng topic đăng ký thì bỏ qua hoàn toàn.
     if (d.type === 'PLAYER_OFFLINE') return;
 
+    // 🛡️ SCREEN_LEAVE_REPORT là báo cáo vi phạm CHỈ dành cho HOST — máy HS
+    // khác nhận được qua cùng topic thì bỏ qua (không qua cổng chữ ký lệnh vì
+    // đây không phải lệnh điều khiển).
+    if (d.type === SCREEN_LEAVE_REPORT_TYPE) return;
+
     // Đợt 5 (4B.3): RESYNC_STATE — host trả lời RESYNC_REQUEST của CHÍNH học sinh này.
     // Khôi phục tường minh: trạng thái trận, câu hiện tại + deadline host, trạng thái
     // đã-trả-lời câu hiện tại, điểm/mạng/streak/đội/vai trò — thay cho đoán qua heartbeat.
@@ -1539,6 +1599,11 @@ export const StudentMobileView: React.FC<Props> = ({
       if (typeof d.safeShieldUsed === 'boolean') {
         if (d.safeShieldUsed) markSafeShieldUsed();
         else resetSafeShield();
+      }
+      // 🛡️ Chống AI ngoài: số vi phạm THEO SỔ HOST là chuẩn — đồng bộ lại
+      // gương tại máy (sau F5 vẫn giữ đúng số lần).
+      if (typeof d.awayViolations === 'number') {
+        awayCountRef.current = Math.max(awayCountRef.current, d.awayViolations);
       }
       if (typeof d.bossHP === 'number') setBossHP(d.bossHP);
       if (typeof d.maxBossHP === 'number') setMaxBossHP(d.maxBossHP);
@@ -1695,6 +1760,7 @@ export const StudentMobileView: React.FC<Props> = ({
       eliminatedRef.current = false;
       setIsFrozen(false);
       resetSafeShield();
+      resetAntiAiForNewMatch();
       setTop10List([]);
       setScreen('LOBBY');
       AudioFX.bonusLifeChime();
@@ -1945,6 +2011,8 @@ export const StudentMobileView: React.FC<Props> = ({
       setWagerLevel(1);
       // Trận mới: lá chắn An Toàn làm mới (khớp reset phía host).
       resetSafeShield();
+      // Trận mới: bộ đếm vi phạm rời màn hình + khoá mức 3 làm mới (khớp host).
+      resetAntiAiForNewMatch();
       const startIdx = typeof d.qIndex === 'number' ? d.qIndex : 0;
       currentGlobalQIndexRef.current = startIdx;
       maxReachedQIndexRef.current = startIdx;
@@ -2108,6 +2176,12 @@ export const StudentMobileView: React.FC<Props> = ({
     }
     else if (d.type === 'HOST_HEARTBEAT') {
       setNetworkState(CloudNetwork.getStatus());
+      // 🛡️ Công tắc bắt buộc toàn màn hình do host phát kèm nhịp tim — máy
+      // HS chỉ đọc vào ref, không thêm tin riêng. (Luật xử lý vi phạm là
+      // luật cứng toàn cục, không đi qua cấu hình.)
+      if (typeof d.antiAiFs === 'boolean') {
+        antiAiConfigRef.current.requireFs = d.antiAiFs;
+      }
       // Đợt GIA CỐ TẢI: ước lượng quy mô phòng từ chính nhịp tim (danh sách
       // playerIds ở nhịp đầy đủ, tổng thành viên ở nhịp rút gọn) để nhịp ping
       // của máy này tự thưa dần khi phòng đông — xem presenceTimingForRoomSize.
@@ -3113,6 +3187,21 @@ export const StudentMobileView: React.FC<Props> = ({
   };
 
   // Vào Phòng Thi (QUIZ) ngay khi học sinh nhập tên và bấm VÀO PHÒNG THI
+  // 🛡️ Vào toàn màn hình theo cử chỉ chạm của HS (nút VÀO PHÒNG / lớp phủ
+  // quay lại toàn màn hình / mọi lần chạm khi đang bị chặn). Thiết bị KHÔNG
+  // hỗ trợ fullscreen (iPhone Safari) → bỏ qua im lặng, tuyệt đối không chặn.
+  function tryEnterFullscreen() {
+    try {
+      if (!antiAiConfigRef.current.requireFs) return;
+      if (typeof document === 'undefined' || document.fullscreenElement) return;
+      const el = document.documentElement as any;
+      if (el && typeof el.requestFullscreen === 'function') {
+        const p = el.requestFullscreen();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch {}
+  }
+
   const handleReadyInRope = (
     targetScreen: 'QUIZ' | 'WAITING' = 'QUIZ',
     overrideName?: string,
@@ -3124,6 +3213,8 @@ export const StudentMobileView: React.FC<Props> = ({
       setShowNameAlert(true);
       return;
     }
+    // Cử chỉ bấm VÀO PHÒNG là thời điểm trình duyệt cho phép xin toàn màn hình.
+    tryEnterFullscreen();
     const finalAv = overrideAvatar || avatar;
     const finalTm = overrideTeam || team;
 
@@ -3786,6 +3877,317 @@ export const StudentMobileView: React.FC<Props> = ({
     </div>
   );
 
+  // =========================================================================
+  // 🛡️ EFFECT CHỐNG AI NGOÀI (18/11/2026): nối sự kiện DOM vào
+  // AwayEpisodeTracker (utils/antiAiGuard.ts) và thi hành LUẬT CỨNG của
+  // thầy khi chốt 1 lần vi phạm (vi phạm quy chế ≥ 1 giây lúc câu đang mở):
+  //   (a) gửi ĐÚNG 1 tin SCREEN_LEAVE_REPORT lên host (QoS 1, ký HMAC bằng
+  //       khoá phòng khi có) — host ghi sổ câu đó "sai — vi phạm quy chế"
+  //       qua đường chấm điểm sẵn có; không thêm tải thường trực nào;
+  //   (b) hiện cảnh báo rõ ràng cho HS: câu đó đã TÍNH SAI NGAY;
+  //   (c) phía HS chốt câu dính vi phạm tại máy qua CHÍNH cơ chế đã-trả-lời
+  //       sẵn có (khớp sổ host) — ngoài câu đó ra KHÔNG khoá/chặn bất cứ
+  //       thao tác nào: HS chơi tiếp các câu sau bình thường, ở bất kỳ số
+  //       lần vi phạm nào cũng không khoá máy.
+  // Nguồn phát hiện: APP (visibilitychange/pagehide — rời app, khoá máy),
+  // FS (fullscreenchange — thoát toàn màn hình), SPLIT (viewport tụt dưới
+  // 65% — chia đôi màn hình), FOCUS (window blur ĐỘC LẬP — cửa sổ nổi/trợ
+  // lý giọng nói Google Assistant/Gemini Live làm mất tiêu điểm dù trang
+  // vẫn visible).
+  // TRẠNG THÁI VI PHẠM KÉO DÀI: câu hỏi MỞ RA trong lúc HS đang ở trạng
+  // thái vi phạm (ngoài FS / đang chia màn / đang mất tiêu điểm, đã kéo
+  // dài ≥ 1 giây) thì câu đó CŨNG tính sai — kiểm tại thời điểm câu mở
+  // trong nhịp đo 500ms bên dưới.
+  // CHỐNG TỰ BẮT OAN: khi banner của chính app đang hiện (đang ở trạng
+  // thái FS/SPLIT) thì bỏ qua việc MỞ phiên blur/focus mới; câu đã chốt
+  // (đã trả lời/bị chốt sai) thì không mở phiên; đang TẠM DỪNG (thầy cho
+  // lớp trao đổi) thì không phát hiện. Lobby / trận đã kết thúc → không
+  // phát hiện gì cả.
+  // =========================================================================
+  useEffect(() => {
+    const tracker = awayTrackerRef.current;
+    if (!tracker) return;
+    let episodeQIndex = -1;
+    // Câu đã bị tính sai vì MỞ RA trong trạng thái vi phạm (chặn gửi trùng
+    // báo cáo phiên rời cho chính câu đó + chặn tính 2 lần).
+    let stateMarkedQ = -1;
+    // Mốc bắt đầu của từng trạng thái vi phạm kéo dài (null = không ở trong
+    // trạng thái đó) — trạng thái phải kéo dài ≥ 1 giây mới làm câu mở ra
+    // bị tính sai, tránh chớp nhoáng lúc chuyển câu/chuyển cảnh.
+    let fsSince: number | null = null;
+    let splitSince: number | null = null;
+    let focusSince: number | null = null;
+
+    const fsSupported = (): boolean => {
+      try {
+        return typeof (document.documentElement as any)?.requestFullscreen === 'function';
+      } catch {
+        return false;
+      }
+    };
+    const matchRunningNow = (): boolean =>
+      screenRef.current === 'QUIZ' && hostMatchStatusRef.current === 'PLAYING';
+    const questionOpenNow = (): boolean =>
+      matchRunningNow() &&
+      !questionPausedRef.current &&
+      !hasAnsweredCurrentQRef.current &&
+      !eliminatedRef.current &&
+      !hasFinishedAllQuestionsRef.current &&
+      computeRemainingSec() > 0;
+
+    // Banner của chính app đang hiện (trạng thái FS/SPLIT) → không mở phiên
+    // blur/focus mới (tương tác với UI của app không tự gây vi phạm focus).
+    const appUiShield = (): boolean => fsViolationRef.current || splitViolationRef.current;
+
+    const refreshFsViolation = () => {
+      const inViolation =
+        antiAiConfigRef.current.requireFs &&
+        matchRunningNow() &&
+        fsSupported() &&
+        !document.fullscreenElement;
+      if (inViolation && fsSince === null) fsSince = Date.now();
+      if (!inViolation) fsSince = null;
+      if (inViolation !== fsViolationRef.current) setFsViolationBoth(inViolation);
+    };
+
+    const showAwayWarning = (text: string) => {
+      setAwayWarning(text);
+      if (awayWarningTimerRef.current) clearTimeout(awayWarningTimerRef.current);
+      awayWarningTimerRef.current = setTimeout(() => setAwayWarning(null), 8000);
+    };
+
+    // Gửi 1 báo cáo vi phạm lên host + tăng bộ đếm tại máy.
+    const sendViolationReport = (qIndex: number, source: AwaySource, awaySec: number) => {
+      awayCountRef.current += 1;
+      awaySeqRef.current += 1;
+      const payload: Record<string, unknown> = {
+        type: SCREEN_LEAVE_REPORT_TYPE,
+        roomId,
+        playerId: myPlayerIdRef.current,
+        studentId: studentIdRef.current,
+        playerName: studentNameRef.current,
+        team: teamRef.current,
+        globalQIndex: qIndex,
+        awaySec,
+        awaySource: source,
+        violationSeq: awaySeqRef.current
+      };
+      const key = roomKeyRef.current;
+      if (key) {
+        try {
+          payload.sig = signViolationReportSync(key, payload);
+        } catch {}
+      }
+      CloudNetwork.sendMessage(payload as any);
+    };
+
+    // Chốt câu dính vi phạm tại máy (nếu nó vẫn là câu đang mở và chưa trả
+    // lời) qua cơ chế đã-trả-lời sẵn có — khớp với sổ host, và ngăn gửi
+    // FREEZE_WRONG/đáp án muộn cho chính câu này. Các câu sau không bị
+    // ảnh hưởng gì.
+    const settleCurrentQuestionAsViolation = (qIndex: number, text: string): boolean => {
+      if (qIndex !== currentGlobalQIndexRef.current || hasAnsweredCurrentQRef.current) return false;
+      hasAnsweredCurrentQRef.current = true;
+      setHasAnsweredCurrentQ(true);
+      setIsAnswerLocked(true);
+      setStreak(0);
+      setLastLockedResult({ isCorrect: false, text });
+      return true;
+    };
+
+    const handleViolations = (events: AwayViolationEvent[]) => {
+      for (const ev of events) {
+        const reportQ = episodeQIndex >= 0 ? episodeQIndex : currentGlobalQIndexRef.current;
+        if (reportQ === stateMarkedQ) {
+          // Câu này đã bị tính sai vì mở ra trong trạng thái vi phạm — chỉ
+          // nhắc lại cảnh báo, không gửi báo cáo thứ hai cho cùng 1 câu.
+          showAwayWarning(
+            `⚠️ Vi phạm quy chế: em đã ${awaySourceLabel(ev.source)} ${ev.awaySec} giây trong lúc câu hỏi đang mở — câu đó đã bị TÍNH SAI NGAY và được ghi lại báo cho giáo viên. Em vẫn làm tiếp các câu sau bình thường.`
+          );
+          continue;
+        }
+        // (a) Báo host — tối đa 1 tin/lần vi phạm.
+        sendViolationReport(reportQ, ev.source as AwaySource, ev.awaySec);
+        // (c) Chốt câu dính vi phạm tại máy nếu vẫn đang mở.
+        settleCurrentQuestionAsViolation(
+          reportQ,
+          `🚪 Câu này TÍNH SAI vì em vi phạm quy chế: ${awaySourceLabel(ev.source)} ${ev.awaySec} giây trong lúc câu hỏi đang mở.`
+        );
+        // (b) Cảnh báo khi quay lại (nguồn SPLIT hiện ngay lúc còn đang chia).
+        showAwayWarning(
+          `⚠️ Vi phạm quy chế: em đã ${awaySourceLabel(ev.source)} ${ev.awaySec} giây trong lúc câu hỏi đang mở — câu đó đã bị TÍNH SAI NGAY và được ghi lại báo cho giáo viên. Em vẫn làm tiếp các câu sau bình thường.`
+        );
+      }
+    };
+
+    const beginEpisodeIfNeeded = () => {
+      if (!tracker.isAway()) episodeQIndex = currentGlobalQIndexRef.current;
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        // Đang ở trạng thái vi phạm FS/SPLIT (banner của app đang hiện) thì
+        // không mở thêm phiên APP — trạng thái kéo dài đã bao quát.
+        if (questionOpenNow() && !appUiShield()) {
+          beginEpisodeIfNeeded();
+          tracker.setCondition('APP', true, Date.now());
+        }
+      } else {
+        const evs = tracker.setCondition('APP', false, Date.now());
+        if (evs.length) handleViolations(evs);
+      }
+    };
+    const onBlur = () => {
+      // ĐƯỜNG BẮT TRỢ LÝ GIỌNG NÓI — ĐỘC LẬP hạng nhất: cửa sổ nổi của hệ
+      // điều hành (Google Assistant / Gemini Live...) làm trang mất focus
+      // DÙ VẪN VISIBLE. Luôn ghi nhận trạng thái mất tiêu điểm (phục vụ
+      // kiểm tra lúc câu mở ra), nhưng chỉ MỞ PHIÊN vi phạm khi câu đang
+      // mở và banner của chính app không đang hiện (chống tự bắt oan:
+      // bấm nút quay lại fullscreen / tương tác UI của app không gây
+      // vi phạm focus).
+      if (focusSince === null) focusSince = Date.now();
+      if (questionOpenNow() && !appUiShield()) {
+        beginEpisodeIfNeeded();
+        tracker.setCondition('FOCUS', true, Date.now());
+      }
+    };
+    const onFocus = () => {
+      focusSince = null;
+      const evs = [
+        ...tracker.setCondition('FOCUS', false, Date.now()),
+        ...tracker.setCondition('APP', false, Date.now())
+      ];
+      if (evs.length) handleViolations(evs);
+    };
+    const onPageHide = () => {
+      if (questionOpenNow() && !appUiShield()) {
+        beginEpisodeIfNeeded();
+        tracker.setCondition('APP', true, Date.now());
+      }
+    };
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        // Thoát toàn màn hình lúc câu đang mở = bắt đầu 1 phiên rời (nguồn
+        // FS). Điều kiện FS được bật TRƯỚC khi làm tươi trạng thái banner
+        // để chính thao tác này không bị khiên UI của app nuốt mất.
+        if (questionOpenNow()) {
+          beginEpisodeIfNeeded();
+          tracker.setCondition('FS', true, Date.now());
+        }
+      } else {
+        const evs = tracker.setCondition('FS', false, Date.now());
+        if (evs.length) handleViolations(evs);
+      }
+      refreshFsViolation();
+    };
+    const onOrientationChange = () => {
+      // Xoay máy: reset phép đo chia màn hình, không tính oan.
+      tracker.resetSplitMeasurement();
+      splitSince = null;
+    };
+    const onPointerDown = () => {
+      // Mọi cử chỉ chạm khi đang ngoài toàn màn hình là 1 cơ hội vào lại
+      // fullscreen hợp lệ theo chính sách trình duyệt (banner không chặn
+      // thao tác — đáp án vẫn bấm được, đây chỉ là đường vào lại tiện hơn).
+      if (
+        antiAiConfigRef.current.requireFs &&
+        matchRunningNow() &&
+        fsSupported() &&
+        !document.fullscreenElement
+      ) {
+        tryEnterFullscreen();
+      }
+      refreshFsViolation();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('orientationchange', onOrientationChange);
+    window.addEventListener('pointerdown', onPointerDown);
+
+    // Trạng thái vi phạm kéo dài đã đủ ≥ 1 giây tại thời điểm kiểm tra?
+    // Ưu tiên nguồn theo thứ tự FS > SPLIT > FOCUS khi nhiều trạng thái
+    // cùng đang bật (thường chỉ 1 trạng thái bật tại một thời điểm).
+    const persistentViolationSource = (now: number): AwaySource | null => {
+      if (fsSince !== null && now - fsSince >= 1000) return 'FS';
+      if (splitSince !== null && now - splitSince >= 1000) return 'SPLIT';
+      if (focusSince !== null && now - focusSince >= 1000) return 'FOCUS';
+      return null;
+    };
+
+    // Nhịp đo 500ms: chia đôi màn hình (split-screen Android) + làm tươi
+    // trạng thái toàn màn hình + kiểm tra câu MỞ RA trong trạng thái vi phạm.
+    const splitTimer = setInterval(() => {
+      refreshFsViolation();
+      const now = Date.now();
+      if (!matchRunningNow()) {
+        if (splitViolationRef.current) setSplitViolationBoth(false);
+        splitSince = null;
+        return;
+      }
+      const ae = document.activeElement as HTMLElement | null;
+      const typing =
+        !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+      const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const ratio = splitScreenRatio(vh, window.screen ? window.screen.height : 0);
+      const below = !typing && isSplitRatio(ratio);
+      // Trạng thái chia màn hình kéo dài (cho banner + kiểm tra lúc câu mở).
+      if (below && splitSince === null) splitSince = now;
+      if (!below) splitSince = null;
+      if (below !== splitViolationRef.current) setSplitViolationBoth(below);
+      // Phiên vi phạm SPLIT giữa câu (bắn ngay khi đủ 1 giây, như cũ).
+      if (below) beginEpisodeIfNeeded();
+      const evs = tracker.tickSplit(below && questionOpenNow(), now);
+      if (evs.length) handleViolations(evs);
+      // TRẠNG THÁI VI PHẠM KÉO DÀI: câu đang mở mà HS đang ở trạng thái vi
+      // phạm đã kéo dài ≥ 1 giây → câu này tính sai. Kiểm ở MỌI nhịp (không
+      // chỉ lúc đổi câu) để bao quát cả 2 trường hợp: câu MỞ RA trong lúc
+      // đang vi phạm, và trạng thái vi phạm bắt đầu/kéo dài ngay trong lúc
+      // câu đang mở mà phiên rời chưa khép (vd cứ ở ngoài toàn màn hình
+      // không quay lại thì phiên FS không tự khép được). Mỗi câu chỉ bị
+      // tính theo đường này 1 lần (stateMarkedQ) và phiên rời cho cùng câu
+      // đó bị chặn gửi trùng trong handleViolations.
+      const curQ = currentGlobalQIndexRef.current;
+      if (
+        stateMarkedQ !== curQ &&
+        !questionPausedRef.current &&
+        !hasAnsweredCurrentQRef.current &&
+        !eliminatedRef.current &&
+        !hasFinishedAllQuestionsRef.current &&
+        computeRemainingSec() > 0
+      ) {
+        const src = persistentViolationSource(now);
+        if (src) {
+          stateMarkedQ = curQ;
+          sendViolationReport(curQ, src, 1);
+          settleCurrentQuestionAsViolation(
+            curQ,
+            `🚪 Câu này TÍNH SAI vì em đang ở trạng thái vi phạm quy chế (${awaySourceLabel(src)}) trong lúc câu hỏi đang mở.`
+          );
+          showAwayWarning(
+            `⚠️ Em đang vi phạm quy chế (${awaySourceLabel(src)}) trong lúc câu hỏi đang mở — câu này đã bị TÍNH SAI NGAY. Hãy quay lại đúng quy chế để các câu sau không bị tính sai.`
+          );
+        }
+      }
+    }, 500);
+
+    refreshFsViolation();
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      window.removeEventListener('orientationchange', onOrientationChange);
+      window.removeEventListener('pointerdown', onPointerDown);
+      clearInterval(splitTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
+
   return (
     <div id="student-view" style={{ position: 'absolute', inset: 0, overflowY: 'auto', background: '#070b14', color: '#ffffff' }}>
       <style>{`
@@ -4194,7 +4596,94 @@ export const StudentMobileView: React.FC<Props> = ({
 
       {/* Screen 3: Quiz Gameplay */}
       {screen === 'QUIZ' && (
-        <div style={{ maxWidth: '540px', margin: '0 auto', padding: '10px 12px' }}>
+        <div
+          className="kc3d-no-select"
+          onContextMenu={e => e.preventDefault()}
+          style={{ maxWidth: '540px', margin: '0 auto', padding: '10px 12px' }}
+        >
+          {/* 🛡️ Banner TOÀN MÀN HÌNH đang tắt — CẢNH BÁO KHÔNG CHẶN (luật
+              cuối của thầy): đáp án vẫn bấm được trong lúc banner hiện, chỉ
+              có câu đang mở bị tính sai theo luật vi phạm. Có nút bấm để
+              quay lại fullscreen theo cử chỉ. */}
+          {fsViolation && hostMatchStatus === 'PLAYING' && (
+            <div
+              role="alert"
+              style={{
+                background: 'rgba(69, 26, 3, 0.92)',
+                border: '1.5px solid #f59e0b',
+                borderRadius: '14px',
+                padding: '10px 14px',
+                marginBottom: '10px',
+                fontSize: '13.5px',
+                fontWeight: 800,
+                color: '#fde68a',
+                lineHeight: 1.5,
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <span style={{ flex: '1 1 220px' }}>
+                ⚠️ Em đang ngoài chế độ toàn màn hình — câu đang mở sẽ bị tính sai. Hãy quay lại toàn màn hình ngay.
+              </span>
+              <button
+                onClick={() => tryEnterFullscreen()}
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #f59e0b',
+                  background: 'rgba(245, 158, 11, 0.22)',
+                  color: '#fde68a',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  minHeight: '40px'
+                }}
+              >
+                🔲 Quay lại toàn màn hình
+              </button>
+            </div>
+          )}
+          {/* 🛡️ Banner CHIA ĐÔI MÀN HÌNH — CẢNH BÁO KHÔNG CHẶN: đáp án vẫn
+              bấm được, câu đang mở bị tính sai theo luật vi phạm. */}
+          {splitViolation && hostMatchStatus === 'PLAYING' && (
+            <div
+              role="alert"
+              style={{
+                background: 'rgba(69, 26, 3, 0.92)',
+                border: '1.5px solid #f59e0b',
+                borderRadius: '14px',
+                padding: '10px 14px',
+                marginBottom: '10px',
+                fontSize: '13.5px',
+                fontWeight: 800,
+                color: '#fde68a',
+                lineHeight: 1.5
+              }}
+            >
+              ⚠️ Em đang chia đôi màn hình — câu đang mở sẽ bị tính sai. Hãy đóng ứng dụng còn lại và trở về 1 màn hình ngay.
+            </div>
+          )}
+          {/* 🛡️ Banner cảnh báo sau khi chốt 1 lần vi phạm quy chế */}
+          {awayWarning && (
+            <div
+              role="alert"
+              style={{
+                background: 'rgba(127, 29, 29, 0.92)',
+                border: '1.5px solid #f87171',
+                borderRadius: '14px',
+                padding: '10px 14px',
+                marginBottom: '10px',
+                fontSize: '13.5px',
+                fontWeight: 800,
+                color: '#fee2e2',
+                lineHeight: 1.5
+              }}
+            >
+              {awayWarning}
+            </div>
+          )}
           {/* Lớp phủ TẠM DỪNG: chặn mọi thao tác trả lời trong lúc thầy tạm dừng */}
           {questionPaused && (
             <div
