@@ -35,6 +35,13 @@ export interface SubjectData {
   html: string;
   color: string;
   fixed: boolean;
+  /**
+   * Phiên bản seed của BỘ MẶC ĐỊNH cài sẵn (chỉ có ở các bộ mặc định).
+   * Khi mã nguồn nâng DEFAULT_SEED_VERSION, bản đang lưu của chính các bộ
+   * mặc định đó (seedVersion nhỏ hơn) được làm mới theo bản chuẩn mới;
+   * bộ giáo viên tự tạo không có trường này và không bao giờ bị đụng.
+   */
+  seedVersion?: number;
 }
 
 export type PowerUpType = 'SHIELD' | 'FREEZE_OPPONENT' | 'FIFTY_FIFTY' | 'DOUBLE_POWER';
