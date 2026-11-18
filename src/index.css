@@ -423,6 +423,20 @@ body, html {
   transform: translateY(-4px);
   box-shadow: 0 14px 26px rgba(0, 0, 0, 0.12), inset 0 2px 2px #ffffff;
 }
+/* 🛡️ Chống AI ngoài (18/11/2026): vùng câu hỏi/đáp án phía HS không cho
+   chọn chữ / gọi menu ngữ cảnh (biện pháp phụ trợ — kèm onContextMenu ở
+   StudentMobileView). Ô nhập đáp án Phần 3 phải gõ được nên được miễn trừ. */
+.kc3d-no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.kc3d-no-select input,
+.kc3d-no-select textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
 .gm-card:active {
   transform: translateY(2px);
   border-bottom-width: 3px;
